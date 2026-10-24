@@ -9,7 +9,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_lex_talas_keywords_and_backtick_strings() {
+    fn test_lex_ube_keywords_and_backtick_strings() {
         let code = r#"
             class User(long id, string name, var int age = 0) {
                 void birthday() {

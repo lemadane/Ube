@@ -1,7 +1,7 @@
-use talas_compiler::{IrBuilder, Lexer, Parser, TextualLlvmEmitter, TypeChecker};
+use ube_compiler::{IrBuilder, Lexer, Parser, TextualLlvmEmitter, TypeChecker};
 
 #[test]
-fn test_talas_end_to_end_pipeline() {
+fn test_ube_end_to_end_pipeline() {
     let source_code = r#"
         class Status {
             case Pending
@@ -52,12 +52,12 @@ fn test_talas_end_to_end_pipeline() {
 
     assert!(llvm_ir.contains("%User = type {"));
     assert!(llvm_ir.contains("define void @User_birthday"));
-    assert!(llvm_ir.contains("call void @talas_print_str"));
+    assert!(llvm_ir.contains("call void @ube_print_str"));
     assert!(llvm_ir.contains("define i32 @main(i32 %argc, i8** %argv)"));
 }
 
 #[test]
-fn test_talas_sum_classes_parsing() {
+fn test_ube_sum_classes_parsing() {
     let source = r#"
         class Direction {
             case North
@@ -78,7 +78,7 @@ fn test_talas_sum_classes_parsing() {
 }
 
 #[test]
-fn test_talas_trait_parsing() {
+fn test_ube_trait_parsing() {
     let source = r#"
         trait Printable {
             printDetails();
@@ -149,8 +149,8 @@ fn test_e2e_person_birthday() {
 
     assert!(llvm_ir.contains("%Person = type { i8*, i32 }"));
     assert!(llvm_ir.contains("define void @Person_birthday(%Person* %0)"));
-    assert!(llvm_ir.contains("call void @talas_print_str"));
-    assert!(llvm_ir.contains("call void @talas_print_i64"));
+    assert!(llvm_ir.contains("call void @ube_print_str"));
+    assert!(llvm_ir.contains("call void @ube_print_i64"));
     assert!(llvm_ir.contains("getelementptr inbounds %Person, %Person*"));
     assert!(llvm_ir.contains("store i32 35"));
     assert!(!llvm_ir.contains("void %"));
@@ -272,7 +272,7 @@ fn test_e2e_control_flow_and_dynamic_alloc() {
 
     assert!(llvm_ir.contains("ptrtoint %LargeObject*"));
     assert!(llvm_ir.contains("br i1"));
-    assert!(!llvm_ir.contains("call i8* @talas_alloc(i64 32, i64 8)"));
+    assert!(!llvm_ir.contains("call i8* @ube_alloc(i64 32, i64 8)"));
 }
 
 #[test]
@@ -425,7 +425,7 @@ fn test_e2e_go_style_zero_values() {
     let mut emitter = TextualLlvmEmitter::new();
     let llvm_ir = emitter.emit_program(&ir_program);
 
-    assert!(llvm_ir.contains("call i8* @talas_alloc"));
+    assert!(llvm_ir.contains("call i8* @ube_alloc"));
     assert!(llvm_ir.contains("store i32 18"));
     assert!(llvm_ir.contains("store i32 35"));
 }
@@ -748,7 +748,7 @@ fn test_e2e_reject_wrong_field_assignment_type() {
 
     assert!(
         !valid,
-        "Talas must reject assigning string to int field"
+        "Ube must reject assigning string to int field"
     );
 
     assert!(
@@ -1852,6 +1852,88 @@ fn test_e2e_async_expression_spawn() {
         "Type checking inline async expression failed: {:?}",
         checker.diagnostics
     );
+
+    let mut builder = IrBuilder::new();
+    let ir = builder.build_program(&program);
+    assert!(builder.diagnostics.is_empty(), "IR lowering failed: {:?}", builder.diagnostics);
+    assert!(ir.functions.iter().any(|function| function.class_name.starts_with("UbeAsyncExpr")));
+    let mut emitter = TextualLlvmEmitter::new();
+    let llvm = emitter.emit_program(&ir);
+    assert!(llvm.contains("@ube_async_expr_thunk_0"));
+    assert!(llvm.contains("@UbeAsyncExpr0_run"));
+}
+
+#[test]
+fn test_e2e_typed_closable_channel() {
+    let source = r#"
+        class Application {
+            main() {
+                Channel<string> messages = Channel<string>(2)
+                final receivedTask = messages.receive()
+                final sentTask = messages.send(`hello`)
+                final sent = await sentTask
+                final received = await receivedTask
+                messages.close()
+                print(received)
+            }
+        }
+    "#;
+    let mut parser = Parser::new(Lexer::new(source));
+    let program = parser.parse_program();
+    assert!(parser.diagnostics.is_empty(), "Parsing typed channel failed: {:?}", parser.diagnostics);
+    let mut checker = TypeChecker::new();
+    assert!(checker.check_program(&program), "Type checking typed channel failed: {:?}", checker.diagnostics);
+
+    let mut builder = IrBuilder::new();
+    let ir = builder.build_program(&program);
+    assert!(builder.diagnostics.is_empty(), "IR lowering failed: {:?}", builder.diagnostics);
+    let mut emitter = TextualLlvmEmitter::new();
+    let llvm = emitter.emit_program(&ir);
+    assert!(llvm.contains("@ube_channel_create_capacity"));
+    assert!(llvm.contains("call i8* @ube_channel_send_async("));
+    assert!(llvm.contains("call i8* @ube_channel_recv_async("));
+    assert!(llvm.contains("@ube_channel_close"));
+    assert!(!llvm.contains("call i1 @ube_channel_send("), "send must not block");
+    assert!(!llvm.contains("call i64 @ube_channel_recv("), "receive must not block");
+}
+
+#[test]
+fn test_async_task_errors_route_to_guard_catch() {
+    let source = r#"
+        class Application {
+            async fail() {
+                throw(`task failed`)
+            }
+
+            main() {
+                guard {
+                    final result = await this.fail()
+                    print(result)
+
+                    catch(err) {
+                        print(err.message())
+                    }
+                }
+            }
+        }
+    "#;
+    let mut parser = Parser::new(Lexer::new(source));
+    let program = parser.parse_program();
+    assert!(parser.diagnostics.is_empty(), "Parsing failed: {:?}", parser.diagnostics);
+
+    let mut checker = TypeChecker::new();
+    assert!(checker.check_program(&program), "Type checking failed: {:?}", checker.diagnostics);
+
+    let mut builder = IrBuilder::new();
+    let ir = builder.build_program(&program);
+    assert!(builder.diagnostics.is_empty(), "IR lowering failed: {:?}", builder.diagnostics);
+
+    let mut emitter = TextualLlvmEmitter::new();
+    let llvm = emitter.emit_program(&ir);
+    assert!(llvm.contains("call void @ube_task_set_error"));
+    assert!(llvm.contains("call %Error* @ube_task_last_error"));
+    assert!(llvm.contains("call i1 @ube_task_is_cancelled"));
+    assert!(llvm.contains("call i8* @ube_error_message"));
 }
 
 #[test]
@@ -2063,14 +2145,16 @@ fn test_e2e_task_all_settled_combinator() {
 }
 
 #[test]
-fn test_e2e_await_and_cancel_timeout() {
+fn test_e2e_task_timeout_wraps_any_task() {
     let source_code = r#"
         class Application {
             main() {
+                Channel<int> inbox = Channel<int>(1)
                 guard {
-                    final task = async 500
-                    final res = awaitAndCancel(task, 2000)
-                    print(res)
+                    final quick = await (async 500).timeout(2000)
+                    print(quick)
+                    final message = await inbox.receive().timeout(50)
+                    print(message)
 
                     catch(err) {
                         print(err.message())
@@ -2080,52 +2164,96 @@ fn test_e2e_await_and_cancel_timeout() {
         }
     "#;
 
-    let lexer = Lexer::new(source_code);
-    let mut parser = Parser::new(lexer);
+    let mut parser = Parser::new(Lexer::new(source_code));
     let program = parser.parse_program();
-
-    assert!(
-        parser.diagnostics.is_empty(),
-        "Parsing awaitAndCancel failed: {:?}",
-        parser.diagnostics
-    );
-
+    assert!(parser.diagnostics.is_empty(), "Parsing timeout failed: {:?}", parser.diagnostics);
     let mut checker = TypeChecker::new();
-    assert!(
-        checker.check_program(&program),
-        "Type checking awaitAndCancel failed: {:?}",
-        checker.diagnostics
-    );
+    assert!(checker.check_program(&program), "Type checking timeout failed: {:?}", checker.diagnostics);
+    let mut builder = IrBuilder::new();
+    let ir = builder.build_program(&program);
+    assert!(builder.diagnostics.is_empty(), "IR lowering failed: {:?}", builder.diagnostics);
+    let llvm = TextualLlvmEmitter::new().emit_program(&ir);
+    assert!(llvm.contains("call i8* @ube_task_timeout("));
 }
 
 #[test]
-fn test_e2e_task_async_static_factory() {
-    let source_code = r#"
+fn test_removed_concurrency_forms_are_rejected() {
+    let removed_task_async = r#"
         class Application {
             main() {
                 final task = Task.async(10 + 20)
-                final val = await task
-                print(val)
+                print(await task)
             }
         }
     "#;
-
-    let lexer = Lexer::new(source_code);
-    let mut parser = Parser::new(lexer);
+    let mut parser = Parser::new(Lexer::new(removed_task_async));
     let program = parser.parse_program();
-
-    assert!(
-        parser.diagnostics.is_empty(),
-        "Parsing Task.async failed: {:?}",
-        parser.diagnostics
-    );
-
     let mut checker = TypeChecker::new();
-    assert!(
-        checker.check_program(&program),
-        "Type checking Task.async failed: {:?}",
-        checker.diagnostics
-    );
+    assert!(!checker.check_program(&program));
+    assert!(checker
+        .diagnostics
+        .iter()
+        .any(|diagnostic| diagnostic.message.contains("Task.async(...) was removed")), "{:?}", checker.diagnostics);
+
+    let task_arithmetic = r#"
+        class Application {
+            main() {
+                final task = async 40 + 2
+            }
+        }
+    "#;
+    let mut parser = Parser::new(Lexer::new(task_arithmetic));
+    let program = parser.parse_program();
+    let mut checker = TypeChecker::new();
+    assert!(!checker.check_program(&program));
+    assert!(checker
+        .diagnostics
+        .iter()
+        .any(|diagnostic| diagnostic.message.contains("`async (a + b)`")));
+
+    let removed_await_and_cancel = r#"
+        class Application {
+            main() {
+                final value = awaitAndCancel(async 1, 100)
+            }
+        }
+    "#;
+    let mut parser = Parser::new(Lexer::new(removed_await_and_cancel));
+    let program = parser.parse_program();
+    let mut checker = TypeChecker::new();
+    assert!(!parser.diagnostics.is_empty() || !checker.check_program(&program));
+}
+
+#[test]
+fn test_unguarded_await_failure_stops_or_propagates() {
+    let source = r#"
+        class Application {
+            async fail() {
+                throw(`boom`)
+            }
+
+            async relay() {
+                final value = await this.fail()
+                return value
+            }
+
+            main() {
+                final value = await this.relay()
+                print(value)
+            }
+        }
+    "#;
+    let mut parser = Parser::new(Lexer::new(source));
+    let program = parser.parse_program();
+    assert!(parser.diagnostics.is_empty(), "Parsing failed: {:?}", parser.diagnostics);
+    let mut checker = TypeChecker::new();
+    assert!(checker.check_program(&program), "Type checking failed: {:?}", checker.diagnostics);
+    let mut builder = IrBuilder::new();
+    let ir = builder.build_program(&program);
+    assert!(builder.diagnostics.is_empty(), "IR lowering failed: {:?}", builder.diagnostics);
+    let llvm = TextualLlvmEmitter::new().emit_program(&ir);
+    assert!(llvm.contains("call i1 @ube_task_propagate_error()"));
+    assert!(llvm.contains("call void @ube_task_fail_unhandled()"));
 }
 
 #[test]
@@ -2806,7 +2934,7 @@ fn test_e2e_file_write_read_exists_delete() {
         class Application {
             main() {
                 final path = `test_file_rw.txt`
-                File.write(path, `Hello Talas File API`)
+                File.write(path, `Hello Ube File API`)
                 print(File.exists(path))
                 final content = File.read(path)
                 print(content)
@@ -3297,7 +3425,7 @@ fn test_e2e_xml_parse_child_navigation() {
 }
 
 #[test]
-fn test_e2e_pure_talas_json_and_xml_record_mapping() {
+fn test_e2e_pure_ube_json_and_xml_record_mapping() {
     let source_code = r#"
         class Application {
             main() {
@@ -3318,20 +3446,20 @@ fn test_e2e_pure_talas_json_and_xml_record_mapping() {
 
     assert!(
         parser.diagnostics.is_empty(),
-        "Parsing pure Talas record mapping failed: {:?}",
+        "Parsing pure Ube record mapping failed: {:?}",
         parser.diagnostics
     );
 
     let mut checker = TypeChecker::new();
     assert!(
         checker.check_program(&program),
-        "Type checking pure Talas record mapping failed: {:?}",
+        "Type checking pure Ube record mapping failed: {:?}",
         checker.diagnostics
     );
 }
 
 #[test]
-fn test_e2e_pure_talas_partial_parse_and_strict_modes() {
+fn test_e2e_pure_ube_partial_parse_and_strict_modes() {
     let source_code = r#"
         class Application {
             main() {
@@ -3349,14 +3477,14 @@ fn test_e2e_pure_talas_partial_parse_and_strict_modes() {
 
     assert!(
         parser.diagnostics.is_empty(),
-        "Parsing pure Talas partial parse failed: {:?}",
+        "Parsing pure Ube partial parse failed: {:?}",
         parser.diagnostics
     );
 
     let mut checker = TypeChecker::new();
     assert!(
         checker.check_program(&program),
-        "Type checking pure Talas partial parse failed: {:?}",
+        "Type checking pure Ube partial parse failed: {:?}",
         checker.diagnostics
     );
 }

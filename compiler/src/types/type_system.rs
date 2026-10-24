@@ -13,6 +13,8 @@ pub enum Type {
     InputStream,
     OutputStream,
     FileStream,
+    Task(Box<Type>),
+    Channel(Box<Type>),
     Class {
         name: std::string::String,
     },
@@ -41,6 +43,8 @@ impl fmt::Display for Type {
             Type::InputStream => write!(f, "InputStream"),
             Type::OutputStream => write!(f, "OutputStream"),
             Type::FileStream => write!(f, "FileStream"),
+            Type::Task(result) => write!(f, "Task<{}>", result),
+            Type::Channel(element) => write!(f, "Channel<{}>", element),
             Type::Class { name } => write!(f, "{}", name),
 
             Type::Nullable(inner) => write!(f, "{}?", inner),

@@ -1,25 +1,23 @@
-
-
 #[repr(C)]
-pub struct TalasGeoPoint {
+pub struct UbeGeoPoint {
     pub latitude: f64,
     pub longitude: f64,
 }
 
 #[repr(C)]
-pub struct TalasDistance {
+pub struct UbeDistance {
     pub meters: f64,
 }
 
 #[repr(C)]
-pub struct TalasGeoBounds {
-    pub southwest: *mut TalasGeoPoint,
-    pub northeast: *mut TalasGeoPoint,
+pub struct UbeGeoBounds {
+    pub southwest: *mut UbeGeoPoint,
+    pub northeast: *mut UbeGeoPoint,
 }
 
 #[no_mangle]
-pub extern "C" fn talas_geopoint_create(lat: f64, lng: f64) -> *mut TalasGeoPoint {
-    let p = Box::new(TalasGeoPoint {
+pub extern "C" fn ube_geopoint_create(lat: f64, lng: f64) -> *mut UbeGeoPoint {
+    let p = Box::new(UbeGeoPoint {
         latitude: lat,
         longitude: lng,
     });
@@ -27,7 +25,7 @@ pub extern "C" fn talas_geopoint_create(lat: f64, lng: f64) -> *mut TalasGeoPoin
 }
 
 #[no_mangle]
-pub extern "C" fn talas_geopoint_latitude(ptr: *mut TalasGeoPoint) -> f64 {
+pub extern "C" fn ube_geopoint_latitude(ptr: *mut UbeGeoPoint) -> f64 {
     if !ptr.is_null() {
         unsafe { (*ptr).latitude }
     } else {
@@ -36,7 +34,7 @@ pub extern "C" fn talas_geopoint_latitude(ptr: *mut TalasGeoPoint) -> f64 {
 }
 
 #[no_mangle]
-pub extern "C" fn talas_geopoint_longitude(ptr: *mut TalasGeoPoint) -> f64 {
+pub extern "C" fn ube_geopoint_longitude(ptr: *mut UbeGeoPoint) -> f64 {
     if !ptr.is_null() {
         unsafe { (*ptr).longitude }
     } else {
@@ -45,7 +43,10 @@ pub extern "C" fn talas_geopoint_longitude(ptr: *mut TalasGeoPoint) -> f64 {
 }
 
 #[no_mangle]
-pub extern "C" fn talas_geopoint_distance_to(p1: *mut TalasGeoPoint, p2: *mut TalasGeoPoint) -> *mut TalasDistance {
+pub extern "C" fn ube_geopoint_distance_to(
+    p1: *mut UbeGeoPoint,
+    p2: *mut UbeGeoPoint,
+) -> *mut UbeDistance {
     if !p1.is_null() && !p2.is_null() {
         unsafe {
             let lat1 = (*p1).latitude.to_radians();
@@ -56,20 +57,21 @@ pub extern "C" fn talas_geopoint_distance_to(p1: *mut TalasGeoPoint, p2: *mut Ta
             let dlat = lat2 - lat1;
             let dlon = lon2 - lon1;
 
-            let a = (dlat / 2.0).sin().powi(2) + lat1.cos() * lat2.cos() * (dlon / 2.0).sin().powi(2);
+            let a =
+                (dlat / 2.0).sin().powi(2) + lat1.cos() * lat2.cos() * (dlon / 2.0).sin().powi(2);
             let c = 2.0 * a.sqrt().atan2((1.0 - a).sqrt());
 
             let earth_radius_meters = 6_371_000.0;
             let distance_m = earth_radius_meters * c;
-            talas_distance_create_meters(distance_m)
+            ube_distance_create_meters(distance_m)
         }
     } else {
-        talas_distance_create_meters(0.0)
+        ube_distance_create_meters(0.0)
     }
 }
 
 #[no_mangle]
-pub extern "C" fn talas_geopoint_bearing_to(p1: *mut TalasGeoPoint, p2: *mut TalasGeoPoint) -> f64 {
+pub extern "C" fn ube_geopoint_bearing_to(p1: *mut UbeGeoPoint, p2: *mut UbeGeoPoint) -> f64 {
     if !p1.is_null() && !p2.is_null() {
         unsafe {
             let lat1 = (*p1).latitude.to_radians();
@@ -89,23 +91,23 @@ pub extern "C" fn talas_geopoint_bearing_to(p1: *mut TalasGeoPoint, p2: *mut Tal
 }
 
 #[no_mangle]
-pub extern "C" fn talas_distance_create_meters(meters: f64) -> *mut TalasDistance {
-    let d = Box::new(TalasDistance { meters });
+pub extern "C" fn ube_distance_create_meters(meters: f64) -> *mut UbeDistance {
+    let d = Box::new(UbeDistance { meters });
     Box::into_raw(d)
 }
 
 #[no_mangle]
-pub extern "C" fn talas_distance_create_km(km: f64) -> *mut TalasDistance {
-    talas_distance_create_meters(km * 1000.0)
+pub extern "C" fn ube_distance_create_km(km: f64) -> *mut UbeDistance {
+    ube_distance_create_meters(km * 1000.0)
 }
 
 #[no_mangle]
-pub extern "C" fn talas_distance_create_miles(miles: f64) -> *mut TalasDistance {
-    talas_distance_create_meters(miles * 1609.344)
+pub extern "C" fn ube_distance_create_miles(miles: f64) -> *mut UbeDistance {
+    ube_distance_create_meters(miles * 1609.344)
 }
 
 #[no_mangle]
-pub extern "C" fn talas_distance_meters(ptr: *mut TalasDistance) -> f64 {
+pub extern "C" fn ube_distance_meters(ptr: *mut UbeDistance) -> f64 {
     if !ptr.is_null() {
         unsafe { (*ptr).meters }
     } else {
@@ -114,7 +116,7 @@ pub extern "C" fn talas_distance_meters(ptr: *mut TalasDistance) -> f64 {
 }
 
 #[no_mangle]
-pub extern "C" fn talas_distance_km(ptr: *mut TalasDistance) -> f64 {
+pub extern "C" fn ube_distance_km(ptr: *mut UbeDistance) -> f64 {
     if !ptr.is_null() {
         unsafe { (*ptr).meters / 1000.0 }
     } else {
@@ -123,7 +125,7 @@ pub extern "C" fn talas_distance_km(ptr: *mut TalasDistance) -> f64 {
 }
 
 #[no_mangle]
-pub extern "C" fn talas_distance_miles(ptr: *mut TalasDistance) -> f64 {
+pub extern "C" fn ube_distance_miles(ptr: *mut UbeDistance) -> f64 {
     if !ptr.is_null() {
         unsafe { (*ptr).meters / 1609.344 }
     } else {
@@ -132,8 +134,11 @@ pub extern "C" fn talas_distance_miles(ptr: *mut TalasDistance) -> f64 {
 }
 
 #[no_mangle]
-pub extern "C" fn talas_geobounds_create(sw: *mut TalasGeoPoint, ne: *mut TalasGeoPoint) -> *mut TalasGeoBounds {
-    let bounds = Box::new(TalasGeoBounds {
+pub extern "C" fn ube_geobounds_create(
+    sw: *mut UbeGeoPoint,
+    ne: *mut UbeGeoPoint,
+) -> *mut UbeGeoBounds {
+    let bounds = Box::new(UbeGeoBounds {
         southwest: sw,
         northeast: ne,
     });
@@ -141,7 +146,7 @@ pub extern "C" fn talas_geobounds_create(sw: *mut TalasGeoPoint, ne: *mut TalasG
 }
 
 #[no_mangle]
-pub extern "C" fn talas_geobounds_contains(b: *mut TalasGeoBounds, p: *mut TalasGeoPoint) -> bool {
+pub extern "C" fn ube_geobounds_contains(b: *mut UbeGeoBounds, p: *mut UbeGeoPoint) -> bool {
     if !b.is_null() && !p.is_null() {
         unsafe {
             let lat = (*p).latitude;
@@ -160,6 +165,6 @@ pub extern "C" fn talas_geobounds_contains(b: *mut TalasGeoBounds, p: *mut Talas
 }
 
 #[no_mangle]
-pub extern "C" fn talas_geolocation_current() -> *mut TalasGeoPoint {
-    talas_geopoint_create(14.5995, 120.9842)
+pub extern "C" fn ube_geolocation_current() -> *mut UbeGeoPoint {
+    ube_geopoint_create(14.5995, 120.9842)
 }

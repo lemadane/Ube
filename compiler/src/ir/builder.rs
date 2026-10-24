@@ -5,6 +5,7 @@ use crate::parser::*;
 use crate::types::Type;
 use std::collections::HashMap;
 
+#[derive(Clone)]
 pub struct IrBuilder {
     next_reg: usize,
     next_block: usize,
@@ -15,11 +16,15 @@ pub struct IrBuilder {
     class_fields: HashMap<(String, String), Type>,
     class_field_indices: HashMap<(String, String), (usize, Type)>,
     class_decls: HashMap<String, ClassDecl>,
+    next_async_thunk: usize,
     loop_stack: Vec<(BlockId, BlockId)>,
     guard_stack: Vec<(Register, BlockId)>,
     guard_exit_stack: Vec<BlockId>,
     yield_target_stack: Vec<(Option<Register>, Option<Register>)>,
     current_block_id: Option<BlockId>,
+    current_method_async: bool,
+    current_method_return_type: Type,
+    generated_functions: Vec<IrFunction>,
     pub diagnostics: Vec<Diagnostic>,
 }
 
@@ -35,11 +40,15 @@ impl IrBuilder {
             class_fields: HashMap::new(),
             class_field_indices: HashMap::new(),
             class_decls: HashMap::new(),
+            next_async_thunk: 0,
             loop_stack: Vec::new(),
             guard_stack: Vec::new(),
             guard_exit_stack: Vec::new(),
             yield_target_stack: Vec::new(),
             current_block_id: None,
+            current_method_async: false,
+            current_method_return_type: Type::Void,
+            generated_functions: Vec::new(),
             diagnostics: Vec::new(),
         }
     }
@@ -59,6 +68,10 @@ impl IrBuilder {
                     Type::Class { name: n.clone() }
                 }
             }
+            TypeSpec::Generic(name, element) if name == "Channel" => {
+                Type::Channel(Box::new(self.type_spec_to_type(element)))
+            }
+            TypeSpec::Generic(name, _) => Type::Class { name: name.clone() },
             TypeSpec::Nullable(inner) => Type::Nullable(Box::new(self.type_spec_to_type(inner))),
         }
     }
@@ -90,6 +103,182 @@ impl IrBuilder {
         })
     }
 
+    fn route_await_error(&mut self, error_dest: Register) {
+        let Some((err_ptr, catch_target)) = self.guard_stack.last().cloned() else {
+            self.route_unguarded_await_error();
+            return;
+        };
+        let error_ty = Type::Nullable(Box::new(Type::Class { name: "Error".into() }));
+        let condition = self.fresh_reg();
+        self.emit(IrInstruction::Binary {
+            dest: condition,
+            op: BinaryOp::NotEqual,
+            left: IrOperand::Register(error_dest, error_ty.clone()),
+            right: IrOperand::NullOf(error_ty.clone()),
+            operand_ty: error_ty.clone(),
+            result_ty: Type::Bool,
+        });
+        let error_block = self.fresh_block();
+        let success_block = self.fresh_block();
+        self.emit(IrInstruction::Branch {
+            cond: IrOperand::Register(condition, Type::Bool),
+            then_block: error_block,
+            else_block: success_block,
+        });
+        if let Some(current) = self.current_block_id {
+            self.finish_block(current);
+        }
+
+        self.current_block_id = Some(error_block);
+        self.emit(IrInstruction::Store {
+            val: IrOperand::Register(error_dest, error_ty),
+            ptr: err_ptr,
+        });
+        self.emit(IrInstruction::Jump { target: catch_target });
+        self.finish_block(error_block);
+        self.current_block_id = Some(success_block);
+    }
+
+    /// An unguarded failure propagates out of an async function, and stops
+    /// the program everywhere else.
+    fn route_unguarded_await_error(&mut self) {
+        if !self.current_method_async {
+            self.emit(IrInstruction::CallRuntime {
+                dest: None,
+                symbol: "ube_task_fail_unhandled".into(),
+                args: Vec::new(),
+                ret_ty: Type::Void,
+            });
+            return;
+        }
+        let failed = self.fresh_reg();
+        self.emit(IrInstruction::CallRuntime {
+            dest: Some(failed),
+            symbol: "ube_task_propagate_error".into(),
+            args: Vec::new(),
+            ret_ty: Type::Bool,
+        });
+        let error_block = self.fresh_block();
+        let success_block = self.fresh_block();
+        self.emit(IrInstruction::Branch {
+            cond: IrOperand::Register(failed, Type::Bool),
+            then_block: error_block,
+            else_block: success_block,
+        });
+        if let Some(current) = self.current_block_id {
+            self.finish_block(current);
+        }
+        self.current_block_id = Some(error_block);
+        self.emit(IrInstruction::Return {
+            val: (self.current_method_return_type != Type::Void)
+                .then(|| Self::default_operand_for_type(&self.current_method_return_type)),
+        });
+        self.finish_block(error_block);
+        self.current_block_id = Some(success_block);
+    }
+
+    fn build_deferred_expression(&mut self, expression: &Expr) -> IrOperand {
+        let mut captured = std::collections::BTreeMap::new();
+        for scope in &self.var_pointers {
+            for (name, (pointer, ty)) in scope {
+                captured.insert(name.clone(), (*pointer, ty.clone()));
+            }
+        }
+
+        let mut capture_values = Vec::with_capacity(captured.len());
+        let mut capture_info = Vec::with_capacity(captured.len());
+        for (name, (pointer, ty)) in captured {
+            let value = self.fresh_reg();
+            self.emit(IrInstruction::Load { dest: value, ptr: pointer, ty: ty.clone() });
+            capture_values.push(IrOperand::Register(value, ty.clone()));
+            capture_info.push((name, ty));
+        }
+
+        let callback = format!("ube_async_expr_thunk_{}", self.next_async_thunk);
+        let class_name = format!("UbeAsyncExpr{}", self.next_async_thunk);
+        self.next_async_thunk += 1;
+        let method_name = "run".to_owned();
+
+        let mut deferred = self.clone();
+        deferred.next_reg = 0;
+        deferred.next_block = 0;
+        deferred.blocks.clear();
+        deferred.current_instructions.clear();
+        deferred.var_pointers.clear();
+        deferred.loop_stack.clear();
+        deferred.guard_stack.clear();
+        deferred.guard_exit_stack.clear();
+        deferred.yield_target_stack.clear();
+        deferred.generated_functions.clear();
+        deferred.current_method_async = true;
+        // The result type is only known after lowering; early failure returns
+        // are emitted valueless and patched below.
+        deferred.current_method_return_type = Type::Void;
+        let entry = deferred.fresh_block();
+        deferred.current_block_id = Some(entry);
+
+        let receiver = deferred.fresh_reg();
+        let mut params = Vec::new();
+        deferred.push_var_scope();
+        let mut parameters = Vec::new();
+        for (name, ty) in &capture_info {
+            let parameter = deferred.fresh_reg();
+            params.push((parameter, ty.clone()));
+            parameters.push((name, ty, parameter));
+        }
+        for (name, ty, parameter) in parameters {
+            let slot = deferred.fresh_reg();
+            deferred.emit(IrInstruction::Alloca { dest: slot, ty: ty.clone() });
+            deferred.emit(IrInstruction::Store {
+                val: IrOperand::Register(parameter, ty.clone()),
+                ptr: slot,
+            });
+            deferred.insert_var(name.clone(), slot, ty.clone());
+        }
+
+        let value = deferred.build_expr(expression);
+        let result_ty = value.get_type();
+        if result_ty != Type::Void {
+            for block in &mut deferred.blocks {
+                for instruction in &mut block.instructions {
+                    if let IrInstruction::Return { val } = instruction {
+                        if val.is_none() {
+                            *val = Some(Self::default_operand_for_type(&result_ty));
+                        }
+                    }
+                }
+            }
+        }
+        deferred.emit(IrInstruction::Return { val: Some(value) });
+        let last_block = deferred.current_block_id.unwrap_or(entry);
+        deferred.finish_block(last_block);
+        self.next_async_thunk = deferred.next_async_thunk;
+        let known_diagnostics = self.diagnostics.len();
+        self.diagnostics.extend(deferred.diagnostics.drain(known_diagnostics..));
+        let nested_functions = std::mem::take(&mut deferred.generated_functions);
+        self.generated_functions.extend(nested_functions);
+        self.generated_functions.push(IrFunction {
+            class_name: class_name.clone(),
+            name: method_name.clone(),
+            receiver: (receiver, Type::Int),
+            params,
+            return_type: result_ty.clone(),
+            is_async: true,
+            blocks: std::mem::take(&mut deferred.blocks),
+        });
+
+        let dest = self.fresh_reg();
+        self.emit(IrInstruction::SpawnAsyncExpression {
+            dest,
+            callback,
+            class_name,
+            method_name,
+            captures: capture_values,
+            result_ty: result_ty.clone(),
+        });
+        IrOperand::Register(dest, Type::Task(Box::new(result_ty)))
+    }
+
     fn push_var_scope(&mut self) {
         self.var_pointers.push(HashMap::new());
     }
@@ -113,11 +302,110 @@ impl IrBuilder {
         None
     }
 
+    fn condition_to_bool(&mut self, condition: IrOperand) -> IrOperand {
+        let condition_ty = condition.get_type();
+        if condition_ty == Type::Bool {
+            return condition;
+        }
+
+        let dest = self.fresh_reg();
+        let (op, zero) = match condition_ty {
+            Type::Decimal => (BinaryOp::NotEqual, IrOperand::ConstantDecimal(0.0)),
+            Type::Int | Type::Long | Type::Byte => (BinaryOp::NotEqual, IrOperand::ConstantInt(0)),
+            _ => (BinaryOp::NotEqual, IrOperand::Null),
+        };
+        self.emit(IrInstruction::Binary {
+            dest,
+            op,
+            left: condition,
+            right: zero,
+            operand_ty: condition_ty,
+            result_ty: Type::Bool,
+        });
+        IrOperand::Register(dest, Type::Bool)
+    }
+
+    fn yield_type_in_stmts(&self, statements: &[Stmt]) -> Option<Type> {
+        let mut probe = self.clone();
+        probe.push_var_scope();
+        for stmt in statements {
+            let result = match &stmt.kind {
+                StmtKind::Yield(expr) => Some(probe.build_expr(expr).get_type()),
+                StmtKind::If {
+                    then_branch,
+                    else_branch,
+                    ..
+                } => probe
+                    .yield_type_in_stmts(then_branch)
+                    .or_else(|| else_branch.as_ref().and_then(|s| probe.yield_type_in_stmts(s))),
+                StmtKind::For {
+                    body, else_branch, ..
+                } => probe
+                    .yield_type_in_stmts(body)
+                    .or_else(|| else_branch.as_ref().and_then(|s| probe.yield_type_in_stmts(s))),
+                StmtKind::Guard {
+                    body,
+                    catch_clause,
+                    exit_body,
+                } => probe
+                    .yield_type_in_stmts(body)
+                    .or_else(|| {
+                        catch_clause
+                            .as_ref()
+                            .and_then(|(_, body)| probe.yield_type_in_stmts(body))
+                    })
+                    .or_else(|| exit_body.as_ref().and_then(|s| probe.yield_type_in_stmts(s))),
+                _ => None,
+            };
+            if let Some(ty) = result {
+                if !matches!(ty, Type::Nullable(ref inner) if **inner == Type::Void) {
+                    return Some(ty);
+                }
+            }
+            probe.build_stmt(stmt);
+        }
+        None
+    }
+
+    fn default_operand_for_type(ty: &Type) -> IrOperand {
+        match ty {
+            Type::Int | Type::Byte => IrOperand::ConstantInt(0),
+            Type::Long => IrOperand::ConstantLong(0),
+            Type::Decimal => IrOperand::ConstantDecimal(0.0),
+            Type::Bool => IrOperand::ConstantBool(false),
+            Type::String
+            | Type::Class { .. }
+            | Type::Bytes
+            | Type::InputStream
+            | Type::OutputStream
+            | Type::FileStream
+            | Type::Task(_)
+            | Type::Channel(_) => IrOperand::NullOf(ty.clone()),
+            Type::Nullable(_) => IrOperand::NullOf(ty.clone()),
+            _ => IrOperand::Null,
+        }
+    }
+
+    fn scale_integer_operand(&mut self, operand: IrOperand, factor: i64) -> IrOperand {
+        let dest = self.fresh_reg();
+        self.emit(IrInstruction::Binary {
+            dest,
+            op: BinaryOp::Mul,
+            left: operand,
+            right: IrOperand::ConstantInt(factor),
+            operand_ty: Type::Int,
+            result_ty: Type::Int,
+        });
+        IrOperand::Register(dest, Type::Int)
+    }
+
     pub fn build_program(&mut self, program: &Program) -> IrProgram {
         self.method_return_types.clear();
         self.class_fields.clear();
         self.class_field_indices.clear();
         self.class_decls.clear();
+        self.next_async_thunk = 0;
+        self.generated_functions.clear();
 
         for item in &program.items {
             if let Item::Class(cls) = item {
@@ -206,6 +494,7 @@ impl IrBuilder {
             }
         }
 
+        ir_functions.append(&mut self.generated_functions);
         IrProgram {
             classes: ir_classes,
             functions: ir_functions,
@@ -291,6 +580,7 @@ impl IrBuilder {
             receiver: (receiver_reg, this_ty),
             params: Vec::new(),
             return_type: field_ty,
+            is_async: false,
             blocks: std::mem::take(&mut self.blocks),
         }
     }
@@ -315,16 +605,7 @@ impl IrBuilder {
 
         for p in &method.params {
             let p_reg = self.fresh_reg();
-            let p_ty = match &p.type_spec {
-                TypeSpec::Int => Type::Int,
-                TypeSpec::Decimal => Type::Decimal,
-                TypeSpec::Byte => Type::Byte,
-                TypeSpec::Long => Type::Long,
-                TypeSpec::Bool => Type::Bool,
-                TypeSpec::String => Type::String,
-                TypeSpec::Class(n) => Type::Class { name: n.clone() },
-                TypeSpec::Nullable(_) => Type::Nullable(Box::new(Type::Void)),
-            };
+            let p_ty = self.type_spec_to_type(&p.type_spec);
             ir_params.push((p_reg, p_ty.clone()));
             param_info.push((p.name.clone(), p_reg, p_ty));
         }
@@ -344,11 +625,18 @@ impl IrBuilder {
             receiver: (receiver_reg, this_ty),
             params: ir_params,
             return_type: ret_ty,
+            is_async: method.is_async,
             blocks: std::mem::take(&mut self.blocks),
         }
     }
 
     fn build_method(&mut self, cls: &ClassDecl, method: &MethodDecl) -> IrFunction {
+        self.current_method_async = method.is_async;
+        let ret_ty = method.return_type.as_ref().map_or_else(
+            || if method.is_async { Type::Int } else { Type::Void },
+            |t| self.type_spec_to_type(t),
+        );
+        self.current_method_return_type = ret_ty.clone();
         self.next_reg = 0;
         self.next_block = 0;
         self.blocks.clear();
@@ -395,10 +683,14 @@ impl IrBuilder {
             }
         }
 
-        let ret_ty = method.return_type.as_ref().map_or(Type::Void, |t| self.type_spec_to_type(t));
-
         if !self.is_current_terminated() {
-            self.emit(IrInstruction::Return { val: None });
+            self.emit(IrInstruction::Return {
+                val: if method.is_async && ret_ty != Type::Void {
+                    Some(Self::default_operand_for_type(&ret_ty))
+                } else {
+                    None
+                },
+            });
         }
 
         if let Some(b_id) = self.current_block_id {
@@ -413,20 +705,14 @@ impl IrBuilder {
             receiver: (receiver_reg, this_ty),
             params: ir_params,
             return_type: ret_ty,
+            is_async: method.is_async,
             blocks: std::mem::take(&mut self.blocks),
         }
     }
 
     pub fn build_class_instantiation(&mut self, class_name: &str, args: &[Expr]) -> IrOperand {
         if class_name == "Channel" {
-            let dest = self.fresh_reg();
-            self.emit(IrInstruction::CallRuntime {
-                dest: Some(dest),
-                symbol: "talas_channel_create".into(),
-                args: vec![],
-                ret_ty: Type::Class { name: "Channel".into() },
-            });
-            return IrOperand::Register(dest, Type::Class { name: "Channel".into() });
+            return self.build_channel_instantiation(args, Type::Int);
         }
         let mut arg_ops: Vec<IrOperand> = args.iter().map(|a| self.build_expr(a)).collect();
         if let Some(cls_decl) = self.class_decls.get(class_name).cloned() {
@@ -459,6 +745,22 @@ impl IrBuilder {
         IrOperand::Register(dest, Type::Class { name: class_name.to_string() })
     }
 
+    fn build_channel_instantiation(&mut self, args: &[Expr], element_ty: Type) -> IrOperand {
+        let capacity = args
+            .first()
+            .map(|arg| self.build_expr(arg))
+            .unwrap_or(IrOperand::ConstantInt(64));
+        let dest = self.fresh_reg();
+        let channel_ty = Type::Channel(Box::new(element_ty));
+        self.emit(IrInstruction::CallRuntime {
+            dest: Some(dest),
+            symbol: "ube_channel_create_capacity".into(),
+            args: vec![capacity],
+            ret_ty: channel_ty.clone(),
+        });
+        IrOperand::Register(dest, channel_ty)
+    }
+
     fn build_stmt(&mut self, stmt: &Stmt) {
         match &stmt.kind {
             StmtKind::LocalDecl { name, initializer, type_annotation, .. } => {
@@ -489,25 +791,8 @@ impl IrBuilder {
                 self.build_expr(expr);
             }
             StmtKind::If { condition, then_branch, else_branch } => {
-                let mut cond_op = self.build_expr(condition);
-                let cond_ty = cond_op.get_type();
-                if cond_ty != Type::Bool {
-                    let dest = self.fresh_reg();
-                    let (op_code, rhs) = match cond_ty {
-                        Type::Decimal => (BinaryOp::NotEqual, IrOperand::ConstantDecimal(0.0)),
-                        Type::Int | Type::Long => (BinaryOp::NotEqual, IrOperand::ConstantInt(0)),
-                        _ => (BinaryOp::NotEqual, IrOperand::Null),
-                    };
-                    self.emit(IrInstruction::Binary {
-                        dest,
-                        op: op_code,
-                        left: cond_op.clone(),
-                        right: rhs,
-                        operand_ty: cond_ty,
-                        result_ty: Type::Bool,
-                    });
-                    cond_op = IrOperand::Register(dest, Type::Bool);
-                }
+                let condition = self.build_expr(condition);
+                let cond_op = self.condition_to_bool(condition);
                 let then_block = self.fresh_block();
                 let else_block = self.fresh_block();
                 let merge_block = self.fresh_block();
@@ -560,7 +845,25 @@ impl IrBuilder {
             StmtKind::For { loop_var, index_var, condition_or_iterable, body, else_branch } => {
                 let header_block = self.fresh_block();
                 let body_block = self.fresh_block();
+                let increment_block = if loop_var.is_some() {
+                    Some(self.fresh_block())
+                } else {
+                    None
+                };
                 let exit_block = self.fresh_block();
+                let iterable = if loop_var.is_some() {
+                    condition_or_iterable.as_ref().map(|expr| self.build_expr(expr))
+                } else {
+                    None
+                };
+                let iterable_index_ptr = if iterable.is_some() {
+                    let ptr = self.fresh_reg();
+                    self.emit(IrInstruction::Alloca { dest: ptr, ty: Type::Int });
+                    self.emit(IrInstruction::Store { val: IrOperand::ConstantInt(0), ptr });
+                    Some(ptr)
+                } else {
+                    None
+                };
 
                 let has_iter_ptr = if else_branch.is_some() {
                     let ptr = self.fresh_reg();
@@ -585,27 +888,33 @@ impl IrBuilder {
                 }
 
                 self.current_block_id = Some(header_block);
-                let cond_op = if let Some(cond) = condition_or_iterable {
-                    let mut op = self.build_expr(cond);
-                    let cond_ty = op.get_type();
-                    if cond_ty != Type::Bool {
-                        let dest = self.fresh_reg();
-                        let (op_code, rhs) = match cond_ty {
-                            Type::Decimal => (BinaryOp::NotEqual, IrOperand::ConstantDecimal(0.0)),
-                            Type::Int | Type::Long => (BinaryOp::NotEqual, IrOperand::ConstantInt(0)),
-                            _ => (BinaryOp::NotEqual, IrOperand::Null),
-                        };
-                        self.emit(IrInstruction::Binary {
-                            dest,
-                            op: op_code,
-                            left: op.clone(),
-                            right: rhs,
-                            operand_ty: cond_ty,
-                            result_ty: Type::Bool,
-                        });
-                        op = IrOperand::Register(dest, Type::Bool);
-                    }
-                    op
+                let cond_op = if let (Some(list), Some(index_ptr)) = (&iterable, iterable_index_ptr) {
+                    let index_reg = self.fresh_reg();
+                    self.emit(IrInstruction::Load {
+                        dest: index_reg,
+                        ptr: index_ptr,
+                        ty: Type::Int,
+                    });
+                    let length_reg = self.fresh_reg();
+                    self.emit(IrInstruction::CallRuntime {
+                        dest: Some(length_reg),
+                        symbol: "ube_list_len".into(),
+                        args: vec![list.clone()],
+                        ret_ty: Type::Int,
+                    });
+                    let condition_reg = self.fresh_reg();
+                    self.emit(IrInstruction::Binary {
+                        dest: condition_reg,
+                        op: BinaryOp::Less,
+                        left: IrOperand::Register(index_reg, Type::Int),
+                        right: IrOperand::Register(length_reg, Type::Int),
+                        operand_ty: Type::Int,
+                        result_ty: Type::Bool,
+                    });
+                    IrOperand::Register(condition_reg, Type::Bool)
+                } else if let Some(cond) = condition_or_iterable {
+                    let condition = self.build_expr(cond);
+                    self.condition_to_bool(condition)
                 } else {
                     IrOperand::ConstantBool(true)
                 };
@@ -622,18 +931,49 @@ impl IrBuilder {
                     self.emit(IrInstruction::Store { val: IrOperand::ConstantBool(true), ptr });
                 }
 
-                self.loop_stack.push((header_block, exit_block));
                 self.push_var_scope();
-                if let Some(lvar) = loop_var {
-                    let ptr = self.fresh_reg();
-                    self.emit(IrInstruction::Alloca { dest: ptr, ty: Type::Int });
-                    self.insert_var(lvar.clone(), ptr, Type::Int);
+                if let (Some(list), Some(index_ptr)) = (&iterable, iterable_index_ptr) {
+                    let index_reg = self.fresh_reg();
+                    self.emit(IrInstruction::Load {
+                        dest: index_reg,
+                        ptr: index_ptr,
+                        ty: Type::Int,
+                    });
+                    if let Some(index_name) = index_var {
+                        let index_slot = self.fresh_reg();
+                        self.emit(IrInstruction::Alloca {
+                            dest: index_slot,
+                            ty: Type::Int,
+                        });
+                        self.emit(IrInstruction::Store {
+                            val: IrOperand::Register(index_reg, Type::Int),
+                            ptr: index_slot,
+                        });
+                        self.insert_var(index_name.clone(), index_slot, Type::Int);
+                    }
+                    if let Some(loop_name) = loop_var {
+                        let value_reg = self.fresh_reg();
+                        self.emit(IrInstruction::CallRuntime {
+                            dest: Some(value_reg),
+                            symbol: "ube_list_get".into(),
+                            args: vec![list.clone(), IrOperand::Register(index_reg, Type::Int)],
+                            ret_ty: Type::Int,
+                        });
+                        let value_slot = self.fresh_reg();
+                        self.emit(IrInstruction::Alloca {
+                            dest: value_slot,
+                            ty: Type::Int,
+                        });
+                        self.emit(IrInstruction::Store {
+                            val: IrOperand::Register(value_reg, Type::Int),
+                            ptr: value_slot,
+                        });
+                        self.insert_var(loop_name.clone(), value_slot, Type::Int);
+                    }
                 }
-                if let Some(ivar) = index_var {
-                    let ptr = self.fresh_reg();
-                    self.emit(IrInstruction::Alloca { dest: ptr, ty: Type::Int });
-                    self.insert_var(ivar.clone(), ptr, Type::Int);
-                }
+
+                let continue_target = increment_block.unwrap_or(header_block);
+                self.loop_stack.push((continue_target, exit_block));
                 for s in body {
                     self.build_stmt(s);
                     if self.is_current_terminated() {
@@ -641,10 +981,34 @@ impl IrBuilder {
                     }
                 }
                 if !self.is_current_terminated() {
-                    self.emit(IrInstruction::Jump { target: header_block });
+                    self.emit(IrInstruction::Jump { target: continue_target });
                 }
                 if let Some(cb) = self.current_block_id {
                     self.finish_block(cb);
+                }
+                if let (Some(increment), Some(index_ptr)) = (increment_block, iterable_index_ptr) {
+                    self.current_block_id = Some(increment);
+                    let index_reg = self.fresh_reg();
+                    self.emit(IrInstruction::Load {
+                        dest: index_reg,
+                        ptr: index_ptr,
+                        ty: Type::Int,
+                    });
+                    let next_index = self.fresh_reg();
+                    self.emit(IrInstruction::Binary {
+                        dest: next_index,
+                        op: BinaryOp::Add,
+                        left: IrOperand::Register(index_reg, Type::Int),
+                        right: IrOperand::ConstantInt(1),
+                        operand_ty: Type::Int,
+                        result_ty: Type::Int,
+                    });
+                    self.emit(IrInstruction::Store {
+                        val: IrOperand::Register(next_index, Type::Int),
+                        ptr: index_ptr,
+                    });
+                    self.emit(IrInstruction::Jump { target: header_block });
+                    self.finish_block(increment);
                 }
                 self.pop_var_scope();
                 self.loop_stack.pop();
@@ -708,7 +1072,7 @@ impl IrBuilder {
                         self.emit(IrInstruction::Load { dest: obj_reg, ptr: list_ptr, ty: list_ty.clone() });
                         self.emit(IrInstruction::CallRuntime {
                             dest: None,
-                            symbol: "talas_list_add".into(),
+                            symbol: "ube_list_add".into(),
                             args: vec![IrOperand::Register(obj_reg, list_ty), val],
                             ret_ty: Type::Void,
                         });
@@ -799,13 +1163,31 @@ impl IrBuilder {
                 self.current_block_id = Some(merge_target);
             }
             StmtKind::Throw(expr) => {
-                let mut val_op = self.build_expr(expr);
-                if val_op.get_type() == Type::String {
-                    val_op = self.build_class_instantiation("GenericError", &[expr.clone()]);
-                }
+                let val_op = self.build_expr(expr);
                 if let Some((err_ptr, catch_target)) = self.guard_stack.last().cloned() {
-                    self.emit(IrInstruction::Store { val: val_op, ptr: err_ptr });
+                    let error = if val_op.get_type() == Type::String {
+                        self.build_class_instantiation("GenericError", &[expr.clone()])
+                    } else {
+                        val_op
+                    };
+                    self.emit(IrInstruction::Store { val: error, ptr: err_ptr });
                     self.emit(IrInstruction::Jump { target: catch_target });
+                } else if self.current_method_async {
+                    let error_message = if val_op.get_type() == Type::String {
+                        val_op
+                    } else {
+                        IrOperand::ConstantString("asynchronous task threw an error".into())
+                    };
+                    self.emit(IrInstruction::CallRuntime {
+                        dest: None,
+                        symbol: "ube_task_set_error".into(),
+                        args: vec![error_message],
+                        ret_ty: Type::Void,
+                    });
+                    self.emit(IrInstruction::Return {
+                        val: (self.current_method_return_type != Type::Void)
+                            .then(|| Self::default_operand_for_type(&self.current_method_return_type)),
+                    });
                 } else {
                     self.diagnostics.push(Diagnostic::error(
                         "'throw' can only be used inside a guard block",
@@ -821,12 +1203,12 @@ impl IrBuilder {
             ExprKind::Print { expr: inner } => {
                 let op = self.build_expr(inner);
                 let symbol = match op.get_type() {
-                    Type::String => "talas_print_str",
-                    Type::Int => "talas_print_i64",
-                    Type::Long => "talas_print_i64",
-                    Type::Decimal => "talas_print_f64",
-                    Type::Bool => "talas_print_bool",
-                    _ => "talas_print_str",
+                    Type::String => "ube_print_str",
+                    Type::Int => "ube_print_i64",
+                    Type::Long => "ube_print_i64",
+                    Type::Decimal => "ube_print_f64",
+                    Type::Bool => "ube_print_bool",
+                    _ => "ube_print_str",
                 };
                 self.emit(IrInstruction::CallRuntime {
                     dest: None,
@@ -893,7 +1275,7 @@ impl IrBuilder {
                             let dest = self.fresh_reg();
                             self.emit(IrInstruction::CallRuntime {
                                 dest: Some(dest),
-                                symbol: "talas_string_concat".into(),
+                                symbol: "ube_string_concat".into(),
                                 args: vec![acc, next.clone()],
                                 ret_ty: Type::String,
                             });
@@ -919,25 +1301,82 @@ impl IrBuilder {
                 self.emit(IrInstruction::Load { dest, ptr, ty: ty.clone() });
                 IrOperand::Register(dest, ty)
             }
-            ExprKind::ClassInstantiation { class_name, args } => {
-                self.build_class_instantiation(class_name, args)
+            ExprKind::ClassInstantiation { class_name, generic_type, args } => {
+                if class_name == "Channel" {
+                    let ty = generic_type
+                        .as_ref()
+                        .map(|t| self.type_spec_to_type(t))
+                        .unwrap_or(Type::Int);
+                    self.build_channel_instantiation(args, ty)
+                } else {
+                    self.build_class_instantiation(class_name, args)
+                }
             }
             ExprKind::Call { callee, args } => {
                 let arg_ops: Vec<IrOperand> = args.iter().map(|a| self.build_expr(a)).collect();
                 match &callee.kind {
                     ExprKind::MemberAccess { object, member, .. } => {
-                        let obj_op = self.build_expr(object);
-                        let dest = self.fresh_reg();
-                        let mut class_name = match obj_op.get_type() {
-                            Type::Class { name } => name,
-                            _ => "Application".into(),
+                        let static_class_name = match &object.kind {
+                            ExprKind::Identifier(name) if self.lookup_var(name).is_none() => {
+                                Some(name.clone())
+                            }
+                            _ => None,
                         };
+                        let obj_op = if static_class_name.is_some() {
+                            IrOperand::Null
+                        } else {
+                            self.build_expr(object)
+                        };
+                        let dest = self.fresh_reg();
+                        let mut class_name = static_class_name.unwrap_or_else(|| match obj_op.get_type() {
+                            Type::Class { name } => name,
+                            Type::Channel(_) => "Channel".into(),
+                            Type::Nullable(inner) => match *inner {
+                                Type::Class { name } => name,
+                                _ => "Application".into(),
+                            },
+                            _ => "Application".into(),
+                        });
+                        if class_name == "Error" && member == "message" {
+                            self.emit(IrInstruction::CallRuntime {
+                                dest: Some(dest),
+                                symbol: "ube_error_message".into(),
+                                args: vec![obj_op],
+                                ret_ty: Type::String,
+                            });
+                            return IrOperand::Register(dest, Type::String);
+                        }
+
+                        let async_method = self
+                            .class_decls
+                            .get(&class_name)
+                            .and_then(|decl| decl.methods.iter().find(|method| method.name == *member))
+                            .filter(|method| method.is_async)
+                            .cloned();
+                        if let Some(method) = async_method {
+                            let result_ty = method
+                                .return_type
+                                .as_ref()
+                                .map_or(Type::Int, |ty| self.type_spec_to_type(ty));
+                            let callback = format!("ube_async_thunk_{}", self.next_async_thunk);
+                            self.next_async_thunk += 1;
+                            self.emit(IrInstruction::SpawnAsyncCall {
+                                dest,
+                                callback,
+                                class_name,
+                                method_name: member.clone(),
+                                receiver: obj_op,
+                                args: arg_ops,
+                                result_ty: result_ty.clone(),
+                            });
+                            return IrOperand::Register(dest, Type::Task(Box::new(result_ty)));
+                        }
 
                         if class_name == "List" {
                             let symbol = match member.as_str() {
-                                "add" => "talas_list_add",
-                                "len" => "talas_list_len",
-                                _ => "talas_list_len",
+                                "add" => "ube_list_add",
+                                "len" => "ube_list_len",
+                                _ => "ube_list_len",
                             };
                             let dest = self.fresh_reg();
                             let mut call_args = vec![obj_op];
@@ -953,8 +1392,8 @@ impl IrBuilder {
                         }
                         if class_name == "Map" {
                             let symbol = match member.as_str() {
-                                "len" => "talas_map_len",
-                                _ => "talas_map_len",
+                                "len" => "ube_map_len",
+                                _ => "ube_map_len",
                             };
                             let dest = self.fresh_reg();
                             let mut call_args = vec![obj_op];
@@ -970,14 +1409,21 @@ impl IrBuilder {
                         }
                         if class_name == "Channel" {
                             let symbol = match member.as_str() {
-                                "send" => "talas_channel_send",
-                                "receive" => "talas_channel_recv",
-                                _ => "talas_channel_recv",
+                                "send" => "ube_channel_send_async",
+                                "close" => "ube_channel_close",
+                                _ => "ube_channel_recv_async",
                             };
                             let dest = self.fresh_reg();
                             let mut call_args = vec![obj_op];
                             call_args.extend(arg_ops);
-                            let ret_ty = if member == "receive" { Type::Int } else { Type::Void };
+                            let ret_ty = match member.as_str() {
+                                "send" => Type::Task(Box::new(Type::Bool)),
+                                "receive" => match call_args[0].get_type() {
+                                    Type::Channel(element) => Type::Task(element),
+                                    _ => Type::Task(Box::new(Type::Int)),
+                                },
+                                _ => Type::Void,
+                            };
                             self.emit(IrInstruction::CallRuntime {
                                 dest: if ret_ty == Type::Void { None } else { Some(dest) },
                                 symbol: symbol.into(),
@@ -986,29 +1432,35 @@ impl IrBuilder {
                             });
                             return if ret_ty == Type::Void { IrOperand::Null } else { IrOperand::Register(dest, ret_ty) };
                         }
-                        if class_name == "Task" || member == "async" {
+                        if class_name == "Task" || matches!(obj_op.get_type(), Type::Task(_)) {
                             let symbol = match member.as_str() {
-                                "async" => "talas_task_create",
-                                "all" => "talas_task_all",
-                                "any" => "talas_task_any",
-                                "race" => "talas_task_race",
-                                "allSettled" => "talas_task_all_settled",
-                                "cancel" => "talas_task_cancel",
-                                _ => "talas_task_await",
+                                "timeout" => "ube_task_timeout",
+                                "all" => "ube_task_all_async",
+                                "any" => "ube_task_any_async",
+                                "race" => "ube_task_race_async",
+                                "allSettled" => "ube_task_all_settled_async",
+                                "cancel" => "ube_task_cancel",
+                                _ => "ube_task_await",
                             };
                             let dest = self.fresh_reg();
+                            let ret_ty = match member.as_str() {
+                                "timeout" => match obj_op.get_type() {
+                                    Type::Task(result) => Type::Task(result),
+                                    _ => Type::Task(Box::new(Type::Int)),
+                                },
+                                "all" | "allSettled" => Type::Task(Box::new(Type::Class { name: "List".into() })),
+                                "cancel" => Type::Bool,
+                                _ => Type::Task(Box::new(Type::Int)),
+                            };
                             let mut call_args = Vec::new();
-                            if member == "cancel" {
+                            if member == "cancel" || member == "timeout" {
                                 call_args.push(obj_op);
+                                if member == "timeout" {
+                                    call_args.extend(arg_ops);
+                                }
                             } else {
                                 call_args.extend(arg_ops);
                             }
-                            let ret_ty = match member.as_str() {
-                                "async" => Type::Class { name: "Task".into() },
-                                "all" | "allSettled" => Type::Class { name: "List".into() },
-                                "cancel" => Type::Bool,
-                                _ => Type::Int,
-                            };
                             self.emit(IrInstruction::CallRuntime {
                                 dest: Some(dest),
                                 symbol: symbol.into(),
@@ -1020,37 +1472,55 @@ impl IrBuilder {
 
                         if class_name == "DateTime" || member == "now" || member == "date" || member == "time" || member == "of" || member == "utc" || member == "parse" || member == "fromUnix" || member == "fromUnixMillis" {
                             let symbol = match member.as_str() {
-                                "now" => "talas_datetime_now",
-                                "utc" => "talas_datetime_utc",
-                                "date" => "talas_datetime_date",
-                                "time" => "talas_datetime_time",
-                                "of" => "talas_datetime_of",
-                                "parse" => "talas_datetime_parse",
-                                "fromUnix" => "talas_datetime_from_unix",
-                                "fromUnixMillis" => "talas_datetime_from_unix_millis",
-                                "year" => "talas_datetime_year",
-                                "month" => "talas_datetime_month",
-                                "day" => "talas_datetime_day",
-                                "hour" => "talas_datetime_hour",
-                                "minute" => "talas_datetime_minute",
-                                "second" => "talas_datetime_second",
-                                "timestamp" => "talas_datetime_timestamp",
-                                "unix" => "talas_datetime_unix",
-                                "unixMillis" => "talas_datetime_unix_millis",
-                                "unixNanos" => "talas_datetime_unix_nanos",
-                                "zone" => "talas_datetime_zone",
-                                "in" => "talas_datetime_in_zone",
-                                "addDays" | "addHours" | "addMinutes" | "addDuration" => "talas_datetime_add_seconds",
-                                "diffSeconds" | "diffDays" => "talas_datetime_diff_seconds",
-                                "format" => "talas_datetime_format",
-                                _ => "talas_datetime_now",
+                                "now" => "ube_datetime_now",
+                                "utc" => "ube_datetime_utc",
+                                "date" => "ube_datetime_date",
+                                "time" => "ube_datetime_time",
+                                "of" => "ube_datetime_of",
+                                "parse" => "ube_datetime_parse",
+                                "fromUnix" => "ube_datetime_from_unix",
+                                "fromUnixMillis" => "ube_datetime_from_unix_millis",
+                                "year" => "ube_datetime_year",
+                                "month" => "ube_datetime_month",
+                                "day" => "ube_datetime_day",
+                                "hour" => "ube_datetime_hour",
+                                "minute" => "ube_datetime_minute",
+                                "second" => "ube_datetime_second",
+                                "timestamp" => "ube_datetime_timestamp",
+                                "unix" => "ube_datetime_unix",
+                                "unixMillis" => "ube_datetime_unix_millis",
+                                "unixNanos" => "ube_datetime_unix_nanos",
+                                "zone" => "ube_datetime_zone",
+                                "in" => "ube_datetime_in_zone",
+                                "addDays" | "addHours" | "addMinutes" | "addDuration" => "ube_datetime_add_seconds",
+                                "diffSeconds" | "diffDays" => "ube_datetime_diff_seconds",
+                                "format" => "ube_datetime_format",
+                                _ => "ube_datetime_now",
                             };
                             let dest = self.fresh_reg();
                             let mut call_args = Vec::new();
                             if !["now", "utc", "date", "time", "of", "parse", "fromUnix", "fromUnixMillis"].contains(&member.as_str()) {
                                 call_args.push(obj_op);
                             }
-                            call_args.extend(arg_ops);
+                            for arg in arg_ops {
+                                let arg = match member.as_str() {
+                                    "addDays" => self.scale_integer_operand(arg, 86_400),
+                                    "addHours" => self.scale_integer_operand(arg, 3_600),
+                                    "addMinutes" => self.scale_integer_operand(arg, 60),
+                                    "addDuration" => {
+                                        let seconds = self.fresh_reg();
+                                        self.emit(IrInstruction::CallRuntime {
+                                            dest: Some(seconds),
+                                            symbol: "ube_duration_total_seconds".into(),
+                                            args: vec![arg],
+                                            ret_ty: Type::Int,
+                                        });
+                                        IrOperand::Register(seconds, Type::Int)
+                                    }
+                                    _ => arg,
+                                };
+                                call_args.push(arg);
+                            }
                             let ret_ty = match member.as_str() {
                                 "zone" | "format" => Type::String,
                                 "year" | "month" | "day" | "hour" | "minute" | "second" | "timestamp" | "unix" | "unixMillis" | "unixNanos" | "diffSeconds" | "diffDays" => Type::Int,
@@ -1062,21 +1532,45 @@ impl IrBuilder {
                                 args: call_args,
                                 ret_ty: ret_ty.clone(),
                             });
+                            if member == "diffDays" {
+                                let days = self.fresh_reg();
+                                self.emit(IrInstruction::Binary {
+                                    dest: days,
+                                    op: BinaryOp::Div,
+                                    left: IrOperand::Register(dest, Type::Int),
+                                    right: IrOperand::ConstantInt(86_400),
+                                    operand_ty: Type::Int,
+                                    result_ty: Type::Int,
+                                });
+                                return IrOperand::Register(days, Type::Int);
+                            }
                             return IrOperand::Register(dest, ret_ty);
                         }
 
                         if class_name == "Duration" || member == "seconds" || member == "minutes" || member == "hours" || member == "days" {
                             let symbol = match member.as_str() {
-                                "seconds" | "minutes" | "hours" | "days" => "talas_duration_create",
-                                "totalSeconds" => "talas_duration_total_seconds",
-                                _ => "talas_duration_create",
+                                "seconds" | "minutes" | "hours" | "days" => "ube_duration_create",
+                                "totalSeconds" => "ube_duration_total_seconds",
+                                _ => "ube_duration_create",
                             };
                             let dest = self.fresh_reg();
                             let mut call_args = Vec::new();
                             if member == "totalSeconds" {
                                 call_args.push(obj_op);
                             }
-                            call_args.extend(arg_ops);
+                            for arg in arg_ops {
+                                let factor = match member.as_str() {
+                                    "minutes" => 60,
+                                    "hours" => 3_600,
+                                    "days" => 86_400,
+                                    _ => 1,
+                                };
+                                call_args.push(if factor == 1 {
+                                    arg
+                                } else {
+                                    self.scale_integer_operand(arg, factor)
+                                });
+                            }
                             let ret_ty = if member == "totalSeconds" { Type::Int } else { Type::Class { name: "Duration".into() } };
                             self.emit(IrInstruction::CallRuntime {
                                 dest: Some(dest),
@@ -1089,8 +1583,8 @@ impl IrBuilder {
 
                         if class_name == "Currency" || member == "code" || ["PHP", "USD", "EUR", "JPY", "GBP"].contains(&member.as_str()) {
                             let symbol = match member.as_str() {
-                                "code" => "talas_currency_code",
-                                _ => "talas_currency_create",
+                                "code" => "ube_currency_code",
+                                _ => "ube_currency_create",
                             };
                             let dest = self.fresh_reg();
                             let mut call_args = Vec::new();
@@ -1110,17 +1604,17 @@ impl IrBuilder {
 
                         if class_name == "Money" || ["php", "usd", "eur", "jpy", "gbp", "amount", "currency", "add", "subtract", "multiply"].contains(&member.as_str()) {
                             let symbol = match member.as_str() {
-                                "php" => "talas_money_php",
-                                "usd" => "talas_money_usd",
-                                "eur" => "talas_money_eur",
-                                "jpy" => "talas_money_jpy",
-                                "gbp" => "talas_money_gbp",
-                                "amount" => "talas_money_amount",
-                                "currency" => "talas_money_currency",
-                                "add" => "talas_money_add",
-                                "subtract" => "talas_money_subtract",
-                                "multiply" => "talas_money_multiply_percent",
-                                _ => "talas_money_create",
+                                "php" => "ube_money_php",
+                                "usd" => "ube_money_usd",
+                                "eur" => "ube_money_eur",
+                                "jpy" => "ube_money_jpy",
+                                "gbp" => "ube_money_gbp",
+                                "amount" => "ube_money_amount",
+                                "currency" => "ube_money_currency",
+                                "add" => "ube_money_add",
+                                "subtract" => "ube_money_subtract",
+                                "multiply" => "ube_money_multiply_percent",
+                                _ => "ube_money_create",
                             };
                             let dest = self.fresh_reg();
                             let mut call_args = Vec::new();
@@ -1146,7 +1640,7 @@ impl IrBuilder {
                             let dest = self.fresh_reg();
                             self.emit(IrInstruction::CallRuntime {
                                 dest: Some(dest),
-                                symbol: "talas_exchange_convert".into(),
+                                symbol: "ube_exchange_convert".into(),
                                 args: arg_ops,
                                 ret_ty: Type::Class { name: "Money".into() },
                             });
@@ -1154,7 +1648,7 @@ impl IrBuilder {
                         }
 
                         if class_name == "Percent" || member == "of" || member == "value" {
-                            let symbol = if member == "value" { "talas_percent_value" } else { "talas_percent_create" };
+                            let symbol = if member == "value" { "ube_percent_value" } else { "ube_percent_create" };
                             let dest = self.fresh_reg();
                             let mut call_args = Vec::new();
                             if member == "value" {
@@ -1172,7 +1666,7 @@ impl IrBuilder {
                         }
 
                         if class_name == "Rate" || member == "percent" || member == "value" {
-                            let symbol = if member == "value" { "talas_rate_value" } else { "talas_rate_create" };
+                            let symbol = if member == "value" { "ube_rate_value" } else { "ube_rate_create" };
                             let dest = self.fresh_reg();
                             let mut call_args = Vec::new();
                             if member == "value" {
@@ -1191,11 +1685,11 @@ impl IrBuilder {
 
                         if class_name == "GeoPoint" || ["latitude", "longitude", "distanceTo", "bearingTo"].contains(&member.as_str()) {
                             let symbol = match member.as_str() {
-                                "latitude" => "talas_geopoint_latitude",
-                                "longitude" => "talas_geopoint_longitude",
-                                "distanceTo" => "talas_geopoint_distance_to",
-                                "bearingTo" => "talas_geopoint_bearing_to",
-                                _ => "talas_geopoint_create",
+                                "latitude" => "ube_geopoint_latitude",
+                                "longitude" => "ube_geopoint_longitude",
+                                "distanceTo" => "ube_geopoint_distance_to",
+                                "bearingTo" => "ube_geopoint_bearing_to",
+                                _ => "ube_geopoint_create",
                             };
                             let dest = self.fresh_reg();
                             let mut call_args = vec![obj_op];
@@ -1217,17 +1711,17 @@ impl IrBuilder {
                             let is_inst = obj_op.get_type() == (Type::Class { name: "Distance".into() });
                             let symbol = if is_inst {
                                 match member.as_str() {
-                                    "meters" => "talas_distance_meters",
-                                    "kilometers" => "talas_distance_km",
-                                    "miles" => "talas_distance_miles",
-                                    _ => "talas_distance_meters",
+                                    "meters" => "ube_distance_meters",
+                                    "kilometers" => "ube_distance_km",
+                                    "miles" => "ube_distance_miles",
+                                    _ => "ube_distance_meters",
                                 }
                             } else {
                                 match member.as_str() {
-                                    "meters" => "talas_distance_create_meters",
-                                    "kilometers" => "talas_distance_create_km",
-                                    "miles" => "talas_distance_create_miles",
-                                    _ => "talas_distance_create_meters",
+                                    "meters" => "ube_distance_create_meters",
+                                    "kilometers" => "ube_distance_create_km",
+                                    "miles" => "ube_distance_create_miles",
+                                    _ => "ube_distance_create_meters",
                                 }
                             };
                             let dest = self.fresh_reg();
@@ -1248,8 +1742,8 @@ impl IrBuilder {
 
                         if class_name == "GeoBounds" || ["southwest", "northeast", "contains"].contains(&member.as_str()) {
                             let symbol = match member.as_str() {
-                                "contains" => "talas_geobounds_contains",
-                                _ => "talas_geobounds_create",
+                                "contains" => "ube_geobounds_contains",
+                                _ => "ube_geobounds_create",
                             };
                             let dest = self.fresh_reg();
                             let mut call_args = vec![obj_op];
@@ -1268,7 +1762,7 @@ impl IrBuilder {
                             let dest = self.fresh_reg();
                             self.emit(IrInstruction::CallRuntime {
                                 dest: Some(dest),
-                                symbol: "talas_geolocation_current".into(),
+                                symbol: "ube_geolocation_current".into(),
                                 args: arg_ops,
                                 ret_ty: Type::Class { name: "GeoPoint".into() },
                             });
@@ -1277,42 +1771,42 @@ impl IrBuilder {
 
                         if class_name == "Math" || ["PI", "E", "TAU", "abs", "min", "max", "sqrt", "cbrt", "pow", "floor", "ceil", "round", "truncate", "clamp", "sign", "sin", "cos", "tan", "asin", "acos", "atan", "atan2", "radians", "degrees", "log", "log10", "log2", "exp", "isNaN", "isInfinite", "isFinite", "isEven", "isOdd", "gcd", "lcm"].contains(&member.as_str()) {
                             let symbol = match member.as_str() {
-                                "PI" => "talas_math_pi",
-                                "E" => "talas_math_e",
-                                "TAU" => "talas_math_tau",
-                                "abs" => "talas_math_abs",
-                                "min" => "talas_math_min",
-                                "max" => "talas_math_max",
-                                "sqrt" => "talas_math_sqrt",
-                                "cbrt" => "talas_math_cbrt",
-                                "pow" => "talas_math_pow",
-                                "floor" => "talas_math_floor",
-                                "ceil" => "talas_math_ceil",
-                                "round" => if arg_ops.len() > 1 { "talas_math_round_decimals" } else { "talas_math_round" },
-                                "truncate" => "talas_math_truncate",
-                                "clamp" => "talas_math_clamp",
-                                "sign" => "talas_math_sign",
-                                "sin" => "talas_math_sin",
-                                "cos" => "talas_math_cos",
-                                "tan" => "talas_math_tan",
-                                "asin" => "talas_math_asin",
-                                "acos" => "talas_math_acos",
-                                "atan" => "talas_math_atan",
-                                "atan2" => "talas_math_atan2",
-                                "radians" => "talas_math_radians",
-                                "degrees" => "talas_math_degrees",
-                                "log" => "talas_math_log",
-                                "log10" => "talas_math_log10",
-                                "log2" => "talas_math_log2",
-                                "exp" => "talas_math_exp",
-                                "isNaN" => "talas_math_is_nan",
-                                "isInfinite" => "talas_math_is_infinite",
-                                "isFinite" => "talas_math_is_finite",
-                                "isEven" => "talas_math_is_even",
-                                "isOdd" => "talas_math_is_odd",
-                                "gcd" => "talas_math_gcd",
-                                "lcm" => "talas_math_lcm",
-                                _ => "talas_math_pi",
+                                "PI" => "ube_math_pi",
+                                "E" => "ube_math_e",
+                                "TAU" => "ube_math_tau",
+                                "abs" => "ube_math_abs",
+                                "min" => "ube_math_min",
+                                "max" => "ube_math_max",
+                                "sqrt" => "ube_math_sqrt",
+                                "cbrt" => "ube_math_cbrt",
+                                "pow" => "ube_math_pow",
+                                "floor" => "ube_math_floor",
+                                "ceil" => "ube_math_ceil",
+                                "round" => if arg_ops.len() > 1 { "ube_math_round_decimals" } else { "ube_math_round" },
+                                "truncate" => "ube_math_truncate",
+                                "clamp" => "ube_math_clamp",
+                                "sign" => "ube_math_sign",
+                                "sin" => "ube_math_sin",
+                                "cos" => "ube_math_cos",
+                                "tan" => "ube_math_tan",
+                                "asin" => "ube_math_asin",
+                                "acos" => "ube_math_acos",
+                                "atan" => "ube_math_atan",
+                                "atan2" => "ube_math_atan2",
+                                "radians" => "ube_math_radians",
+                                "degrees" => "ube_math_degrees",
+                                "log" => "ube_math_log",
+                                "log10" => "ube_math_log10",
+                                "log2" => "ube_math_log2",
+                                "exp" => "ube_math_exp",
+                                "isNaN" => "ube_math_is_nan",
+                                "isInfinite" => "ube_math_is_infinite",
+                                "isFinite" => "ube_math_is_finite",
+                                "isEven" => "ube_math_is_even",
+                                "isOdd" => "ube_math_is_odd",
+                                "gcd" => "ube_math_gcd",
+                                "lcm" => "ube_math_lcm",
+                                _ => "ube_math_pi",
                             };
                             let dest = self.fresh_reg();
                             let ret_ty = match member.as_str() {
@@ -1331,12 +1825,12 @@ impl IrBuilder {
 
                         if class_name == "Random" || ["int", "decimal", "bool", "uuid", "bytes"].contains(&member.as_str()) {
                             let symbol = match member.as_str() {
-                                "int" => "talas_random_int",
-                                "decimal" => "talas_random_decimal",
-                                "bool" => "talas_random_bool",
-                                "uuid" => "talas_random_uuid",
-                                "bytes" => "talas_random_bytes",
-                                _ => "talas_random_int",
+                                "int" => "ube_random_int",
+                                "decimal" => "ube_random_decimal",
+                                "bool" => "ube_random_bool",
+                                "uuid" => "ube_random_uuid",
+                                "bytes" => "ube_random_bytes",
+                                _ => "ube_random_int",
                             };
                             let dest = self.fresh_reg();
                             let ret_ty = match member.as_str() {
@@ -1359,7 +1853,7 @@ impl IrBuilder {
                             let dest = self.fresh_reg();
                             self.emit(IrInstruction::CallRuntime {
                                 dest: Some(dest),
-                                symbol: "talas_securerandom_bytes".into(),
+                                symbol: "ube_securerandom_bytes".into(),
                                 args: arg_ops,
                                 ret_ty: Type::Class { name: "List".into() },
                             });
@@ -1368,14 +1862,14 @@ impl IrBuilder {
 
                         if class_name == "Statistics" || ["mean", "median", "variance", "standardDeviation", "percentile", "covariance", "correlation"].contains(&member.as_str()) {
                             let symbol = match member.as_str() {
-                                "mean" => "talas_statistics_mean",
-                                "median" => "talas_statistics_median",
-                                "variance" => "talas_statistics_variance",
-                                "standardDeviation" => "talas_statistics_std_dev",
-                                "percentile" => "talas_statistics_percentile",
-                                "covariance" => "talas_statistics_covariance",
-                                "correlation" => "talas_statistics_correlation",
-                                _ => "talas_statistics_mean",
+                                "mean" => "ube_statistics_mean",
+                                "median" => "ube_statistics_median",
+                                "variance" => "ube_statistics_variance",
+                                "standardDeviation" => "ube_statistics_std_dev",
+                                "percentile" => "ube_statistics_percentile",
+                                "covariance" => "ube_statistics_covariance",
+                                "correlation" => "ube_statistics_correlation",
+                                _ => "ube_statistics_mean",
                             };
                             let dest = self.fresh_reg();
                             self.emit(IrInstruction::CallRuntime {
@@ -1389,14 +1883,14 @@ impl IrBuilder {
 
                         if class_name == "Probability" || ["factorial", "permutations", "combinations", "normal", "binomial", "poisson", "uniform"].contains(&member.as_str()) {
                             let symbol = match member.as_str() {
-                                "factorial" => "talas_probability_factorial",
-                                "permutations" => "talas_probability_permutations",
-                                "combinations" => "talas_probability_combinations",
-                                "normal" => "talas_probability_normal",
-                                "binomial" => "talas_probability_binomial",
-                                "poisson" => "talas_probability_poisson",
-                                "uniform" => "talas_probability_uniform",
-                                _ => "talas_probability_factorial",
+                                "factorial" => "ube_probability_factorial",
+                                "permutations" => "ube_probability_permutations",
+                                "combinations" => "ube_probability_combinations",
+                                "normal" => "ube_probability_normal",
+                                "binomial" => "ube_probability_binomial",
+                                "poisson" => "ube_probability_poisson",
+                                "uniform" => "ube_probability_uniform",
+                                _ => "ube_probability_factorial",
                             };
                             let dest = self.fresh_reg();
                             let ret_ty = match member.as_str() {
@@ -1415,15 +1909,15 @@ impl IrBuilder {
                         if class_name == "File" || ["open", "read", "write", "append", "delete", "exists", "info", "close"].contains(&member.as_str()) {
                             let is_inst = obj_op.get_type() == (Type::Class { name: "File".into() });
                             let symbol = match member.as_str() {
-                                "open" => "talas_file_open",
-                                "read" => "talas_file_read",
-                                "write" => "talas_file_write",
-                                "append" => "talas_file_append",
-                                "delete" => "talas_file_delete",
-                                "exists" => "talas_file_exists",
-                                "info" => "talas_file_info",
-                                "close" => "talas_file_close",
-                                _ => "talas_file_read",
+                                "open" => "ube_file_open",
+                                "read" => "ube_file_read",
+                                "write" => "ube_file_write",
+                                "append" => "ube_file_append",
+                                "delete" => "ube_file_delete",
+                                "exists" => "ube_file_exists",
+                                "info" => "ube_file_info",
+                                "close" => "ube_file_close",
+                                _ => "ube_file_read",
                             };
                             let dest = self.fresh_reg();
                             let mut call_args = Vec::new();
@@ -1450,11 +1944,11 @@ impl IrBuilder {
 
                         if class_name == "FileInfo" || ["size", "createdAt", "modifiedAt", "isDirectory"].contains(&member.as_str()) {
                             let symbol = match member.as_str() {
-                                "size" => "talas_fileinfo_size",
-                                "createdAt" => "talas_fileinfo_created_at",
-                                "modifiedAt" => "talas_fileinfo_modified_at",
-                                "isDirectory" => "talas_fileinfo_is_directory",
-                                _ => "talas_fileinfo_size",
+                                "size" => "ube_fileinfo_size",
+                                "createdAt" => "ube_fileinfo_created_at",
+                                "modifiedAt" => "ube_fileinfo_modified_at",
+                                "isDirectory" => "ube_fileinfo_is_directory",
+                                _ => "ube_fileinfo_size",
                             };
                             let dest = self.fresh_reg();
                             let mut call_args = vec![obj_op];
@@ -1476,10 +1970,10 @@ impl IrBuilder {
 
                         if class_name == "Directory" || ["create", "delete", "list"].contains(&member.as_str()) {
                             let symbol = match member.as_str() {
-                                "create" => "talas_directory_create",
-                                "delete" => "talas_directory_delete",
-                                "list" => "talas_directory_list",
-                                _ => "talas_directory_create",
+                                "create" => "ube_directory_create",
+                                "delete" => "ube_directory_delete",
+                                "list" => "ube_directory_list",
+                                _ => "ube_directory_create",
                             };
                             let dest = self.fresh_reg();
                             let ret_ty = if member == "list" { Type::Class { name: "List".into() } } else { Type::Void };
@@ -1495,10 +1989,10 @@ impl IrBuilder {
 
                         if class_name == "Path" || ["join", "filename", "extension"].contains(&member.as_str()) {
                             let symbol = match member.as_str() {
-                                "join" => "talas_path_join",
-                                "filename" => "talas_path_filename",
-                                "extension" => "talas_path_extension",
-                                _ => "talas_path_join",
+                                "join" => "ube_path_join",
+                                "filename" => "ube_path_filename",
+                                "extension" => "ube_path_extension",
+                                _ => "ube_path_join",
                             };
                             let dest = self.fresh_reg();
                             self.emit(IrInstruction::CallRuntime {
@@ -1512,14 +2006,14 @@ impl IrBuilder {
 
                         if class_name == "Server" || ["get", "post", "put", "patch", "delete", "options", "head", "use", "static", "websocket", "start", "stop", "port", "tls", "enableHttp2", "enableHttp3"].contains(&member.as_str()) {
                             let symbol = match member.as_str() {
-                                "start" => "talas_server_start",
-                                "stop" => "talas_server_stop",
-                                "port" => "talas_server_port",
-                                "tls" => "talas_server_tls",
-                                "use" => "talas_server_use",
-                                "enableHttp2" => "talas_server_enable_http2",
-                                "enableHttp3" => "talas_server_enable_http3",
-                                _ => "talas_server_route",
+                                "start" => "ube_server_start",
+                                "stop" => "ube_server_stop",
+                                "port" => "ube_server_port",
+                                "tls" => "ube_server_tls",
+                                "use" => "ube_server_use",
+                                "enableHttp2" => "ube_server_enable_http2",
+                                "enableHttp3" => "ube_server_enable_http3",
+                                _ => "ube_server_route",
                             };
                             let dest = self.fresh_reg();
                             let mut call_args = vec![obj_op];
@@ -1537,14 +2031,14 @@ impl IrBuilder {
 
                         if class_name == "Request" || ["path", "pathLong", "pathInt", "query", "queryDecimal", "header", "cookie", "hasBearerToken", "body", "method", "url", "ip", "protocol", "isHttp3"].contains(&member.as_str()) {
                             let symbol = match member.as_str() {
-                                "pathLong" => "talas_request_path_long",
-                                "pathInt" => "talas_request_path_int",
-                                "query" => "talas_request_query",
-                                "header" => "talas_request_header",
-                                "hasBearerToken" => "talas_request_has_bearer_token",
-                                "protocol" => "talas_request_protocol",
-                                "isHttp3" => "talas_request_is_http3",
-                                _ => "talas_request_path",
+                                "pathLong" => "ube_request_path_long",
+                                "pathInt" => "ube_request_path_int",
+                                "query" => "ube_request_query",
+                                "header" => "ube_request_header",
+                                "hasBearerToken" => "ube_request_has_bearer_token",
+                                "protocol" => "ube_request_protocol",
+                                "isHttp3" => "ube_request_is_http3",
+                                _ => "ube_request_path",
                             };
                             let dest = self.fresh_reg();
                             let mut call_args = vec![obj_op];
@@ -1578,7 +2072,7 @@ impl IrBuilder {
                             let ret_ty = Type::Class { name: "Response".into() };
                             self.emit(IrInstruction::CallRuntime {
                                 dest: Some(dest),
-                                symbol: "talas_response_create".into(),
+                                symbol: "ube_response_create".into(),
                                 args: call_args,
                                 ret_ty: ret_ty.clone(),
                             });
@@ -1587,9 +2081,9 @@ impl IrBuilder {
 
                         if class_name == "WebSocket" || ["onMessage", "send", "close"].contains(&member.as_str()) {
                             let symbol = match member.as_str() {
-                                "onMessage" => "talas_websocket_on_message",
-                                "send" => "talas_websocket_send",
-                                _ => "talas_websocket_send",
+                                "onMessage" => "ube_websocket_on_message",
+                                "send" => "ube_websocket_send",
+                                _ => "ube_websocket_send",
                             };
                             let mut call_args = vec![obj_op];
                             call_args.extend(arg_ops);
@@ -1604,9 +2098,9 @@ impl IrBuilder {
 
                         if class_name == "Json" || ["parse", "partialParse", "stringify", "from", "to"].contains(&member.as_str()) {
                             let symbol = match member.as_str() {
-                                "parse" | "partialParse" => "talas_json_parse",
-                                "stringify" | "from" => "talas_json_stringify",
-                                _ => "talas_json_parse",
+                                "parse" | "partialParse" => "ube_json_parse",
+                                "stringify" | "from" => "ube_json_stringify",
+                                _ => "ube_json_parse",
                             };
                             let dest = self.fresh_reg();
                             let ret_ty = if member == "stringify" || member == "from" { Type::String } else { Type::Class { name: "JsonObject".into() } };
@@ -1621,12 +2115,12 @@ impl IrBuilder {
 
                         if class_name == "JsonObject" || ["getString", "getInt", "getLong", "getDecimal", "getBool", "getObject", "getArray"].contains(&member.as_str()) {
                             let symbol = match member.as_str() {
-                                "getString" => "talas_jsonobject_get_string",
-                                "getInt" => "talas_jsonobject_get_int",
-                                "getLong" => "talas_jsonobject_get_long",
-                                "getDecimal" => "talas_jsonobject_get_decimal",
-                                "getBool" => "talas_jsonobject_get_bool",
-                                _ => "talas_jsonobject_get_string",
+                                "getString" => "ube_jsonobject_get_string",
+                                "getInt" => "ube_jsonobject_get_int",
+                                "getLong" => "ube_jsonobject_get_long",
+                                "getDecimal" => "ube_jsonobject_get_decimal",
+                                "getBool" => "ube_jsonobject_get_bool",
+                                _ => "ube_jsonobject_get_string",
                             };
                             let dest = self.fresh_reg();
                             let mut call_args = vec![obj_op];
@@ -1651,9 +2145,9 @@ impl IrBuilder {
 
                         if class_name == "Xml" || ["parse", "partialParse", "create", "stringify", "from", "to"].contains(&member.as_str()) {
                             let symbol = match member.as_str() {
-                                "parse" | "partialParse" => "talas_xml_parse",
-                                "create" => "talas_xml_create",
-                                _ => "talas_xml_parse",
+                                "parse" | "partialParse" => "ube_xml_parse",
+                                "create" => "ube_xml_create",
+                                _ => "ube_xml_parse",
                             };
                             let dest = self.fresh_reg();
                             let ret_ty = Type::Class { name: "XmlDocument".into() };
@@ -1668,9 +2162,9 @@ impl IrBuilder {
 
                         if class_name == "XmlDocument" || ["root", "toString"].contains(&member.as_str()) {
                             let symbol = match member.as_str() {
-                                "root" => "talas_xmldocument_root",
-                                "toString" => "talas_xmldocument_to_string",
-                                _ => "talas_xmldocument_root",
+                                "root" => "ube_xmldocument_root",
+                                "toString" => "ube_xmldocument_to_string",
+                                _ => "ube_xmldocument_root",
                             };
                             let dest = self.fresh_reg();
                             let mut call_args = vec![obj_op];
@@ -1688,11 +2182,11 @@ impl IrBuilder {
                         if class_name == "XmlElement" || ["child", "element", "text", "getText"].contains(&member.as_str()) {
                             let is_text_getter = member == "text" && arg_ops.is_empty();
                             let symbol = match member.as_str() {
-                                "child" => "talas_xmlement_child",
-                                "element" => "talas_xmlement_element",
-                                "text" => if is_text_getter { "talas_xmlement_get_text" } else { "talas_xmlement_text" },
-                                "getText" => "talas_xmlement_get_text",
-                                _ => "talas_xmlement_child",
+                                "child" => "ube_xmlement_child",
+                                "element" => "ube_xmlement_element",
+                                "text" => if is_text_getter { "ube_xmlement_get_text" } else { "ube_xmlement_text" },
+                                "getText" => "ube_xmlement_get_text",
+                                _ => "ube_xmlement_child",
                             };
                             let dest = self.fresh_reg();
                             let mut call_args = vec![obj_op];
@@ -1747,16 +2241,16 @@ impl IrBuilder {
                     }
                     ExprKind::Identifier(class_name) => {
                         let symbol = match class_name.as_str() {
-                            "Money" => "talas_money_create",
-                            "Percent" => "talas_percent_create",
-                            "Rate" => "talas_rate_create",
-                            "GeoPoint" => "talas_geopoint_create",
-                            "GeoBounds" => "talas_geobounds_create",
-                            "Distance" => "talas_distance_create_meters",
-                            "Server" => "talas_server_create",
-                            "Cookie" => "talas_cookie_create",
-                            "LocationPermissionError" | "LocationUnavailableError" | "FileError" | "FileNotFoundError" | "PermissionError" | "AlreadyExistsError" | "InvalidPathError" | "DiskFullError" | "JsonError" | "JsonParseError" | "MissingFieldError" | "InvalidTypeError" | "XmlError" | "XmlParseError" => "talas_generic_error_create",
-                            _ => "talas_money_create",
+                            "Money" => "ube_money_create",
+                            "Percent" => "ube_percent_create",
+                            "Rate" => "ube_rate_create",
+                            "GeoPoint" => "ube_geopoint_create",
+                            "GeoBounds" => "ube_geobounds_create",
+                            "Distance" => "ube_distance_create_meters",
+                            "Server" => "ube_server_create",
+                            "Cookie" => "ube_cookie_create",
+                            "LocationPermissionError" | "LocationUnavailableError" | "FileError" | "FileNotFoundError" | "PermissionError" | "AlreadyExistsError" | "InvalidPathError" | "DiskFullError" | "JsonError" | "JsonParseError" | "MissingFieldError" | "InvalidTypeError" | "XmlError" | "XmlParseError" => "ube_generic_error_create",
+                            _ => "ube_money_create",
                         };
                         let dest = self.fresh_reg();
                         let ret_ty = Type::Class { name: class_name.clone() };
@@ -1784,18 +2278,43 @@ impl IrBuilder {
                         Some(expr.span),
                     ));
                 }
-                let obj_op = self.build_expr(object);
+                let static_class_name = match &object.kind {
+                    ExprKind::Identifier(name) if self.lookup_var(name).is_none() => Some(name.clone()),
+                    _ => None,
+                };
+                if static_class_name.as_deref() == Some("Math")
+                    && matches!(member.as_str(), "PI" | "E" | "TAU")
+                {
+                    let symbol = match member.as_str() {
+                        "PI" => "ube_math_pi",
+                        "E" => "ube_math_e",
+                        _ => "ube_math_tau",
+                    };
+                    let dest = self.fresh_reg();
+                    self.emit(IrInstruction::CallRuntime {
+                        dest: Some(dest),
+                        symbol: symbol.into(),
+                        args: vec![],
+                        ret_ty: Type::Decimal,
+                    });
+                    return IrOperand::Register(dest, Type::Decimal);
+                }
+                let obj_op = if static_class_name.is_some() {
+                    IrOperand::Null
+                } else {
+                    self.build_expr(object)
+                };
                 let dest = self.fresh_reg();
-                let class_name = match obj_op.get_type() {
+                let class_name = static_class_name.unwrap_or_else(|| match obj_op.get_type() {
                     Type::Class { name } => name,
                     _ => "".into(),
-                };
+                });
                 if class_name == "Math" && (member == "PI" || member == "E" || member == "TAU") {
                     let symbol = match member.as_str() {
-                        "PI" => "talas_math_pi",
-                        "E" => "talas_math_e",
-                        "TAU" => "talas_math_tau",
-                        _ => "talas_math_pi",
+                        "PI" => "ube_math_pi",
+                        "E" => "ube_math_e",
+                        "TAU" => "ube_math_tau",
+                        _ => "ube_math_pi",
                     };
                     self.emit(IrInstruction::CallRuntime {
                         dest: Some(dest),
@@ -1940,7 +2459,7 @@ impl IrBuilder {
                 let list_reg = self.fresh_reg();
                 self.emit(IrInstruction::CallRuntime {
                     dest: Some(list_reg),
-                    symbol: "talas_list_create".into(),
+                    symbol: "ube_list_create".into(),
                     args: vec![],
                     ret_ty: Type::Class { name: "List".into() },
                 });
@@ -1949,7 +2468,7 @@ impl IrBuilder {
                     let elem_op = self.build_expr(elem);
                     self.emit(IrInstruction::CallRuntime {
                         dest: None,
-                        symbol: "talas_list_add".into(),
+                        symbol: "ube_list_add".into(),
                         args: vec![list_op.clone(), elem_op],
                         ret_ty: Type::Void,
                     });
@@ -1960,7 +2479,7 @@ impl IrBuilder {
                 let map_reg = self.fresh_reg();
                 self.emit(IrInstruction::CallRuntime {
                     dest: Some(map_reg),
-                    symbol: "talas_map_create".into(),
+                    symbol: "ube_map_create".into(),
                     args: vec![],
                     ret_ty: Type::Class { name: "Map".into() },
                 });
@@ -1970,7 +2489,7 @@ impl IrBuilder {
                     let v_op = self.build_expr(v);
                     self.emit(IrInstruction::CallRuntime {
                         dest: None,
-                        symbol: "talas_map_put".into(),
+                        symbol: "ube_map_put".into(),
                         args: vec![map_op.clone(), k_op, v_op],
                         ret_ty: Type::Void,
                     });
@@ -1985,7 +2504,7 @@ impl IrBuilder {
                     if name == "Map" {
                         self.emit(IrInstruction::CallRuntime {
                             dest: Some(dest),
-                            symbol: "talas_map_get".into(),
+                            symbol: "ube_map_get".into(),
                             args: vec![target_op, index_op],
                             ret_ty: Type::Int,
                         });
@@ -1995,19 +2514,37 @@ impl IrBuilder {
                 let len_reg = self.fresh_reg();
                 self.emit(IrInstruction::CallRuntime {
                     dest: Some(len_reg),
-                    symbol: "talas_list_len".into(),
+                    symbol: "ube_list_len".into(),
                     args: vec![target_op.clone()],
                     ret_ty: Type::Int,
                 });
                 let len_op = IrOperand::Register(len_reg, Type::Int);
 
-                let is_out_of_bounds = self.fresh_reg();
+                let is_past_end = self.fresh_reg();
                 self.emit(IrInstruction::Binary {
-                    dest: is_out_of_bounds,
+                    dest: is_past_end,
                     op: BinaryOp::GreaterEqual,
                     left: index_op.clone(),
                     right: len_op,
                     operand_ty: Type::Int,
+                    result_ty: Type::Bool,
+                });
+                let is_negative = self.fresh_reg();
+                self.emit(IrInstruction::Binary {
+                    dest: is_negative,
+                    op: BinaryOp::Less,
+                    left: index_op.clone(),
+                    right: IrOperand::ConstantInt(0),
+                    operand_ty: Type::Int,
+                    result_ty: Type::Bool,
+                });
+                let is_out_of_bounds = self.fresh_reg();
+                self.emit(IrInstruction::Binary {
+                    dest: is_out_of_bounds,
+                    op: BinaryOp::Or,
+                    left: IrOperand::Register(is_past_end, Type::Bool),
+                    right: IrOperand::Register(is_negative, Type::Bool),
+                    operand_ty: Type::Bool,
                     result_ty: Type::Bool,
                 });
 
@@ -2039,56 +2576,57 @@ impl IrBuilder {
 
                 self.emit(IrInstruction::CallRuntime {
                     dest: Some(dest),
-                    symbol: "talas_list_get".into(),
+                    symbol: "ube_list_get".into(),
                     args: vec![target_op, index_op],
                     ret_ty: Type::Int,
                 });
                 IrOperand::Register(dest, Type::Int)
             }
             ExprKind::AsyncSpawn(inner) => {
-                let val_op = self.build_expr(inner);
-                let dest = self.fresh_reg();
-                self.emit(IrInstruction::CallRuntime {
-                    dest: Some(dest),
-                    symbol: "talas_task_create".into(),
-                    args: vec![val_op],
-                    ret_ty: Type::Class { name: "Task".into() },
-                });
-                IrOperand::Register(dest, Type::Class { name: "Task".into() })
+                self.build_deferred_expression(inner)
             }
             ExprKind::Await(inner) => {
                 let task_op = self.build_expr(inner);
                 let dest = self.fresh_reg();
-                self.emit(IrInstruction::CallRuntime {
-                    dest: Some(dest),
-                    symbol: "talas_task_await".into(),
-                    args: vec![task_op],
-                    ret_ty: Type::Int,
+                let error_dest = self.fresh_reg();
+                let result_ty = match task_op.get_type() {
+                    Type::Task(result) => *result,
+                    _ => Type::Int,
+                };
+                self.emit(IrInstruction::AwaitTask {
+                    dest,
+                    error_dest,
+                    task: task_op,
+                    result_ty: result_ty.clone(),
                 });
-                IrOperand::Register(dest, Type::Int)
-            }
-            ExprKind::AwaitAndCancel { task, timeout_ms } => {
-                let task_op = self.build_expr(task);
-                let timeout_op = self.build_expr(timeout_ms);
-                let dest = self.fresh_reg();
-                self.emit(IrInstruction::CallRuntime {
-                    dest: Some(dest),
-                    symbol: "talas_task_await_timeout_cancel".into(),
-                    args: vec![task_op, timeout_op],
-                    ret_ty: Type::Int,
-                });
-                IrOperand::Register(dest, Type::Int)
+                self.route_await_error(error_dest);
+                IrOperand::Register(dest, result_ty)
             }
             ExprKind::If { condition, then_branch, else_branch } => {
+                let res_ty = self
+                    .yield_type_in_stmts(then_branch)
+                    .or_else(|| {
+                        else_branch
+                            .as_ref()
+                            .and_then(|stmts| self.yield_type_in_stmts(stmts))
+                    })
+                    .unwrap_or(Type::Int);
                 let res_ptr = self.fresh_reg();
-                self.emit(IrInstruction::Alloca { dest: res_ptr, ty: Type::Int });
-                self.emit(IrInstruction::Store { val: IrOperand::Null, ptr: res_ptr });
+                self.emit(IrInstruction::Alloca {
+                    dest: res_ptr,
+                    ty: res_ty.clone(),
+                });
+                self.emit(IrInstruction::Store {
+                    val: Self::default_operand_for_type(&res_ty),
+                    ptr: res_ptr,
+                });
 
                 let then_block = self.fresh_block();
                 let else_block = self.fresh_block();
                 let merge_block = self.fresh_block();
 
-                let cond_op = self.build_expr(condition);
+                let condition = self.build_expr(condition);
+                let cond_op = self.condition_to_bool(condition);
                 self.emit(IrInstruction::Branch {
                     cond: cond_op,
                     then_block,
@@ -2140,8 +2678,12 @@ impl IrBuilder {
 
                 self.current_block_id = Some(merge_block);
                 let res_reg = self.fresh_reg();
-                self.emit(IrInstruction::Load { dest: res_reg, ptr: res_ptr, ty: Type::Int });
-                IrOperand::Register(res_reg, Type::Int)
+                self.emit(IrInstruction::Load {
+                    dest: res_reg,
+                    ptr: res_ptr,
+                    ty: res_ty.clone(),
+                });
+                IrOperand::Register(res_reg, res_ty)
             }
             ExprKind::For { loop_var, index_var, condition_or_iterable, body, else_branch } => {
                 let list_ptr = self.fresh_reg();
@@ -2151,7 +2693,7 @@ impl IrBuilder {
                 let list_reg = self.fresh_reg();
                 self.emit(IrInstruction::CallRuntime {
                     dest: Some(list_reg),
-                    symbol: "talas_list_create".into(),
+                    symbol: "ube_list_create".into(),
                     args: vec![],
                     ret_ty: list_ty.clone(),
                 });

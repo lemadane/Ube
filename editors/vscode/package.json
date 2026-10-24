@@ -1,9 +1,9 @@
 {
-  "name": "talas-vscode",
-  "displayName": "Talas Language Support",
-  "description": "Syntax highlighting, file recognition, and language support for the Talas programming language (.talas)",
+  "name": "ube-vscode",
+  "displayName": "Ube Language Support",
+  "description": "Syntax highlighting, file recognition, and language support for the Ube programming language (.ube)",
   "version": "0.5.0",
-  "publisher": "talas-lang",
+  "publisher": "ube-lang",
   "icon": "icon.png",
   "categories": [
     "Programming Languages"
@@ -14,22 +14,22 @@
   "contributes": {
     "languages": [
       {
-        "id": "talas",
+        "id": "ube",
         "aliases": [
-          "Talas",
-          "talas"
+          "Ube",
+          "ube"
         ],
         "extensions": [
-          ".talas"
+          ".ube"
         ],
         "configuration": "./language-configuration.json"
       }
     ],
     "grammars": [
       {
-        "language": "talas",
-        "scopeName": "source.talas",
-        "path": "./syntaxes/talas.tmLanguage.json"
+        "language": "ube",
+        "scopeName": "source.ube",
+        "path": "./syntaxes/ube.tmLanguage.json"
       }
     ]
   }

@@ -1,9 +1,9 @@
 [package]
-name = "talas-compiler"
+name = "ube-compiler"
 version = "0.6.0"
 edition = "2021"
 
 [dependencies]
-talas-runtime = { path = "../runtime" }
+ube-runtime = { path = "../runtime" }
 
 [dev-dependencies]

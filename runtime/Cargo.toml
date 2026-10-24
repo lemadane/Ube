@@ -1,10 +1,10 @@
 [package]
-name = "talas-runtime"
+name = "ube-runtime"
 version = "0.6.0"
 edition = "2021"
 
 [lib]
-name = "talas_runtime"
+name = "ube_runtime"
 crate-type = ["rlib", "staticlib", "cdylib"]
 
 [dependencies]

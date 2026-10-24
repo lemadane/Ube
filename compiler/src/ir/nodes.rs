@@ -28,6 +28,7 @@ pub enum IrOperand {
     ConstantBool(bool),
     ConstantString(String),
     Null,
+    NullOf(Type),
     Register(Register, Type),
 }
 
@@ -40,6 +41,7 @@ impl IrOperand {
             IrOperand::ConstantBool(_) => Type::Bool,
             IrOperand::ConstantString(_) => Type::String,
             IrOperand::Null => Type::Nullable(Box::new(Type::Void)),
+            IrOperand::NullOf(ty) => ty.clone(),
             IrOperand::Register(_, ty) => ty.clone(),
         }
     }
@@ -62,6 +64,29 @@ pub enum IrInstruction {
     },
     CallMethod { dest: Option<Register>, class_name: String, method_name: String, receiver: IrOperand, args: Vec<IrOperand>, ret_ty: Type },
     CallRuntime { dest: Option<Register>, symbol: String, args: Vec<IrOperand>, ret_ty: Type },
+    SpawnAsyncCall {
+        dest: Register,
+        callback: String,
+        class_name: String,
+        method_name: String,
+        receiver: IrOperand,
+        args: Vec<IrOperand>,
+        result_ty: Type,
+    },
+    SpawnAsyncExpression {
+        dest: Register,
+        callback: String,
+        class_name: String,
+        method_name: String,
+        captures: Vec<IrOperand>,
+        result_ty: Type,
+    },
+    AwaitTask {
+        dest: Register,
+        error_dest: Register,
+        task: IrOperand,
+        result_ty: Type,
+    },
     InstantiateClass { dest: Register, class_name: String, args: Vec<IrOperand> },
     Jump { target: BlockId },
     Branch { cond: IrOperand, then_block: BlockId, else_block: BlockId },
@@ -87,6 +112,7 @@ pub struct IrFunction {
     pub receiver: (Register, Type), // this pointer
     pub params: Vec<(Register, Type)>,
     pub return_type: Type,
+    pub is_async: bool,
     pub blocks: Vec<BasicBlock>,
 }
 

@@ -12,13 +12,14 @@ pub mod strings;
 
 
 #[no_mangle]
-pub extern "C" fn talas_runtime_init() {
+pub extern "C" fn ube_runtime_init() {
     // Initialize runtime heap and garbage collector
-    gc::talas_gc_init();
+    gc::ube_gc_init();
 }
 
 #[no_mangle]
-pub extern "C" fn talas_runtime_cleanup() {
+pub extern "C" fn ube_runtime_cleanup() {
+    concurrency::ube_concurrency_cleanup();
     // Perform final garbage collection sweep on exit
-    gc::talas_gc_collect();
+    gc::ube_gc_collect();
 }

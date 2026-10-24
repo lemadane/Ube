@@ -11,7 +11,7 @@ mod tests {
     use crate::semantics::TypeChecker;
 
     #[test]
-    fn test_llvm_ir_emission_talas() {
+    fn test_llvm_ir_emission_ube() {
         let code = r#"
             class User(long id, string name, var int age = 0) {
                 void birthday() {

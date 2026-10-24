@@ -1,4 +1,4 @@
-use talas_compiler::{IrBuilder, Lexer, Parser, TextualLlvmEmitter, TypeChecker};
+use ube_compiler::{IrBuilder, Lexer, Parser, TextualLlvmEmitter, TypeChecker};
 
 #[test]
 fn test_end_to_end_pipeline() {
@@ -42,5 +42,5 @@ fn test_end_to_end_pipeline() {
 
     assert!(llvm_ir.contains("define i64 @compute(i64 %0)"));
     assert!(llvm_ir.contains("define i64 @main()"));
-    assert!(llvm_ir.contains("call void @talas_print_i64"));
+    assert!(llvm_ir.contains("call void @ube_print_i64"));
 }

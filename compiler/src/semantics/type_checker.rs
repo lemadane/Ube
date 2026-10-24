@@ -95,8 +95,9 @@ impl TypeChecker {
         );
 
         let mut channel_methods = HashMap::new();
-        channel_methods.insert("send".into(), (vec![Type::Int], Type::Void));
-        channel_methods.insert("receive".into(), (Vec::new(), Type::Int));
+        channel_methods.insert("send".into(), (vec![Type::Int], Type::Task(Box::new(Type::Bool))));
+        channel_methods.insert("receive".into(), (Vec::new(), Type::Task(Box::new(Type::Int))));
+        channel_methods.insert("close".into(), (Vec::new(), Type::Void));
         self.classes.insert(
             "Channel".into(),
             ClassInfo {
@@ -110,12 +111,11 @@ impl TypeChecker {
         );
 
         let mut task_methods = HashMap::new();
-        task_methods.insert("all".into(), (vec![Type::Class { name: "List".into() }], Type::Class { name: "List".into() }));
-        task_methods.insert("any".into(), (vec![Type::Class { name: "List".into() }], Type::Int));
-        task_methods.insert("race".into(), (vec![Type::Class { name: "List".into() }], Type::Int));
-        task_methods.insert("allSettled".into(), (vec![Type::Class { name: "List".into() }], Type::Class { name: "List".into() }));
+        task_methods.insert("all".into(), (vec![Type::Class { name: "List".into() }], Type::Task(Box::new(Type::Class { name: "List".into() }))));
+        task_methods.insert("any".into(), (vec![Type::Class { name: "List".into() }], Type::Task(Box::new(Type::Int))));
+        task_methods.insert("race".into(), (vec![Type::Class { name: "List".into() }], Type::Task(Box::new(Type::Int))));
+        task_methods.insert("allSettled".into(), (vec![Type::Class { name: "List".into() }], Type::Task(Box::new(Type::Class { name: "List".into() }))));
         task_methods.insert("cancel".into(), (Vec::new(), Type::Bool));
-        task_methods.insert("async".into(), (vec![Type::Int], Type::Class { name: "Task".into() }));
 
         self.classes.insert(
             "Task".into(),
@@ -883,6 +883,11 @@ impl TypeChecker {
                     for method in &cls.methods {
                         let param_types = method.params.iter().map(|p| self.type_spec_to_type(&p.type_spec)).collect();
                         let return_ty = method.return_type.as_ref().map_or(Type::Void, |t| self.type_spec_to_type(t));
+                        let return_ty = if method.is_async {
+                            Type::Task(Box::new(if return_ty == Type::Void { Type::Int } else { return_ty }))
+                        } else {
+                            return_ty
+                        };
                         methods.insert(method.name.clone(), (param_types, return_ty));
                     }
 
@@ -1239,6 +1244,11 @@ impl TypeChecker {
                         ));
                         None
                     }
+                    Type::Task(_) if member == "cancel" => Some(Type::Bool),
+                    Type::Task(_) if member == "timeout" => Some(obj_ty.clone()),
+                    Type::Channel(_) if matches!(member.as_str(), "send" | "receive" | "close") => {
+                        Some(Type::Void)
+                    }
                     _ => None,
                 }
             }
@@ -1252,7 +1262,58 @@ impl TypeChecker {
                 match &callee.kind {
                     ExprKind::MemberAccess { object, member, .. } => {
                         if let Some(obj_ty) = self.check_expr(cls, object) {
+                            if matches!(obj_ty, Type::Task(_)) && member == "cancel" {
+                                return Some(Type::Bool);
+                            }
+                            if matches!(obj_ty, Type::Task(_)) && member == "timeout" {
+                                let valid = args.len() == 1
+                                    && arg_types.len() == 1
+                                    && matches!(arg_types[0], Type::Int | Type::Long);
+                                if !valid {
+                                    self.diagnostics.push(Diagnostic::error(
+                                        "Task.timeout expects one Int argument: the timeout in milliseconds",
+                                        Some(expr.span),
+                                    ));
+                                }
+                                return Some(obj_ty.clone());
+                            }
+                            if let Type::Channel(element) = &obj_ty {
+                                return match member.as_str() {
+                                    "send" => {
+                                        if let Some(actual) = arg_types.first() {
+                                            if !self.is_assignable_to(actual, element) {
+                                                self.diagnostics.push(Diagnostic::error(
+                                                    format!("Channel expects '{}', but send received '{}'", element, actual),
+                                                    Some(expr.span),
+                                                ));
+                                            }
+                                        } else {
+                                            self.diagnostics.push(Diagnostic::error(
+                                                "Channel.send requires one value",
+                                                Some(expr.span),
+                                            ));
+                                        }
+                                        Some(Type::Task(Box::new(Type::Bool)))
+                                    }
+                                    "receive" if args.is_empty() => Some(Type::Task(element.clone())),
+                                    "close" if args.is_empty() => Some(Type::Void),
+                                    _ => {
+                                        self.diagnostics.push(Diagnostic::error(
+                                            format!("Invalid Channel method call '{}'", member),
+                                            Some(expr.span),
+                                        ));
+                                        None
+                                    }
+                                };
+                            }
                             if let Type::Class { ref name } = obj_ty {
+                                if name == "Task" && member == "async" {
+                                    self.diagnostics.push(Diagnostic::error(
+                                        "Task.async(...) was removed; start a task with `async expr` instead",
+                                        Some(expr.span),
+                                    ));
+                                    return None;
+                                }
                                 if let Some(info) = self.classes.get(name).cloned() {
                                     if let Some((param_types, ret_ty)) = info.methods.get(member).cloned() {
                                         for (i, (arg_ty, param_ty)) in arg_types.iter().zip(param_types.iter()).enumerate() {
@@ -1325,7 +1386,51 @@ impl TypeChecker {
                 }
                 Some(val_ty)
             }
-            ExprKind::ClassInstantiation { class_name, args } => {
+            ExprKind::ClassInstantiation { class_name, generic_type, args } => {
+                if class_name == "Channel" {
+                    if args.len() > 1 {
+                        self.diagnostics.push(Diagnostic::error(
+                            "Channel<T> accepts at most one capacity argument",
+                            Some(expr.span),
+                        ));
+                    }
+                    for arg in args {
+                        if let Some(actual) = self.check_expr(cls, arg) {
+                            if actual != Type::Int && actual != Type::Long {
+                                self.diagnostics.push(Diagnostic::error(
+                                    format!("Channel capacity must be an integer, found '{}'", actual),
+                                    Some(arg.span),
+                                ));
+                            }
+                        }
+                    }
+                    let element = generic_type
+                        .as_ref()
+                        .map(|ty| self.type_spec_to_type(ty))
+                        .unwrap_or(Type::Int);
+                    let supported_element = match &element {
+                        Type::Void => false,
+                        Type::Nullable(inner) => matches!(
+                            inner.as_ref(),
+                            Type::String
+                                | Type::Class { .. }
+                                | Type::Task(_)
+                                | Type::Channel(_)
+                                | Type::Bytes
+                                | Type::InputStream
+                                | Type::OutputStream
+                                | Type::FileStream
+                        ),
+                        _ => true,
+                    };
+                    if !supported_element {
+                        self.diagnostics.push(Diagnostic::error(
+                            format!("Channel payload type '{}' cannot be represented by the channel ABI", element),
+                            Some(expr.span),
+                        ));
+                    }
+                    return Some(Type::Channel(Box::new(element)));
+                }
                 let mut arg_types = Vec::new();
                 for arg in args {
                     if let Some(t) = self.check_expr(cls, arg) {
@@ -1393,7 +1498,16 @@ impl TypeChecker {
                     | BinaryOp::LessEqual
                     | BinaryOp::Greater
                     | BinaryOp::GreaterEqual => Some(Type::Bool),
-                    _ => l_ty.or(r_ty).or(Some(Type::Int)),
+                    _ => {
+                        let is_concurrent = |ty: &Option<Type>| matches!(ty, Some(Type::Task(_) | Type::Channel(_)));
+                        if is_concurrent(&l_ty) || is_concurrent(&r_ty) {
+                            self.diagnostics.push(Diagnostic::error(
+                                "Cannot do arithmetic on a Task or Channel; `await` it first, or write `async (a + b)` to run the whole expression as a task",
+                                Some(expr.span),
+                            ));
+                        }
+                        l_ty.or(r_ty).or(Some(Type::Int))
+                    }
                 }
             }
             ExprKind::Unary { op, operand } => {
@@ -1456,17 +1570,23 @@ impl TypeChecker {
                 Some(Type::Int)
             }
             ExprKind::AsyncSpawn(inner) => {
-                self.check_expr(cls, inner);
-                Some(Type::Class { name: "Task".into() })
+                match self.check_expr(cls, inner) {
+                    Some(result_type) => Some(Type::Task(Box::new(result_type))),
+                    None => None,
+                }
             }
             ExprKind::Await(inner) => {
-                self.check_expr(cls, inner);
-                Some(Type::Int)
-            }
-            ExprKind::AwaitAndCancel { task, timeout_ms } => {
-                self.check_expr(cls, task);
-                self.check_expr(cls, timeout_ms);
-                Some(Type::Int)
+                match self.check_expr(cls, inner) {
+                    Some(Type::Task(result)) => Some(*result),
+                    Some(other) => {
+                        self.diagnostics.push(Diagnostic::error(
+                            format!("await requires a Task, found '{:?}'", other),
+                            Some(inner.span),
+                        ));
+                        None
+                    }
+                    None => None,
+                }
             }
             ExprKind::If { condition, then_branch, else_branch } => {
                 let cond_ty = self.check_expr(cls, condition);
@@ -1564,6 +1684,7 @@ impl TypeChecker {
             (Type::Class { name: from_name }, Type::Class { name: to_name }) => {
                 from_name == to_name || self.traits.contains_key(to_name)
             }
+            (Type::Channel(from), Type::Channel(to)) => self.is_assignable_to(from, to),
             (from_ty, Type::Nullable(inner)) => {
                 from_ty == &Type::Nullable(Box::new(Type::Void)) || self.is_assignable_to(from_ty, inner)
             }
@@ -1586,6 +1707,10 @@ impl TypeChecker {
                     Type::Class { name: name.clone() }
                 }
             }
+            TypeSpec::Generic(name, element) if name == "Channel" => {
+                Type::Channel(Box::new(self.type_spec_to_type(element)))
+            }
+            TypeSpec::Generic(name, _) => Type::Class { name: name.clone() },
             TypeSpec::Nullable(inner) => Type::Nullable(Box::new(self.type_spec_to_type(inner))),
         }
     }

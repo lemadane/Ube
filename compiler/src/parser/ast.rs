@@ -9,6 +9,7 @@ pub enum TypeSpec {
     Bool,
     String,
     Class(String),
+    Generic(String, Box<TypeSpec>),
     Nullable(Box<TypeSpec>),
 }
 
@@ -160,6 +161,7 @@ pub enum ExprKind {
     },
     ClassInstantiation {
         class_name: String,
+        generic_type: Option<TypeSpec>,
         args: Vec<Expr>,
     },
     AnonymousObject {
@@ -187,10 +189,6 @@ pub enum ExprKind {
     },
     AsyncSpawn(Box<Expr>),
     Await(Box<Expr>),
-    AwaitAndCancel {
-        task: Box<Expr>,
-        timeout_ms: Box<Expr>,
-    },
     If {
         condition: Box<Expr>,
         then_branch: Vec<Stmt>,

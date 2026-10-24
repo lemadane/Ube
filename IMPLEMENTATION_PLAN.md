@@ -1,23 +1,23 @@
-# Master Implementation Plan: Timawa Compiler & Native Runtime
+# Master Implementation Plan: Ube Compiler & Native Runtime
 
-This document serves as the master implementation reference for building the **Timawa** compiler and native runtime in Rust targeting LLVM IR.
+This document serves as the master implementation reference for building the **Ube** compiler and native runtime in Rust targeting LLVM IR.
 
 ---
 
 ## 1. Project Repository Structure
 
 ```text
-Timawa/
+Ube/
 ├── Cargo.toml                      # Workspace definition
 ├── LANGUAGE_SPEC_DRAFT.md          # Baseline language specification
 ├── ARCHITECTURE.md                 # Compiler & runtime architecture
 ├── DECISIONS_NEEDED.md             # 40 unresolved design decision resolutions
 ├── MILESTONES.md                   # Phased execution roadmap & estimates
 ├── IMPLEMENTATION_PLAN.md          # Master implementation plan
-├── compiler/                       # Crate: talas-compiler
+├── compiler/                       # Crate: ube-compiler
 │   ├── Cargo.toml
 │   └── src/
-│       ├── main.rs                 # talas CLI driver
+│       ├── main.rs                 # ube CLI driver
 │       ├── lib.rs                  # Compiler library entrypoint
 │       ├── diagnostics/            # Span tracking & colorized diagnostic emitter
 │       ├── lexer/                  # Hand-written token scanner
@@ -25,9 +25,9 @@ Timawa/
 │       ├── resolver/               # Scope symbol table & package resolver
 │       ├── types/                  # Type system representations
 │       ├── semantics/              # Semantic validator & flow-sensitive narrowing
-│       ├── ir/                     # Custom Typed Timawa IR builder (CFG SSA)
+│       ├── ir/                     # Custom Typed Ube IR builder (CFG SSA)
 │       └── llvm/                   # Textual & Inkwell LLVM IR code generator
-├── runtime/                        # Crate: talas-runtime (C-ABI static/shared library)
+├── runtime/                        # Crate: ube-runtime (C-ABI static/shared library)
 │   ├── Cargo.toml
 │   └── src/
 │       ├── lib.rs
@@ -37,12 +37,12 @@ Timawa/
 │       ├── io.rs                   # Standard I/O C-ABI wrappers
 │       ├── collections.rs          # Built-in generic collection representations
 │       └── concurrency.rs          # Task scheduler & stack management
-├── standard-library/               # Core Timawa standard library packages
-│   └── prelude.talas
+├── standard-library/               # Core Ube standard library packages
+│   └── prelude.ube
 ├── tests/                          # Compiler & runtime integration tests
 │   ├── integration_tests.rs
 │   └── fixtures/                   # Valid and invalid test source code files
-└── tools/                          # Developer tooling (talas-fmt, talas-lsp)
+└── tools/                          # Developer tooling (ube-fmt, ube-lsp)
 ```
 
 ---
@@ -79,17 +79,17 @@ The **Minimum Viable Product (MVP)** is defined at the end of **Phase 3**.
 - Basic types: `int`, `decimal`, `bool`, `string`.
 - Immutable local variable bindings and explicit `this` enforcement.
 - Pure OOP Application entry point (`Application.main()`).
-- Custom Typed Timawa IR lowered to Textual LLVM IR (`.ll`).
-- Native executable linking using bundled `talas-runtime` static library.
+- Custom Typed Ube IR lowered to Textual LLVM IR (`.ll`).
+- Native executable linking using bundled `ube-runtime` static library.
 
 ### MVP Acceptance Criterion:
-A valid Timawa source file (`hello.talas`) compiles directly to a native executable and produces exact output when executed natively:
+A valid Ube source file (`hello.ube`) compiles directly to a native executable and produces exact output when executed natively:
 
 ```java
 class Application {
     void main() {
         final console = Console()
-        console.println(`Hello, Timawa!`)
+        console.println(`Hello, Ube!`)
     }
 }
 ```
@@ -98,7 +98,7 @@ class Application {
 
 ## 5. Valid & Invalid Code Examples
 
-### 5.1 Valid Timawa Code Example
+### 5.1 Valid Ube Code Example
 
 ```java
 class User(
@@ -137,7 +137,7 @@ class User(long id, var int age) {
 **Expected Compiler Diagnostic**:
 ```text
 error: instance field '_age' must be accessed through 'this'
-  --> src/user.talas:3:9
+  --> src/user.ube:3:9
    |
  3 |         _age = _age + 1
    |         ^^^^ help: use 'this._age'
@@ -154,7 +154,7 @@ class User(long id, string name) {
 **Expected Compiler Diagnostic**:
 ```text
 error: cannot reassign immutable field '_name'
-  --> src/user.talas:3:9
+  --> src/user.ube:3:9
    |
  3 |         this._name = newName
    |         ^^^^^^^^^^ field '_name' is declared immutable (without 'var')
@@ -185,7 +185,7 @@ graph TD
 
 ## 7. Critical Path Analysis
 
-The critical path for Timawa development follows:
+The critical path for Ube development follows:
 $$\text{Phase 0} \rightarrow \text{Phase 1} \rightarrow \text{Phase 2} \rightarrow \text{Phase 3 (MVP)} \rightarrow \text{Phase 4} \rightarrow \text{Phase 6} \rightarrow \text{Phase 7} \rightarrow \text{Phase 10} \rightarrow \text{Phase 11}$$
 
 - Total Critical Path Duration: **63 Engineer-Weeks**.
@@ -195,7 +195,7 @@ $$\text{Phase 0} \rightarrow \text{Phase 1} \rightarrow \text{Phase 2} \rightarr
 
 ## 8. Testing Strategy
 
-Timawa implements a comprehensive multi-layered testing regime:
+Ube implements a comprehensive multi-layered testing regime:
 
 1. **Unit Tests**: Test individual compiler components (Lexer token scanner, Pratt parser expression nodes, Symbol table scoping).
 2. **Snapshot Tests (`insta`)**: Validate exact output of AST representations, Typed IR nodes, and generated textual LLVM IR.
@@ -227,5 +227,5 @@ The recommended **First Vertical Slice** (Phase 3 MVP) consists of building:
 1. Lexer scanner for keywords, identifiers, backtick strings, and numbers.
 2. Parser for `class Application { void main() { ... } }` and local variable declarations.
 3. Type Checker enforcing explicit `this` and default initialization.
-4. Typed IR lowering to textual LLVM IR `.ll` file emitting `call void @talas_print_str(...)`.
-5. Direct execution of native binary produced by invoking `clang` / `lld` against the generated `.ll` and native `talas-runtime` static library.
+4. Typed IR lowering to textual LLVM IR `.ll` file emitting `call void @ube_print_str(...)`.
+5. Direct execution of native binary produced by invoking `clang` / `lld` against the generated `.ll` and native `ube-runtime` static library.

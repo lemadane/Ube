@@ -97,7 +97,7 @@ impl<'a> Lexer<'a> {
                     self.advance();
                     TokenKind::BangEqual
                 } else {
-                    TokenKind::Error("Symbol '!' is not a valid operator in Talas. Use 'not' keyword.".into())
+                    TokenKind::Error("Symbol '!' is not a valid operator in Ube. Use 'not' keyword.".into())
                 }
             }
             '?' => {
@@ -326,7 +326,6 @@ impl<'a> Lexer<'a> {
             "exit" => TokenKind::Exit,
             "async" => TokenKind::Async,
             "await" => TokenKind::Await,
-            "awaitAndCancel" => TokenKind::AwaitAndCancel,
             "after" => TokenKind::After,
             "string" => TokenKind::StringType,
             "int" => TokenKind::IntType,

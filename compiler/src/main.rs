@@ -2,22 +2,22 @@ use std::env;
 use std::fs;
 use std::path::Path;
 use std::process::{self, Command};
-use talas_compiler::{DiagnosticEmitter, IrBuilder, Lexer, Parser, TextualLlvmEmitter, TypeChecker};
+use ube_compiler::{DiagnosticEmitter, IrBuilder, Lexer, Parser, TextualLlvmEmitter, TypeChecker};
 
 fn print_version() {
-    println!("Talas Language Compiler & Toolchain v{}", env!("CARGO_PKG_VERSION"));
+    println!("Ube Language Compiler & Toolchain v{}", env!("CARGO_PKG_VERSION"));
 }
 
 fn print_usage() {
-    println!("Talas Language Compiler & Toolchain v{}", env!("CARGO_PKG_VERSION"));
-    eprintln!("Usage: talas <command> [options]");
+    println!("Ube Language Compiler & Toolchain v{}", env!("CARGO_PKG_VERSION"));
+    eprintln!("Usage: ube <command> [options]");
     eprintln!("Commands:");
-    eprintln!("  new <project-name>                  Create a new Talas project folder structure");
-    eprintln!("  check <file.talas>                  Check source code for syntax and semantic errors");
-    eprintln!("  emit-ir <file.talas>                Emit custom Typed Talas IR representation");
-    eprintln!("  emit-llvm <file.talas> [-o <out>]   Emit textual LLVM IR (.ll) file");
-    eprintln!("  build <file.talas> [--release] [-o <out>] Compile source file to native executable");
-    eprintln!("  run <file.talas>                    Compile and execute source file immediately");
+    eprintln!("  new <project-name>                  Create a new Ube project folder structure");
+    eprintln!("  check <file.ube>                  Check source code for syntax and semantic errors");
+    eprintln!("  emit-ir <file.ube>                Emit custom Typed Ube IR representation");
+    eprintln!("  emit-llvm <file.ube> [-o <out>]   Emit textual LLVM IR (.ll) file");
+    eprintln!("  build <file.ube> [--release] [-o <out>] Compile source file to native executable");
+    eprintln!("  run <file.ube>                    Compile and execute source file immediately");
 }
 
 fn configure_runtime_linkage(cmd: &mut Command) {
@@ -34,12 +34,12 @@ fn configure_runtime_linkage(cmd: &mut Command) {
 
     for path in search_paths {
         let p = Path::new(path);
-        if p.join("libtalas_runtime.a").exists() || p.join("talas_runtime.lib").exists() {
+        if p.join("libube_runtime.a").exists() || p.join("ube_runtime.lib").exists() {
             cmd.arg("-L").arg(path);
         }
     }
     cmd.arg("-L").arg("/usr/local/lib");
-    cmd.arg("-ltalas_runtime");
+    cmd.arg("-lube_runtime");
     cmd.arg("-Wno-override-module");
 }
 
@@ -56,7 +56,7 @@ fn handle_new_project(project_name: &str) {
         process::exit(1);
     }
 
-    // 1. Create talas.toml
+    // 1. Create ube.toml
     let toml_content = format!(
         r#"[package]
 name = "{}"
@@ -68,28 +68,28 @@ edition = "2026"
         project_name,
         env!("CARGO_PKG_VERSION")
     );
-    let _ = fs::write(proj_dir.join("talas.toml"), toml_content);
+    let _ = fs::write(proj_dir.join("ube.toml"), toml_content);
 
     // 2. Create README.md
     let readme_content = format!(
-        "# {}\n\nA new project written in the Talas programming language.\n\n## Running the Project\n\n```bash\ntalas run src/main.talas\n```\n",
+        "# {}\n\nA new project written in the Ube programming language.\n\n## Running the Project\n\n```bash\nube run src/main.ube\n```\n",
         project_name
     );
     let _ = fs::write(proj_dir.join("README.md"), readme_content);
 
-    // 3. Create src/main.talas
-    let main_talas_content = r#"class Application {
+    // 3. Create src/main.ube
+    let main_ube_content = r#"class Application {
     main() {
-        print(`Hello from Talas!`)
+        print(`Hello from Ube!`)
     }
 }
 "#;
-    let _ = fs::write(src_dir.join("main.talas"), main_talas_content);
+    let _ = fs::write(src_dir.join("main.ube"), main_ube_content);
 
-    println!("Created new Talas project '{}'!", project_name);
+    println!("Created new Ube project '{}'!", project_name);
     println!("To get started:");
     println!("  cd {}", project_name);
-    println!("  talas run src/main.talas");
+    println!("  ube run src/main.ube");
 }
 
 fn main() {
@@ -109,7 +109,7 @@ fn main() {
     if command == "new" {
         if args.len() < 3 {
             eprintln!("Error: Please specify a project name.");
-            eprintln!("Usage: talas new <project-name>");
+            eprintln!("Usage: ube new <project-name>");
             process::exit(1);
         }
         handle_new_project(&args[2]);
@@ -146,7 +146,7 @@ fn main() {
     }
 
     if out_binary.is_empty() {
-        let base = file_path.trim_end_matches(".talas").trim_end_matches(".tl");
+        let base = file_path.trim_end_matches(".ube").trim_end_matches(".tl");
         out_binary = base.to_string();
     }
 
@@ -201,7 +201,7 @@ fn main() {
             let mut emitter = TextualLlvmEmitter::new();
             let llvm_ir = emitter.emit_program(&ir_program);
 
-            if !out_binary.is_empty() && out_binary != file_path.trim_end_matches(".talas").trim_end_matches(".tl") {
+            if !out_binary.is_empty() && out_binary != file_path.trim_end_matches(".ube").trim_end_matches(".tl") {
                 if let Err(e) = fs::write(&out_binary, &llvm_ir) {
                     eprintln!("Error writing LLVM IR file '{}': {}", out_binary, e);
                     process::exit(1);
@@ -223,7 +223,7 @@ fn main() {
             let mut emitter = TextualLlvmEmitter::new();
             let llvm_ir = emitter.emit_program(&ir_program);
 
-            let base_name = file_path.trim_end_matches(".talas").trim_end_matches(".tl");
+            let base_name = file_path.trim_end_matches(".ube").trim_end_matches(".tl");
             let ll_path = format!("{}.ll", base_name);
 
             if let Err(e) = fs::write(&ll_path, &llvm_ir) {
@@ -267,8 +267,8 @@ fn main() {
             let llvm_ir = emitter.emit_program(&ir_program);
 
             let tmp_dir = env::temp_dir();
-            let ll_path = tmp_dir.join("talas_temp_app.ll");
-            let bin_path = tmp_dir.join("talas_temp_app");
+            let ll_path = tmp_dir.join("ube_temp_app.ll");
+            let bin_path = tmp_dir.join("ube_temp_app");
 
             if let Err(e) = fs::write(&ll_path, &llvm_ir) {
                 eprintln!("Error writing temporary IR: {}", e);

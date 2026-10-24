@@ -1,6 +1,6 @@
-# Talas Unresolved Design Decisions & Recommendations
+# Ube Unresolved Design Decisions & Recommendations
 
-This document analyzes the 40 unresolved language features for **Talas**. For each feature, alternatives and tradeoffs are evaluated, followed by a concrete design recommendation.
+This document analyzes the 40 unresolved language features for **Ube**. For each feature, alternatives and tradeoffs are evaluated, followed by a concrete design recommendation.
 
 ---
 
@@ -41,7 +41,7 @@ This document analyzes the 40 unresolved language features for **Talas**. For ea
 
 ### 8–13. Collections Architecture (Arrays, Lists, Maps, Sets, Slices)
 - **Alternatives**: (A) Interface hierarchy (`List`, `Collection`). (B) Concrete built-in generic classes (`Array<T>`, `List<T>`, `Map<K, V>`, `Set<T>`, `Slice<T>`).
-- **Tradeoffs**: Since Talas has no interfaces, collections must be concrete generic classes.
+- **Tradeoffs**: Since Ube has no interfaces, collections must be concrete generic classes.
 - **Recommendation**: Provide built-in generic classes: **`Array<T>`**, **`List<T>`**, **`Map<K, V>`**, **`Set<T>`**, and **`Slice<T>`**.
 
 ### 14. Collection Literals
@@ -130,9 +130,9 @@ This document analyzes the 40 unresolved language features for **Talas**. For ea
 - **Recommendation**: **Optional Semicolons** (newlines act as implicit statement terminators).
 
 ### 36. Formatting Rules
-- **Alternatives**: (A) Unformatted. (B) Official `talas fmt` tool.
+- **Alternatives**: (A) Unformatted. (B) Official `ube fmt` tool.
 - **Tradeoffs**: Eliminates formatting disputes across teams.
-- **Recommendation**: **Canonical `talas fmt` tool** enforcing 4-space indents and standard brace placement.
+- **Recommendation**: **Canonical `ube fmt` tool** enforcing 4-space indents and standard brace placement.
 
 ### 37. Source Encoding
 - **Alternatives**: (A) Configurable encodings. (B) Strict UTF-8.
@@ -145,7 +145,7 @@ This document analyzes the 40 unresolved language features for **Talas**. For ea
 - **Recommendation**: **`@target(...)` attributes**.
 
 ### 39. Standard Library Architecture
-- **Alternatives**: (A) Monolithic standard library. (B) Modular packages (`talas.io`, `talas.sys`, `talas.math`, `talas.json`).
+- **Alternatives**: (A) Monolithic standard library. (B) Modular packages (`ube.io`, `ube.sys`, `ube.math`, `ube.json`).
 - **Tradeoffs**: Modular packages support dead-code elimination.
 - **Recommendation**: **Modular Package Namespaces**.
 

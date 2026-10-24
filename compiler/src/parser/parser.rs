@@ -380,7 +380,7 @@ impl<'a> Parser<'a> {
     fn parse_type_spec(&mut self) -> Result<TypeSpec, ()> {
         let tok = self.current_token.clone();
         self.advance();
-        let base_type = match tok.kind {
+        let mut base_type = match tok.kind {
             TokenKind::IntType => TypeSpec::Int,
             TokenKind::DecimalType => TypeSpec::Decimal,
             TokenKind::ByteType => TypeSpec::Byte,
@@ -396,6 +396,13 @@ impl<'a> Parser<'a> {
                 return Err(());
             }
         };
+
+        if matches!(base_type, TypeSpec::Class(_)) && self.match_token(&TokenKind::Less) {
+            let TypeSpec::Class(name) = base_type else { unreachable!() };
+            let element = self.parse_type_spec()?;
+            self.expect(&TokenKind::Greater, ">")?;
+            base_type = TypeSpec::Generic(name, Box::new(element));
+        }
 
         if self.match_token(&TokenKind::Question) {
             Ok(TypeSpec::Nullable(Box::new(base_type)))
@@ -651,7 +658,7 @@ impl<'a> Parser<'a> {
             if matches!(self.peek_token.kind, TokenKind::Identifier(_)) {
                 return true;
             }
-            if self.peek_token.kind == TokenKind::Question {
+            if matches!(self.peek_token.kind, TokenKind::Question | TokenKind::Less) {
                 return true;
             }
         }
@@ -905,7 +912,15 @@ impl<'a> Parser<'a> {
                         });
                     }
                 }
-                if self.check(&TokenKind::OpenParen) && name.chars().next().map_or(false, |c| c.is_uppercase()) {
+                if name.chars().next().map_or(false, |c| c.is_uppercase()) {
+                    let generic_type = if self.match_token(&TokenKind::Less) {
+                        let ty = self.parse_type_spec()?;
+                        self.expect(&TokenKind::Greater, ">")?;
+                        Some(ty)
+                    } else {
+                        None
+                    };
+                    if self.check(&TokenKind::OpenParen) {
                     self.advance();
                     let mut args = Vec::new();
                     if !self.check(&TokenKind::CloseParen) {
@@ -918,9 +933,15 @@ impl<'a> Parser<'a> {
                     }
                     let end_tok = self.expect(&TokenKind::CloseParen, ")")?;
                     Ok(Expr {
-                        kind: ExprKind::ClassInstantiation { class_name: name, args },
+                        kind: ExprKind::ClassInstantiation { class_name: name, generic_type, args },
                         span: Span::combine(tok.span, end_tok.span),
                     })
+                    } else {
+                        Ok(Expr {
+                            kind: ExprKind::Identifier(name),
+                            span: tok.span,
+                        })
+                    }
                 } else {
                     Ok(Expr {
                         kind: ExprKind::Identifier(name),
@@ -1036,20 +1057,6 @@ impl<'a> Parser<'a> {
                 Ok(Expr {
                     kind: ExprKind::Await(Box::new(inner)),
                     span,
-                })
-            }
-            TokenKind::AwaitAndCancel => {
-                self.expect(&TokenKind::OpenParen, "(")?;
-                let task = self.parse_expr(Precedence::None)?;
-                self.expect(&TokenKind::Comma, ",")?;
-                let timeout_ms = self.parse_expr(Precedence::None)?;
-                let end_tok = self.expect(&TokenKind::CloseParen, ")")?;
-                Ok(Expr {
-                    kind: ExprKind::AwaitAndCancel {
-                        task: Box::new(task),
-                        timeout_ms: Box::new(timeout_ms),
-                    },
-                    span: Span::combine(tok.span, end_tok.span),
                 })
             }
             TokenKind::If => {

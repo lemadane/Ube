@@ -1,4 +1,4 @@
-// Talas Transfer - High-Performance HTTP/3 + QUIC Native File Transfer Application
+// Ube Transfer - High-Performance HTTP/3 + QUIC Native File Transfer Application
 // Zero-dependency single-binary file server supporting parallel transfers, range resumption, and SHA-256 verification.
 
 class FileTransferApplication {

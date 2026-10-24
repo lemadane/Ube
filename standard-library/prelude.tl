@@ -1,4 +1,4 @@
-// Talas Standard Library Prelude
+// Ube Standard Library Prelude
 
 fn print_int(val: i64) {
     print_i64(val);

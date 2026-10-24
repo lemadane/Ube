@@ -1,14 +1,14 @@
 use std::collections::HashMap;
 use std::ffi::{CStr, CString};
 use std::os::raw::c_char;
-use std::sync::{Arc, Mutex, RwLock};
 use std::path::PathBuf;
+use std::sync::{Arc, Mutex, RwLock};
 
 use bytes::Bytes;
 use sha2::{Digest, Sha256};
 use tokio::runtime::Runtime;
 
-lazy_static_runtime: once_cell or global Tokio Runtime management
+// Global Tokio runtime management.
 static TOKIO_RUNTIME: std::sync::OnceLock<Arc<Runtime>> = std::sync::OnceLock::new();
 
 pub fn get_runtime() -> &'static Arc<Runtime> {
@@ -16,7 +16,7 @@ pub fn get_runtime() -> &'static Arc<Runtime> {
         let rt = tokio::runtime::Builder::new_multi_thread()
             .enable_all()
             .build()
-            .expect("Failed to initialize Tokio runtime for Talas QUIC/HTTP3");
+            .expect("Failed to initialize Tokio runtime for Ube QUIC/HTTP3");
         Arc::new(rt)
     })
 }
@@ -33,13 +33,13 @@ pub enum ZeroRttPolicy {
 }
 
 /// Layer 1: Network & TLS Configuration
-pub struct TalasNetworkConfig {
+pub struct UbeNetworkConfig {
     pub cert_path: Option<String>,
     pub key_path: Option<String>,
     pub alpn_protocols: Vec<Vec<u8>>,
 }
 
-impl Default for TalasNetworkConfig {
+impl Default for UbeNetworkConfig {
     fn default() -> Self {
         Self {
             cert_path: None,
@@ -50,13 +50,13 @@ impl Default for TalasNetworkConfig {
 }
 
 /// Layer 2: QUIC Transport Server Abstraction
-pub struct TalasQuicServer {
+pub struct UbeQuicServer {
     pub bind_port: u16,
     pub zero_rtt_policy: ZeroRttPolicy,
     pub active_connections: Arc<Mutex<usize>>,
 }
 
-impl TalasQuicServer {
+impl UbeQuicServer {
     pub fn new(port: u16) -> Self {
         Self {
             bind_port: port,
@@ -67,7 +67,7 @@ impl TalasQuicServer {
 }
 
 /// Layer 3: Web Server Engine (HTTP/1.1, HTTP/2, HTTP/3, WebTransport)
-pub struct TalasHttp3Engine {
+pub struct UbeHttp3Engine {
     pub port: u16,
     pub enabled: bool,
     pub zero_rtt_policy: ZeroRttPolicy,
@@ -76,7 +76,7 @@ pub struct TalasHttp3Engine {
     pub routes: Arc<RwLock<HashMap<String, i64>>>,
 }
 
-impl TalasHttp3Engine {
+impl UbeHttp3Engine {
     pub fn new() -> Self {
         Self {
             port: 443,

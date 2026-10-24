@@ -2,7 +2,7 @@ use std::alloc::{alloc, dealloc, Layout};
 use std::ffi::c_void;
 
 #[no_mangle]
-pub extern "C" fn talas_alloc(size: usize, align: usize) -> *mut c_void {
+pub extern "C" fn ube_alloc(size: usize, align: usize) -> *mut c_void {
     if size == 0 {
         return std::ptr::null_mut();
     }
@@ -14,7 +14,7 @@ pub extern "C" fn talas_alloc(size: usize, align: usize) -> *mut c_void {
 }
 
 #[no_mangle]
-pub extern "C" fn talas_free(ptr: *mut c_void, size: usize, align: usize) {
+pub extern "C" fn ube_free(ptr: *mut c_void, size: usize, align: usize) {
     if ptr.is_null() || size == 0 {
         return;
     }

@@ -10,7 +10,7 @@ mod tests {
     use crate::lexer::Lexer;
 
     #[test]
-    fn test_parse_talas_class_and_application() {
+    fn test_parse_ube_class_and_application() {
         let code = r#"
             class User(
                 long id,

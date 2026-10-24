@@ -7,7 +7,7 @@ target/
 *.o
 *.a
 *.out
-/tmp/talas_*
+/tmp/ube_*
 
 # Editor & OS files
 .vscode/*

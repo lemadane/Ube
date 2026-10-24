@@ -74,16 +74,14 @@
 - **No Fall-Through**: Cases do not fall through (no `break` required inside cases).
 - **Pattern Support**: Matches constant values, Sum Class variant payloads, type checks (`is`), guard clauses (`if`), multiple OR values, and anonymous objects.
 
-### 14. Virtual Thread Task Concurrency (`async` / `await` & `Task` Primitives)
-- **Framework-Neutral Concurrency**: Patterned after Java's `vt-async-await` Virtual Threads model. Non-reactive, cheap sequential blocking `await`.
-- **Spawning Tasks**: `async expr`, `Task.async(expr)`, or `async worker.process(1)`.
-- **Promise Combinators**:
-  - `Task.all(tasks)`: Fail-fast combinator (cancels remaining tasks on failure, re-throwing error into `catch(err)`).
-  - `Task.any(tasks)`: Returns the result of the first task that successfully completes.
-  - `Task.race(tasks)`: Returns outcome of the first completed task (cancels remaining tasks).
-  - `Task.allSettled(tasks)`: Awaits all tasks to complete without throwing.
-- **Timeouts & Cancellation**: `awaitAndCancel(task, timeoutMs)`, `task.cancel()`.
-- **Inter-Task Channels**: Communication via typed `Channel` queue (`.send()`, `.receive()`).
+### 14. Concurrency Runtime (Tokio)
+- Async method calls are submitted to a shared multithreaded Tokio runtime. Receivers and arguments are captured before the call returns, and `await` blocks the calling Ube thread until completion.
+- The Rust runtime provides typed `Task<T>` results/errors, completion-based combinators, timeouts, cancellation, and bounded closable channels.
+- The compiler ABI transports task and channel values through a 64-bit slot, encoding primitive values and pointers. Ube await infers `Task<T>` from async method declarations; failures propagate into a surrounding `guard`/`catch`.
+- One rule: **if it waits, you `await` it.** `async expr` (or an `async` method call) starts work; `await` gets the result.
+- `Channel<T>(capacity)` is a typed bounded channel: `await ch.send(v)` (false once closed), `await ch.receive()`, and `ch.close()`. A closed-channel receive after queued values are drained is catchable.
+- `await task.timeout(ms)` fails with a catchable `task timed out` and cancels the task; it works on any task, including `ch.receive()`.
+- Unguarded failures propagate out of async code and otherwise stop the program with a clear error.
 
 ### 15. Exception Model (`guard { ... catch(err) { ... } exit { ... } }` & `throw`)
 - **Unified Guard Scope**: `guard { ... catch(err) { ... } exit { ... } }` handles errors and resource cleanup in one single unified block.
@@ -605,59 +603,39 @@ class Application {
 }
 ```
 
-### 11. Virtual Thread Task Concurrency (`async`, `await`, `Task` Combinators & `Channel`)
+### 11. Concurrency Runtime and Current Language Boundary
 
-In Ube, lightweight task-based concurrency is patterned after Java Virtual Threads (`vt-async-await`). Tasks can be spawned with `async`, `Task.async()`, or `async method()`, awaited sequentially, or coordinated via static promise combinators:
+The runtime uses a shared multithreaded Tokio executor. Async Ube method calls are converted to generated callback thunks that capture the receiver and arguments and execute the method on Tokio's blocking pool. `await` blocks a synchronous Ube caller; the Rust API's `join` is available to async Rust callers. `Task<T>` carries `Result<T, TaskError>` rather than turning failures into successful values. `T` must be cloneable and thread-safe because task results can be observed by multiple waiters.
 
-```java
-class CustomerService {
-    async findRequired(long id) {
-        return User(id, `Lem`, 35)
-    }
-}
+```rust
+use std::time::Duration;
+use ube_runtime::concurrency::{spawn_task, Channel, Task, TaskError};
 
-class OrderService {
-    async findForCustomer(long id) {
-        return [`Order #1001`, `Order #1002`]
-    }
-}
+let first = spawn_task(|_| async {
+    tokio::time::sleep(Duration::from_millis(20)).await;
+    Ok::<_, TaskError>(10)
+});
+let second = spawn_task(|_| async { Ok::<_, TaskError>(20) });
 
-class Application {
-    main() {
-        final customerService = CustomerService()
-        final orderService = OrderService()
+let values = Task::all(vec![first, second]).await?;
+assert_eq!(values, vec![10, 20]);
 
-        // 1. Parallel submission on lightweight tasks (Java vt-async-await style)
-        final customerTask = Task.async(customerService.findRequired(1000L))
-        final ordersTask   = Task.async(orderService.findForCustomer(1000L))
-
-        // 2. Sequential blocking await (cheap execution)
-        final customer = await customerTask
-        final orders   = await ordersTask
-        print(`Loaded customer ${customer.name()} with ${orders.len()} orders`)
-
-        // 3. Task.all Promise Combinator (Fail-fast & cancel remaining tasks)
-        guard {
-            final tasks = [
-                async 10,
-                async 20
-            ]
-            final results = await Task.all(tasks)
-            print(`All tasks finished with ${results.len()} results`)
-
-            catch(err) {
-                print(`Task failed: ${err.message()}`)
-            }
-        }
-
-        // 4. Inter-Task Channel Communication
-        final channel = Channel()
-        channel.send(42)
-        final val = channel.receive()
-        print(`Channel received: ${val}`)
-    }
-}
+let channel = Channel::bounded(8)?;
+channel.send(42).await?;
+assert_eq!(channel.receive().await?, Some(42));
+channel.close();
+assert_eq!(channel.receive().await?, None);
 ```
+
+- `Task::all` preserves input order, fails on the first error, and requests cancellation of remaining tasks.
+- `Task::any` returns the first successful result and aggregates failures if all tasks fail. `Task::race` returns the first completed outcome, including an error. Both request cancellation of the other tasks.
+- `Task::all_settled` returns every outcome in input order. Empty `all` and `all_settled` inputs succeed with empty output; empty `any` and `race` return `TaskError::NoTasks`.
+- `await_timeout` returns `TaskError::Timeout` and requests cancellation. Dropping an async future cancels it at await points. A generated Ube method callback already running on the blocking pool cannot be forcibly stopped; its task is marked cancelled but its synchronous body may continue.
+- `Channel<T>` is bounded (default capacity 64). Sends wait for capacity, receive returns `None` after close and buffered values are drained, and close wakes blocked senders/receivers with a closed outcome.
+
+The compiler now schedules calls to declared `async` methods and infers the awaited result type. Async method results are transported through a 64-bit ABI slot (integer/boolean/decimal bit representation or pointer); compiler-generated callbacks own their capture context, and task handles are cleaned up with the runtime. `Task.all`, `Task.any`, `Task.race`, and `Task.allSettled` also return tasks and observe completion order.
+
+The compiler transports async method throws and runtime task failures to an enclosing `guard`/`catch`; use `err.message()` to inspect the message. Awaiting a failure without a surrounding `guard` propagates it from an async method or `async` expression to its awaiter; anywhere else the program stops with `Ube error: unhandled task failure: ...` (exit code 1). Generated async methods poll cancellation at basic-block boundaries and return early when cancelled; a currently executing indivisible operation cannot be interrupted. `async expr` captures visible locals when submitted and evaluates the expression on a worker. Language channels support explicit element types (`Channel<T>(capacity)`) and `close()`; `send(value)` returns `Task<bool>` and `receive()` returns `Task<T>`, with the channel wait performed on Tokio. `send` completes with false if the channel is closed; after buffered values are drained, `receive` fails with a catchable channel-closed error. `task.timeout(ms)` wraps any task (including a channel operation) with a deadline; `Task.race` waits on several channels at once. The language channel bridge transports non-null primitive values and pointer-sized values through the existing 64-bit ABI; nullable scalar payloads are rejected.
 
 ### 12. Built-in Collections (`List<T>`, `Map<K, V>`, Indexing & Bounds Protection)
 
@@ -887,7 +865,7 @@ source "$HOME/.cargo/env"
 ```bash
 cargo build --release --workspace
 sudo cp target/release/ube-compiler /usr/local/bin/ube
-sudo cp target/release/libTimawa_runtime.a /usr/local/lib/libTimawa_runtime.a
+sudo cp target/release/libUbe_runtime.a /usr/local/lib/libUbe_runtime.a
 ```
 
 ### 3. Usage Commands
@@ -932,4 +910,4 @@ For detailed compiler pipeline design, module layout, object layout headers, mem
 
 ## License
 
-Timawa is open-source software licensed under the [MIT License](LICENSE).
+Ube is open-source software licensed under the [MIT License](LICENSE).
