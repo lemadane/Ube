@@ -7,7 +7,9 @@ pub mod geo;
 pub mod io;
 pub mod math;
 pub mod memory;
+pub mod net;
 pub mod strings;
+
 
 #[no_mangle]
 pub extern "C" fn talas_runtime_init() {

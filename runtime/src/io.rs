@@ -285,10 +285,201 @@ pub extern "C" fn talas_response_create(status: i32, body_ptr: *const c_char) ->
 }
 
 #[no_mangle] pub extern "C" fn talas_server_enable_http2(_ptr: *mut TalasServer) {}
-#[no_mangle] pub extern "C" fn talas_server_enable_http3(_ptr: *mut TalasServer, _port: i32) {}
+#[no_mangle] pub extern "C" fn talas_server_enable_http3(ptr: *mut TalasServer, port: i32) {
+    if !ptr.is_null() {
+        unsafe {
+            (*ptr).port = port;
+        }
+    }
+}
 
 #[no_mangle] pub extern "C" fn talas_request_protocol(_ptr: *mut TalasRequest) -> *mut c_char { CString::new("HTTP/3").unwrap().into_raw() }
 #[no_mangle] pub extern "C" fn talas_request_is_http3(_ptr: *mut TalasRequest) -> bool { true }
+
+#[repr(C)]
+pub struct TalasBytes {
+    pub data: *mut u8,
+    pub len: usize,
+    pub capacity: usize,
+}
+
+#[repr(C)]
+pub struct TalasInputStream {
+    pub file_handle: *mut fs::File,
+    pub is_closed: bool,
+}
+
+#[repr(C)]
+pub struct TalasOutputStream {
+    pub file_handle: *mut fs::File,
+    pub is_closed: bool,
+}
+
+#[no_mangle]
+pub extern "C" fn talas_bytes_create(capacity: usize) -> *mut TalasBytes {
+    let mut vec = vec![0u8; capacity];
+    let ptr = vec.as_mut_ptr();
+    let cap = vec.capacity();
+    std::mem::forget(vec);
+    Box::into_raw(Box::new(TalasBytes {
+        data: ptr,
+        len: cap,
+        capacity: cap,
+    }))
+}
+
+#[no_mangle]
+pub extern "C" fn talas_bytes_free(ptr: *mut TalasBytes) {
+    if !ptr.is_null() {
+        unsafe {
+            let b = Box::from_raw(ptr);
+            if !b.data.is_null() {
+                let _ = Vec::from_raw_parts(b.data, b.len, b.capacity);
+            }
+        }
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn talas_file_open_read(path_ptr: *const c_char) -> *mut TalasInputStream {
+    if path_ptr.is_null() {
+        return std::ptr::null_mut();
+    }
+    let path_str = unsafe { CStr::from_ptr(path_ptr) }.to_str().unwrap_or("");
+    match fs::File::open(path_str) {
+        Ok(file) => Box::into_raw(Box::new(TalasInputStream {
+            file_handle: Box::into_raw(Box::new(file)),
+            is_closed: false,
+        })),
+        Err(_) => std::ptr::null_mut(),
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn talas_file_open_write(path_ptr: *const c_char) -> *mut TalasOutputStream {
+    if path_ptr.is_null() {
+        return std::ptr::null_mut();
+    }
+    let path_str = unsafe { CStr::from_ptr(path_ptr) }.to_str().unwrap_or("");
+    match OpenOptions::new().create(true).write(true).truncate(true).open(path_str) {
+        Ok(file) => Box::into_raw(Box::new(TalasOutputStream {
+            file_handle: Box::into_raw(Box::new(file)),
+            is_closed: false,
+        })),
+        Err(_) => std::ptr::null_mut(),
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn talas_stream_read(
+    stream_ptr: *mut TalasInputStream,
+    bytes_ptr: *mut TalasBytes,
+    offset: usize,
+    count: usize,
+) -> i64 {
+    use std::io::Read;
+    if stream_ptr.is_null() || bytes_ptr.is_null() {
+        return 0;
+    }
+    unsafe {
+        if (*stream_ptr).is_closed || (*stream_ptr).file_handle.is_null() {
+            return 0;
+        }
+        let file = &mut *(*stream_ptr).file_handle;
+        let buf = &mut *bytes_ptr;
+        if offset >= buf.capacity {
+            return 0;
+        }
+        let max_read = (buf.capacity - offset).min(count);
+        let slice = std::slice::from_raw_parts_mut(buf.data.add(offset), max_read);
+        match file.read(slice) {
+            Ok(n) => n as i64,
+            Err(_) => 0,
+        }
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn talas_stream_write(
+    stream_ptr: *mut TalasOutputStream,
+    bytes_ptr: *mut TalasBytes,
+    offset: usize,
+    count: usize,
+) -> i64 {
+    if stream_ptr.is_null() || bytes_ptr.is_null() {
+        return 0;
+    }
+    unsafe {
+        if (*stream_ptr).is_closed || (*stream_ptr).file_handle.is_null() {
+            return 0;
+        }
+        let file = &mut *(*stream_ptr).file_handle;
+        let buf = &*bytes_ptr;
+        if offset >= buf.len {
+            return 0;
+        }
+        let max_write = (buf.len - offset).min(count);
+        let slice = std::slice::from_raw_parts(buf.data.add(offset), max_write);
+        match file.write(slice) {
+            Ok(n) => n as i64,
+            Err(_) => 0,
+        }
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn talas_stream_pipe_to(
+    src_ptr: *mut TalasInputStream,
+    dst_ptr: *mut TalasOutputStream,
+) -> i64 {
+    if src_ptr.is_null() || dst_ptr.is_null() {
+        return 0;
+    }
+    unsafe {
+        if (*src_ptr).is_closed || (*src_ptr).file_handle.is_null() { return 0; }
+        if (*dst_ptr).is_closed || (*dst_ptr).file_handle.is_null() { return 0; }
+        let src_file = &mut *(*src_ptr).file_handle;
+        let dst_file = &mut *(*dst_ptr).file_handle;
+        match std::io::copy(src_file, dst_file) {
+            Ok(bytes_copied) => bytes_copied as i64,
+            Err(_) => 0,
+        }
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn talas_file_sha256(path_ptr: *const c_char) -> *mut c_char {
+    if path_ptr.is_null() {
+        return CString::new("").unwrap().into_raw();
+    }
+    let path_str = unsafe { CStr::from_ptr(path_ptr) }.to_str().unwrap_or("");
+    match crate::net::compute_file_sha256(path_str) {
+        Ok(hex_str) => CString::new(hex_str).unwrap().into_raw(),
+        Err(_) => CString::new("").unwrap().into_raw(),
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn talas_response_stream(
+    status: i32,
+    stream_ptr: *mut TalasInputStream,
+) -> *mut TalasResponse {
+    let body_desc = if stream_ptr.is_null() {
+        "<empty stream>"
+    } else {
+        "<binary input stream>"
+    };
+    Box::into_raw(Box::new(TalasResponse {
+        status,
+        body: CString::new(body_desc).unwrap().into_raw(),
+    }))
+}
+
+#[no_mangle]
+pub extern "C" fn talas_response_file(path_ptr: *const c_char) -> *mut TalasResponse {
+    let stream = talas_file_open_read(path_ptr);
+    talas_response_stream(200, stream)
+}
 
 #[no_mangle] pub extern "C" fn talas_websocket_send(_ptr: *mut TalasWebSocket, _msg: *const c_char) {}
 #[no_mangle] pub extern "C" fn talas_websocket_on_message(_ptr: *mut TalasWebSocket, _handler: i64) {}
@@ -314,3 +505,4 @@ pub extern "C" fn talas_response_create(status: i32, body_ptr: *const c_char) ->
 #[no_mangle] pub extern "C" fn talas_xmlement_element(_elem: *mut TalasXmlElement, _tag: *const c_char) -> *mut TalasXmlElement { Box::into_raw(Box::new(TalasXmlElement { id: 1 })) }
 #[no_mangle] pub extern "C" fn talas_xmlement_text(_elem: *mut TalasXmlElement, _txt: *const c_char) -> *mut TalasXmlElement { Box::into_raw(Box::new(TalasXmlElement { id: 1 })) }
 #[no_mangle] pub extern "C" fn talas_xmlement_get_text(_elem: *mut TalasXmlElement) -> *mut c_char { CString::new("Lem").unwrap().into_raw() }
+

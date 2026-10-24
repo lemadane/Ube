@@ -9,9 +9,14 @@ pub enum Type {
     Bool,
     String,
     Void,
+    Bytes,
+    InputStream,
+    OutputStream,
+    FileStream,
     Class {
         name: std::string::String,
     },
+
     Nullable(Box<Type>),
     AnonymousObject {
         field_types: Vec<(std::string::String, Type)>,
@@ -32,7 +37,12 @@ impl fmt::Display for Type {
             Type::Bool => write!(f, "bool"),
             Type::String => write!(f, "string"),
             Type::Void => write!(f, "void"),
+            Type::Bytes => write!(f, "Bytes"),
+            Type::InputStream => write!(f, "InputStream"),
+            Type::OutputStream => write!(f, "OutputStream"),
+            Type::FileStream => write!(f, "FileStream"),
             Type::Class { name } => write!(f, "{}", name),
+
             Type::Nullable(inner) => write!(f, "{}?", inner),
             Type::AnonymousObject { field_types } => {
                 let fields_str = field_types

@@ -211,7 +211,18 @@ impl TextualLlvmEmitter {
         self.output.push_str("declare void @talas_server_enable_http3(i8*, i32)\n");
         self.output.push_str("declare i8* @talas_request_protocol(i8*)\n");
         self.output.push_str("declare i1 @talas_request_is_http3(i8*)\n");
+        self.output.push_str("declare i8* @talas_bytes_create(i64)\n");
+        self.output.push_str("declare void @talas_bytes_free(i8*)\n");
+        self.output.push_str("declare i8* @talas_file_open_read(i8*)\n");
+        self.output.push_str("declare i8* @talas_file_open_write(i8*)\n");
+        self.output.push_str("declare i64 @talas_stream_read(i8*, i8*, i64, i64)\n");
+        self.output.push_str("declare i64 @talas_stream_write(i8*, i8*, i64, i64)\n");
+        self.output.push_str("declare i64 @talas_stream_pipe_to(i8*, i8*)\n");
+        self.output.push_str("declare i8* @talas_file_sha256(i8*)\n");
+        self.output.push_str("declare i8* @talas_response_stream(i32, i8*)\n");
+        self.output.push_str("declare i8* @talas_response_file(i8*)\n");
         self.output.push_str("declare i8* @talas_json_parse(i8*)\n");
+
         self.output.push_str("declare i8* @talas_json_stringify(i8*)\n");
         self.output.push_str("declare i8* @talas_jsonobject_get_string(i8*, i8*)\n");
         self.output.push_str("declare i32 @talas_jsonobject_get_int(i8*, i8*)\n");
