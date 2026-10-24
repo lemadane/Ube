@@ -1,4 +1,4 @@
-# Talas Compiler Phased Execution Milestones
+# Timawa Compiler Phased Execution Milestones
 
 This document details the 14 implementation phases for the **Talas** compiler, including deliverables, dependencies, technical risks, engineer-week estimates, objective exit criteria, and parallelization opportunities.
 
@@ -40,7 +40,7 @@ Phase 13: Self-Hosting Assessment       [ 4 wks ]
 ---
 
 ### Phase 1: Compiler Skeleton
-- **Deliverables**: Cargo workspace repository, `talas` CLI scaffolding, source file loader, source location span tracker (`Position`, `Span`), diagnostics emitter, hand-written Pratt parser, AST data structures, and parser snapshot tests.
+- **Deliverables**: Cargo workspace repository, `timawa` CLI scaffolding, source file loader, source location span tracker (`Position`, `Span`), diagnostics emitter, hand-written Pratt parser, AST data structures, and parser snapshot tests.
 - **Dependencies**: Phase 0.
 - **Risks**: AST data structure bloat or inefficient span tracking.
 - **Estimate**: 3 Engineer-Weeks.
@@ -60,12 +60,12 @@ Phase 13: Self-Hosting Assessment       [ 4 wks ]
 ---
 
 ### Phase 3: Minimal LLVM Vertical Slice (MVP Milestone)
-- **Deliverables**: Custom Typed Talas IR builder, textual LLVM IR emitter (`TextualLlvmEmitter`), driver for native linker (`lld`), and `talas-runtime` static library with basic I/O (`print_i64`, `print_str`).
+- **Deliverables**: Custom Typed Timawa IR builder, textual LLVM IR emitter (`TextualLlvmEmitter`), driver for native linker (`lld`), and `timawa-runtime` static library with basic I/O (`print_i64`, `print_str`).
 - **Dependencies**: Phase 2.
 - **Risks**: Platform-specific C-ABI calling conventions and linker flag differences.
 - **Estimate**: 5 Engineer-Weeks.
-- **Exit Criteria**: **MVP Milestone**: A valid Talas "Hello World" application (`class Application { void main() { ... } }`) compiles to a native executable and runs with exit code 0.
-- **Parallelization**: LLVM IR generator and `talas-runtime` library can be built in parallel.
+- **Exit Criteria**: **MVP Milestone**: A valid Timawa "Hello World" application (`class Application { void main() { ... } }`) compiles to a native executable and runs with exit code 0.
+- **Parallelization**: LLVM IR generator and `timawa-runtime` library can be built in parallel.
 
 ---
 
@@ -150,7 +150,7 @@ Phase 13: Self-Hosting Assessment       [ 4 wks ]
 ---
 
 ### Phase 12: Developer Tooling
-- **Deliverables**: `talas fmt` formatter, Language Server Protocol (`talas-lsp`), syntax highlighter, DWARF debug information generator, and package manager (`talas pkg`).
+- **Deliverables**: `timawa fmt` formatter, Language Server Protocol (`timawa-lsp`), syntax highlighter, DWARF debug information generator, and package manager (`timawa pkg`).
 - **Dependencies**: Phase 11.
 - **Risks**: LSP latency during live incremental type checking.
 - **Estimate**: 6 Engineer-Weeks.
@@ -160,9 +160,9 @@ Phase 13: Self-Hosting Assessment       [ 4 wks ]
 ---
 
 ### Phase 13: Self-Hosting Assessment
-- **Deliverables**: Assessment report measuring language maturity, specification stability, compiler performance, and a staged bootstrapping roadmap for rewriting `talas` compiler in Talas.
+- **Deliverables**: Assessment report measuring language maturity, specification stability, compiler performance, and a staged bootstrapping roadmap for rewriting `timawa` compiler in Timawa.
 - **Dependencies**: Phase 12.
 - **Risks**: Immature language features hindering compiler self-implementation.
 - **Estimate**: 4 Engineer-Weeks.
-- **Exit Criteria**: Complete specification review confirming Talas is capable of hosting its own frontend and IR builder.
+- **Exit Criteria**: Complete specification review confirming Timawa is capable of hosting its own frontend and IR builder.
 - **Parallelization**: Benchmark analysis and bootstrap architecture drafting can run concurrently.

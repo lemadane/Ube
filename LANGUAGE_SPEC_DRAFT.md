@@ -1,9 +1,9 @@
-# Talas Language Specification Baseline (Draft v0.5.0)
+# Timawa Language Specification Baseline (Draft v0.5.0)
 
 ```text
-Name: Talas Programming Language
-Compiler Command: talas
-Source Extension: .talas
+Name: Timawa Programming Language
+Compiler Command: timawa
+Source Extension: .timawa
 Tagline: Sharp, simple, native.
 ```
 
@@ -11,12 +11,12 @@ Tagline: Sharp, simple, native.
 
 ## 1. Language Identity & Design Goals
 
-Talas is positioned between Go and Java:
+Timawa is positioned between Go and Java:
 * Native performance and simple single-binary deployment like Go.
 * Familiar, readable, brace-delimited syntax like Java.
 * Pure object-oriented programming model (everything is an instance method of a class).
 * Built-in `print(...)` directive for output (always appends a newline, equivalent to Java `System.out.println` or Python `print()`).
-* Implicit void return types: methods without an explicit return type default to void. The `void` keyword does not exist in Talas.
+* Implicit void return types: methods without an explicit return type default to void. The `void` keyword does not exist in Timawa.
 * Immutable by default (fields, parameters, local variables).
 * Garbage-collected runtime with zero manual memory management boilerplate.
 * Statically typed with structural generic constraints and flow-sensitive type narrowing.
@@ -27,7 +27,7 @@ Talas is positioned between Go and Java:
 
 ## 2. Built-in I/O Directive (`print`)
 
-Talas provides `print(...)` as the sole built-in output directive. `print` **always appends a newline** upon execution (equivalent to Java's `System.out.println` or Python's `print()`).
+Timawa provides `print(...)` as the sole built-in output directive. `print` **always appends a newline** upon execution (equivalent to Java's `System.out.println` or Python's `print()`).
 
 ```java
 class Application {
@@ -42,7 +42,7 @@ class Application {
 
 ## 3. Basic Data Types & Semantics
 
-Talas provides exactly six primitive data types (the `void` keyword does not exist):
+Timawa provides exactly six primitive data types (the `void` keyword does not exist):
 
 | Type Specifier | Native Representation | Description | Default Value |
 | :--- | :--- | :--- | :--- |
@@ -58,7 +58,7 @@ Talas provides exactly six primitive data types (the `void` keyword does not exi
 
 ## 4. Unified Class Model & Implicit Void Methods
 
-Every user-defined type in Talas is declared using the `class` keyword. Methods without an explicit return type are **implicitly void** (no `void` keyword).
+Every user-defined type in Timawa is declared using the `class` keyword. Methods without an explicit return type are **implicitly void** (no `void` keyword).
 
 ```java
 class User(
@@ -80,7 +80,7 @@ class User(
 
 ## 5. Structural `trait` Subtyping (No `implements` Keyword)
 
-Abstraction and behavior reuse in Talas are defined using **`trait`**. Classes satisfy traits **implicitly** based on method signatures without needing an `implements` keyword:
+Abstraction and behavior reuse in Timawa are defined using **`trait`**. Classes satisfy traits **implicitly** based on method signatures without needing an `implements` keyword:
 
 ```java
 trait Printable {
@@ -126,7 +126,7 @@ class Application {
 
 ## 6. Singletons via Application-Scoped Dependency Injection
 
-Because Talas has no static fields or global variables, singletons are created once at application startup inside `Application.main()` and injected into dependent classes via primary constructors:
+Because Timawa has no static fields or global variables, singletons are created once at application startup inside `Application.main()` and injected into dependent classes via primary constructors:
 
 ```java
 class DatabaseConnection(string url) {
@@ -156,7 +156,7 @@ class Application {
 
 ## 7. Concurrency (`async`, `await`, `Channel<T>`)
 
-Concurrency in Talas executes instance methods asynchronously using `async`, non-blocking returns via `await`, and channel messaging via `Channel<T>`:
+Concurrency in Timawa executes instance methods asynchronously using `async`, non-blocking returns via `await`, and channel messaging via `Channel<T>`:
 
 ```java
 class UserRepository {
@@ -197,7 +197,7 @@ class Application {
 
 ## 8. Composition Over Inheritance (No `extends` Keyword)
 
-Talas has **no class inheritance** (`extends` is prohibited). Code reuse and polymorphism are achieved through **Primary Constructor Composition & Delegation**:
+Timawa has **no class inheritance** (`extends` is prohibited). Code reuse and polymorphism are achieved through **Primary Constructor Composition & Delegation**:
 
 ```java
 class Engine(int horsepower) {
@@ -234,7 +234,7 @@ class Application {
 
 ## 9. All Enum Use Cases via Sum Classes
 
-In Talas, enumerations and tagged algebraic variants are declared using **Sum Classes** (cases defined directly inside a `class`).
+In Timawa, enumerations and tagged algebraic variants are declared using **Sum Classes** (cases defined directly inside a `class`).
 
 ```java
 // Use Case 1: Simple Unit Enumeration
@@ -294,7 +294,7 @@ class Application {
 
 ## 10. Unified `for` Loop & Control Flow (`break` & `continue`)
 
-Talas uses `for` as its **sole loop keyword**. There is no `while` or `do-while` keyword in the language. `break` exits the loop immediately, while `continue` skips to the next iteration.
+Timawa uses `for` as its **sole loop keyword**. There is no `while` or `do-while` keyword in the language. `break` exits the loop immediately, while `continue` skips to the next iteration.
 
 ```java
 class Application {
@@ -342,7 +342,7 @@ class Application {
 
 ## 11. All Pattern-Matching `switch` Use Cases
 
-In Talas, `switch` is a first-class expression and statement without fall-through:
+In Timawa, `switch` is a first-class expression and statement without fall-through:
 
 ```java
 class Application {
@@ -414,7 +414,7 @@ class Account(long id, var decimal balance) {
 
 ## 14. Word-Based Boolean Operators & The `not` Keyword
 
-Talas uses word-based logical operators: `not`, `and`, `nand`, `or`, `nor`, `xor`, `xnor`. Symbol `!` is prohibited.
+Timawa uses word-based logical operators: `not`, `and`, `nand`, `or`, `nor`, `xor`, `xnor`. Symbol `!` is prohibited.
 
 Falsy values: `false`, `null`, `0`, `0.0`, `-0.0`, `` ``. All other values are truthy.
 

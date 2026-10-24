@@ -1,25 +1,24 @@
-# Talas Programming Language
+# Ube Programming Language
 
-> **Sharp, simple, native.**
+> **Enjoyable, simple, native.**
 
 [![Language Specification](https://img.shields.io/badge/spec-v0.6.0-blue.svg)](LANGUAGE_SPEC_DRAFT.md)
 [![Compiler Status](https://img.shields.io/badge/compiler-Rust%20%2B%20LLVM-orange.svg)](ARCHITECTURE.md)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
-**Talas** is a NO INHERITANCE, NO INTERFACE, pure object-oriented composition programming language designed for native performance, low memory footprint, and high safety. Positioned between GO and JAVA, **Talas** combines native single-binary deployment and direct native code generation via LLVM like RUST.
+**Ube** (name taken from the delicious Pilippine purple yam root crop) is a NO INHERITANCE, NO INTERFACE, pure object-oriented composition programming language designed for native performance, low memory footprint, and high safety. Positioned between GO and JAVA, **Ube** combines native single-binary deployment and direct native code generation via LLVM like RUST.
 
 ---
 
 ## Language Core Principles & Policies
 
 ### 1. Pure Object-Oriented (No `static`, No Free Functions)
-- **No Static Methods, Fields, or Classes**: Every executable function in Talas must be an instance method belonging to a class object.
-- **No Free-Standing Functions**: All code is encapsulated inside classes.
-- **Application Entry Point**: The application entry point is an instance method (`main()`) on an `Application` class. The compiler automatically generates the native C-ABI wrapper.
+- **No Static Methods, Fields, or Classes**: Every executable function in Ube must be an instance method belonging to a class object.
+ - **Application Entry Point**: The application entry point is an instance method (`main()`) on an `Application` class. The compiler automatically generates the native C-ABI wrapper.
 - **Singletons via Dependency Injection**: Singletons are created once at application startup inside `Application.main()` and passed via primary constructors.
 
 ### 2. Zero Inheritance & Maximum Performance
-- **No `extends` or Abstract Classes**: Talas has **no inheritance**.
+- **No `extends` or Abstract Classes**: Ube has **no inheritance**.
 - **0-Byte Vtable Overhead**: Because there is no inheritance, every method call is 100% statically known at compile time. There are no virtual method table (vtable) lookups.
 - **Aggressive Inlining**: LLVM inlines instance method bodies directly into caller sites.
 - **Cache Locality**: Class instance headers do not store virtual pointer (`vptr`) fields, resulting in smaller memory headers and superior CPU L1/L2/L3 cache hit rates.
@@ -35,7 +34,7 @@
 - **Enums via Sum Classes**: Enumerations and algebraic variants are declared using `case` clauses inside a `class` (e.g. `class Status { case Pending; case Approved(long orderId) }`).
 
 ### 5. No `void` Keyword & Implicit Void Return Types
-- **No `void` Keyword**: The `void` keyword does not exist in Talas.
+- **No `void` Keyword**: The `void` keyword does not exist in Ube.
 - **Implicit Void Return Type**: Methods declared without a return type automatically return void (`main() { ... }` or `birthday() { ... }`).
 - **Explicit Return Types**: Methods returning values specify the return type before the method name (`int getAge() { return this._age }`).
 
@@ -63,7 +62,7 @@
 - Optional chaining (`?.`), null coalescing (`??`), and null-coalescing assignment (`??=`).
 
 ### 12. Collections Policy & Unified `for` Loops (No `while` Keyword)
-- **`for` is the Sole Loop Keyword**: There is no `while` or `do-while` keyword in Talas.
+- **`for` is the Sole Loop Keyword**: There is no `while` or `do-while` keyword in Ube.
 - **`for` / `else` (0-Iteration Fallback)**: `for (item in items) { ... } else { ... }`. The `else` block executes **ONLY if the loop body executed 0 times** (e.g. collection is empty `[]`, `null`, or condition is initially `false`).
 - **`break` & `continue`**: `break` exits the nearest loop or guard block; `continue` skips to the next iteration.
 - **`Array<T>`**: Fixed-size contiguous buffer (`Array<int>(10)`).
@@ -120,7 +119,7 @@
 - **Exception-Free File Operations**: High-performance IO without exceptions (`FileError`, `FileNotFoundError`, `PermissionError`, `AlreadyExistsError`, `InvalidPathError`, `DiskFullError`).
 - **Object-Oriented & Static Helpers**: `File.read("app.txt")`, `File.write("out.txt", data)`, `file = File.open(path)`, `file.read()`, `file.close()`.
 - **Deferred Cleanup**: Native deferred cleanup using `after file.close()` syntax.
-- **Directories & Paths**: `Directory.create("logs")`, `Path.join("src", "main.talas")`.
+- **Directories & Paths**: `Directory.create("logs")`, `Path.join("src", "main.Ube")`.
 
 ### 21. High-Performance Web Server Standard Library (`Server`, `Request`, `Response`, `HTTP/1.1`, `HTTP/2`, `HTTP/3 QUIC`)
 - **Express / Ktor Ergonomics**: Express-style fluent routing: `server.get("/users") { request -> ... }`, `server.post()`, `server.put()`, `server.delete()`, `server.use()` (middleware), `server.static()`, `server.websocket()`, `server.start(8080)`.
@@ -130,7 +129,7 @@
 ### 22. First-Class Native JSON & XML Record Mapping (`Json`, `JsonObject`, `JsonArray`, `Xml`, `XmlDocument`, `XmlElement`)
 - **Bi-Directional Document & Class Mapping**: `Json.parse(text)`, `Json.partialParse(text, TargetClass)`, `Json.stringify(obj)`, `Json.from(obj)`, `Json.to(text, TargetClass)`.
 - **XML Document Traversal & Generation**: `Xml.parse(text)`, `Xml.create("root")`, `doc.root().child("tag").text()`, `doc.toString()`.
-- **Reversible Character Codec (`DataNameCodec`)**: Maps XML/JSON tag/key names with hyphens (`Facility-ID`), namespaces (`rest:KitchenOrderScan`), or dots to Talas identifier conventions (`Facility$hyphen$ID`, `rest$KitchenOrderScan`).
+- **Reversible Character Codec (`DataNameCodec`)**: Maps XML/JSON tag/key names with hyphens (`Facility-ID`), namespaces (`rest:KitchenOrderScan`), or dots to Ube identifier conventions (`Facility$hyphen$ID`, `rest$KitchenOrderScan`).
 - **Strict vs. Partial Parsing Modes**: Strict mode enforces 1-to-1 structural completeness; Partial mode selectively maps declared components while assigning defaults (`null`, `List.of()`, `0`, `false`).
 - **Structured Format Error Handling**: Exception-free error handling via `guard`/`catch(err)` with `JsonParseError`, `XmlParseError`, `MissingDataError`, `ExcessDataError`.
 
@@ -138,24 +137,24 @@
 
 ## VS Code Extension & Syntax Highlighting
 
-Talas includes an official VS Code extension in [`editors/vscode`](editors/vscode) providing full `.talas` file recognition, syntax highlighting, bracket matching, string interpolation highlighting, and code folding.
+Ube includes an official VS Code extension in [`editors/vscode`](editors/vscode) providing full `.Ube` file recognition, syntax highlighting, bracket matching, string interpolation highlighting, and code folding.
 
 ### Installation Options:
 
 #### Option 1: Quick Install (Copy Extension Directory)
 ```bash
 # Linux / macOS
-cp -r editors/vscode ~/.vscode/extensions/talas-vscode
+cp -r editors/vscode ~/.vscode/extensions/Ube-vscode
 
 # Windows (Command Prompt)
-xcopy /E /I editors\vscode %USERPROFILE%\.vscode\extensions\talas-vscode
+xcopy /E /I editors\vscode %USERPROFILE%\.vscode\extensions\Ube-vscode
 ```
 
 #### Option 2: Build & Install `.vsix` Package
 ```bash
 cd editors/vscode
 npx vsce package
-code --install-extension talas-vscode-0.5.0.vsix
+code --install-extension Ube-vscode-0.5.0.vsix
 ```
 
 ---
@@ -184,7 +183,7 @@ class User(
 
 ### 2. Structural `trait` Subtyping (No `implements` Keyword)
 
-In Talas, `trait` provides behavioral contracts and default method bodies. Classes satisfy traits **implicitly** without an `implements` keyword:
+In Ube, `trait` provides behavioral contracts and default method bodies. Classes satisfy traits **implicitly** without an `implements` keyword:
 
 ```java
 trait Printable {
@@ -229,7 +228,7 @@ class Application {
 
 ### 3. The `not` Keyword Use Cases
 
-In Talas, the exclamation symbol `!` is not a valid operator. Logical negation and type checks use the `not` keyword:
+In Ube, the exclamation symbol `!` is not a valid operator. Logical negation and type checks use the `not` keyword:
 
 ```java
 class Application {
@@ -258,7 +257,7 @@ class Application {
 
 ### 4. Composition Over Inheritance Use Cases
 
-Because Talas has **no `extends` keyword**, code reuse and polymorphism are achieved cleanly through **Composition & Delegation**:
+Because Ube has **no `extends` keyword**, code reuse and polymorphism are achieved cleanly through **Composition & Delegation**:
 
 ```java
 // Component Class 1: Engine
@@ -308,7 +307,7 @@ class Application {
 
 ### 5. Singleton Implementation via Application-Scoped Dependency Injection
 
-Because Talas omits global static variables, singletons are created once at application startup and passed into dependent services:
+Because Ube omits global static variables, singletons are created once at application startup and passed into dependent services:
 
 ```java
 class DatabaseConnection(string connectionUrl) {
@@ -346,7 +345,7 @@ class Application {
 
 ### 6. All Enum Use Cases via Sum Classes
 
-In Talas, enumerations are declared using **Sum Classes** (defining `case` clauses inside a `class`):
+In Ube, enumerations are declared using **Sum Classes** (defining `case` clauses inside a `class`):
 
 ```java
 // Use Case 1: Simple Unit Enumerations (No Payloads)
@@ -418,7 +417,7 @@ class Application {
 
 ### 7. All `switch` Control Flow Use Cases
 
-In Talas, `switch` is a first-class expression and statement supporting 6 core pattern-matching use cases (no fall-through, no `break` required inside cases):
+In Ube, `switch` is a first-class expression and statement supporting 6 core pattern-matching use cases (no fall-through, no `break` required inside cases):
 
 ```java
 class Application {
@@ -483,7 +482,7 @@ class Application {
 
 ### 8. All `for` Loop Use Cases (With `break` and `continue`)
 
-Talas uses `for` as its **sole loop keyword** (no `while` or `do-while`).
+Ube uses `for` as its **sole loop keyword** (no `while` or `do-while`).
 
 ```java
 class Application {
@@ -549,7 +548,7 @@ class Application {
 
 ### 9. Truthy & Falsy Control Flow with Word Booleans
 
-In Talas, conditions in `if (condition)` statements evaluate **truthiness and falsiness** without requiring explicit boolean comparisons:
+In Ube, conditions in `if (condition)` statements evaluate **truthiness and falsiness** without requiring explicit boolean comparisons:
 
 ```java
 class Application {
@@ -574,7 +573,7 @@ class Application {
 
 ### 10. Word-Based Logical Operators (`not`, `and`, `nand`, `or`, `nor`, `xor`, `xnor`)
 
-Talas uses English words for all boolean operators instead of symbols like `!`, `&&`, `||`:
+Ube uses English words for all boolean operators instead of symbols like `!`, `&&`, `||`:
 
 ```java
 class Application {
@@ -608,7 +607,7 @@ class Application {
 
 ### 11. Virtual Thread Task Concurrency (`async`, `await`, `Task` Combinators & `Channel`)
 
-In Talas, lightweight task-based concurrency is patterned after Java Virtual Threads (`vt-async-await`). Tasks can be spawned with `async`, `Task.async()`, or `async method()`, awaited sequentially, or coordinated via static promise combinators:
+In Ube, lightweight task-based concurrency is patterned after Java Virtual Threads (`vt-async-await`). Tasks can be spawned with `async`, `Task.async()`, or `async method()`, awaited sequentially, or coordinated via static promise combinators:
 
 ```java
 class CustomerService {
@@ -887,29 +886,29 @@ source "$HOME/.cargo/env"
 
 ```bash
 cargo build --release --workspace
-sudo cp target/release/talas-compiler /usr/local/bin/talas
-sudo cp target/release/libtalas_runtime.a /usr/local/lib/libtalas_runtime.a
+sudo cp target/release/ube-compiler /usr/local/bin/ube
+sudo cp target/release/libTimawa_runtime.a /usr/local/lib/libTimawa_runtime.a
 ```
 
 ### 3. Usage Commands
 
 ```bash
-# 1. Create a new Talas project folder structure
-talas new my_app
+# 1. Create a new Ube project folder structure
+Ube new my_app
 cd my_app
 
 # 2. Fast syntax and static type check
-talas check src/main.talas
+Ube check src/main.ube
 
 # 3. Fast compile & execute immediately (1-step execution)
-talas run src/main.talas
+Ube run src/main.ube
 
 # 4. Build standalone native release executable (with -O3 & LTO optimization)
-talas build --release src/main.talas -o my_app
+Ube build --release src/main.ube -o my_app
 ./my_app
 
 # 5. (Optional) Inspect generated textual LLVM IR for compiler debugging
-talas emit-llvm src/main.talas -o main.ll
+Ube emit-llvm src/main.ube -o main.ll
 ```
 
 ---
@@ -933,4 +932,4 @@ For detailed compiler pipeline design, module layout, object layout headers, mem
 
 ## License
 
-Talas is open-source software licensed under the [MIT License](LICENSE).
+Timawa is open-source software licensed under the [MIT License](LICENSE).

@@ -1,13 +1,13 @@
-# Master Implementation Plan: Talas Compiler & Native Runtime
+# Master Implementation Plan: Timawa Compiler & Native Runtime
 
-This document serves as the master implementation reference for building the **Talas** compiler and native runtime in Rust targeting LLVM IR.
+This document serves as the master implementation reference for building the **Timawa** compiler and native runtime in Rust targeting LLVM IR.
 
 ---
 
 ## 1. Project Repository Structure
 
 ```text
-Talas/
+Timawa/
 ├── Cargo.toml                      # Workspace definition
 ├── LANGUAGE_SPEC_DRAFT.md          # Baseline language specification
 ├── ARCHITECTURE.md                 # Compiler & runtime architecture
@@ -25,7 +25,7 @@ Talas/
 │       ├── resolver/               # Scope symbol table & package resolver
 │       ├── types/                  # Type system representations
 │       ├── semantics/              # Semantic validator & flow-sensitive narrowing
-│       ├── ir/                     # Custom Typed Talas IR builder (CFG SSA)
+│       ├── ir/                     # Custom Typed Timawa IR builder (CFG SSA)
 │       └── llvm/                   # Textual & Inkwell LLVM IR code generator
 ├── runtime/                        # Crate: talas-runtime (C-ABI static/shared library)
 │   ├── Cargo.toml
@@ -37,7 +37,7 @@ Talas/
 │       ├── io.rs                   # Standard I/O C-ABI wrappers
 │       ├── collections.rs          # Built-in generic collection representations
 │       └── concurrency.rs          # Task scheduler & stack management
-├── standard-library/               # Core Talas standard library packages
+├── standard-library/               # Core Timawa standard library packages
 │   └── prelude.talas
 ├── tests/                          # Compiler & runtime integration tests
 │   ├── integration_tests.rs
@@ -79,17 +79,17 @@ The **Minimum Viable Product (MVP)** is defined at the end of **Phase 3**.
 - Basic types: `int`, `decimal`, `bool`, `string`.
 - Immutable local variable bindings and explicit `this` enforcement.
 - Pure OOP Application entry point (`Application.main()`).
-- Custom Typed Talas IR lowered to Textual LLVM IR (`.ll`).
+- Custom Typed Timawa IR lowered to Textual LLVM IR (`.ll`).
 - Native executable linking using bundled `talas-runtime` static library.
 
 ### MVP Acceptance Criterion:
-A valid Talas source file (`hello.talas`) compiles directly to a native executable and produces exact output when executed natively:
+A valid Timawa source file (`hello.talas`) compiles directly to a native executable and produces exact output when executed natively:
 
 ```java
 class Application {
     void main() {
         final console = Console()
-        console.println(`Hello, Talas!`)
+        console.println(`Hello, Timawa!`)
     }
 }
 ```
@@ -98,7 +98,7 @@ class Application {
 
 ## 5. Valid & Invalid Code Examples
 
-### 5.1 Valid Talas Code Example
+### 5.1 Valid Timawa Code Example
 
 ```java
 class User(
@@ -185,7 +185,7 @@ graph TD
 
 ## 7. Critical Path Analysis
 
-The critical path for Talas development follows:
+The critical path for Timawa development follows:
 $$\text{Phase 0} \rightarrow \text{Phase 1} \rightarrow \text{Phase 2} \rightarrow \text{Phase 3 (MVP)} \rightarrow \text{Phase 4} \rightarrow \text{Phase 6} \rightarrow \text{Phase 7} \rightarrow \text{Phase 10} \rightarrow \text{Phase 11}$$
 
 - Total Critical Path Duration: **63 Engineer-Weeks**.
@@ -195,7 +195,7 @@ $$\text{Phase 0} \rightarrow \text{Phase 1} \rightarrow \text{Phase 2} \rightarr
 
 ## 8. Testing Strategy
 
-Talas implements a comprehensive multi-layered testing regime:
+Timawa implements a comprehensive multi-layered testing regime:
 
 1. **Unit Tests**: Test individual compiler components (Lexer token scanner, Pratt parser expression nodes, Symbol table scoping).
 2. **Snapshot Tests (`insta`)**: Validate exact output of AST representations, Typed IR nodes, and generated textual LLVM IR.
