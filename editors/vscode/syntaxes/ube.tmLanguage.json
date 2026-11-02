@@ -73,9 +73,9 @@
     "strings": {
       "patterns": [
         {
-          "name": "string.quoted.double.ube",
-          "begin": "\"",
-          "end": "\"",
+          "name": "string.quoted.double.multiline.ube",
+          "begin": "\"(?=[ \\t\\f]*(?:\\r\\n|\\r|\\n))",
+          "end": "(?<!\\\\)(?:\\\\\\\\)*\"",
           "patterns": [
             {
               "name": "constant.character.escape.ube",
@@ -84,27 +84,35 @@
           ]
         },
         {
-          "name": "string.quoted.backtick.ube",
+          "name": "string.quoted.single.ube",
+          "begin": "'",
+          "end": "'",
+          "patterns": [
+            {
+              "name": "constant.character.escape.ube",
+              "match": "\\\\(['\"\\\\ntr$])"
+            }
+          ]
+        },
+        {
+          "name": "string.quoted.double.ube",
+          "begin": "\"",
+          "end": "(?<!\\\\)(?:\\\\\\\\)*\"",
+          "patterns": [
+            {
+              "name": "constant.character.escape.ube",
+              "match": "\\\\([\"\\\\ntr$])"
+            }
+          ]
+        },
+        {
+          "name": "char.quoted.backtick.ube",
           "begin": "`",
           "end": "`",
           "patterns": [
             {
               "name": "constant.character.escape.ube",
               "match": "\\\\([`\\\\ntr$])"
-            },
-            {
-              "name": "meta.embedded.line.interpolation.ube",
-              "begin": "\\$\\{",
-              "end": "\\}",
-              "beginCaptures": {
-                "0": { "name": "punctuation.section.embedded.begin.ube" }
-              },
-              "endCaptures": {
-                "0": { "name": "punctuation.section.embedded.end.ube" }
-              },
-              "patterns": [
-                { "include": "$self" }
-              ]
             }
           ]
         }

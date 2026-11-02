@@ -26,6 +26,7 @@ pub struct IrBuilder {
     current_method_async: bool,
     current_method_return_type: Type,
     generated_functions: Vec<IrFunction>,
+    generated_classes: Vec<IrClass>,
     next_server_handler: usize,
     pub diagnostics: Vec<Diagnostic>,
 }
@@ -51,6 +52,7 @@ impl IrBuilder {
             current_method_async: false,
             current_method_return_type: Type::Void,
             generated_functions: Vec::new(),
+            generated_classes: Vec::new(),
             next_server_handler: 0,
             diagnostics: Vec::new(),
         }
@@ -77,12 +79,45 @@ impl IrBuilder {
             ptr: context_slot,
             ty: context_ty.clone(),
         });
-        let context = IrOperand::Register(context_reg, context_ty.clone());
+        let mut captures = std::collections::BTreeMap::new();
+        for scope in &self.var_pointers {
+            for (name, (pointer, ty)) in scope {
+                if name != "this" {
+                    captures.insert(name.clone(), (*pointer, ty.clone()));
+                }
+            }
+        }
+        let mut closure_fields = vec![("_this".to_string(), context_ty.clone())];
+        let mut closure_values = vec![IrOperand::Register(context_reg, context_ty.clone())];
+        for (name, (pointer, ty)) in &captures {
+            let value = self.fresh_reg();
+            self.emit(IrInstruction::Load {
+                dest: value,
+                ptr: *pointer,
+                ty: ty.clone(),
+            });
+            closure_fields.push((name.clone(), ty.clone()));
+            closure_values.push(IrOperand::Register(value, ty.clone()));
+        }
 
         let handler_index = self.next_server_handler;
         self.next_server_handler += 1;
         let class_name = format!("UbeRouteHandler{}", handler_index);
+        let context_class_name = format!("UbeRouteContext{}", handler_index);
         let method_name = "handle".to_string();
+        let context_class_ty = Type::Class {
+            name: context_class_name.clone(),
+        };
+        let closure_context = self.fresh_reg();
+        self.emit(IrInstruction::InstantiateClass {
+            dest: closure_context,
+            class_name: context_class_name.clone(),
+            args: closure_values,
+        });
+        self.generated_classes.push(IrClass {
+            name: context_class_name.clone(),
+            fields: closure_fields,
+        });
 
         let mut handler_builder = self.clone();
         handler_builder.next_reg = 0;
@@ -115,11 +150,40 @@ impl IrBuilder {
             dest: receiver_slot,
             ty: context_ty.clone(),
         });
+        let captured_receiver = handler_builder.fresh_reg();
+        handler_builder.emit(IrInstruction::GetField {
+            dest: captured_receiver,
+            ptr: receiver,
+            class_name: context_class_name.clone(),
+            field_index: 0,
+            field_ty: context_ty.clone(),
+        });
         handler_builder.emit(IrInstruction::Store {
-            val: IrOperand::Register(receiver, context_ty.clone()),
+            val: IrOperand::Register(captured_receiver, context_ty.clone()),
             ptr: receiver_slot,
         });
         handler_builder.insert_var("this".into(), receiver_slot, context_ty.clone());
+
+        for (index, (name, (_, ty))) in captures.iter().enumerate() {
+            let value = handler_builder.fresh_reg();
+            handler_builder.emit(IrInstruction::GetField {
+                dest: value,
+                ptr: receiver,
+                class_name: context_class_name.clone(),
+                field_index: index + 1,
+                field_ty: ty.clone(),
+            });
+            let slot = handler_builder.fresh_reg();
+            handler_builder.emit(IrInstruction::Alloca {
+                dest: slot,
+                ty: ty.clone(),
+            });
+            handler_builder.emit(IrInstruction::Store {
+                val: IrOperand::Register(value, ty.clone()),
+                ptr: slot,
+            });
+            handler_builder.insert_var(name.clone(), slot, ty.clone());
+        }
 
         let request_slot = handler_builder.fresh_reg();
         handler_builder.emit(IrInstruction::Alloca {
@@ -173,13 +237,21 @@ impl IrBuilder {
         self.generated_functions.push(IrFunction {
             class_name: class_name.clone(),
             name: method_name.clone(),
-            receiver: (receiver, context_ty),
+            receiver: (receiver, context_class_ty),
             params: vec![(request, request_ty)],
             return_type,
             is_async: false,
             blocks: std::mem::take(&mut handler_builder.blocks),
         });
-        Some((format!("{}_{}", class_name, method_name), context))
+        Some((
+            format!("{}_{}", class_name, method_name),
+            IrOperand::Register(
+                closure_context,
+                Type::Class {
+                    name: context_class_name,
+                },
+            ),
+        ))
     }
 
     fn type_spec_to_type(&self, ts: &TypeSpec) -> Type {
@@ -568,6 +640,7 @@ impl IrBuilder {
         self.next_async_thunk = 0;
         self.next_server_handler = 0;
         self.generated_functions.clear();
+        self.generated_classes.clear();
 
         for item in &program.items {
             if let Item::Class(cls) = item {
@@ -685,6 +758,7 @@ impl IrBuilder {
         }
 
         ir_functions.append(&mut self.generated_functions);
+        ir_classes.append(&mut self.generated_classes);
         IrProgram {
             classes: ir_classes,
             functions: ir_functions,

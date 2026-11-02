@@ -134,6 +134,35 @@
 - **Strict vs. Partial Parsing Modes**: Strict mode enforces 1-to-1 structural completeness; Partial mode selectively maps declared components while assigning defaults (`null`, `List.of()`, `0`, `false`).
 - **Structured Format Error Handling**: Exception-free error handling via `guard`/`catch(err)` with `JsonParseError`, `XmlParseError`, `MissingDataError`, `ExcessDataError`.
 
+### 23. String Literals
+- Ordinary strings use `"text"`; a double quote followed only by optional spaces/tabs and a physical line break begins a multi-line string, closed by the next unescaped `"`.
+- Multi-line strings normalize LF, CRLF, and CR to `\n`, remove common incidental indentation (including the closing delimiter's indentation), and retain the newline before a closing delimiter on its own line. Put the closing quote after the last content character to omit that final newline.
+- Escape sequences include `\n`, `\t`, `\r`, `\b`, `\f`, `\\`, `\"`, `\'`, `\s`, octal escapes, and `\u` followed by four hexadecimal digits. A backslash directly before a physical line break joins the next line without a newline.
+- Braces are literal; multi-line strings do not interpolate.
+
+```ube
+final json = "
+    {
+        \"name\": \"Ube\",
+        \"active\": true
+    }
+    "
+
+final sql = "
+    select id, name
+    from users
+    where active = true
+    "
+
+final html = "
+    <article>
+        <h1>Welcome</h1>
+    </article>
+    "
+
+final ordinary = "Hello\nWorld"
+```
+
 ---
 
 ## VS Code Extension & Syntax Highlighting

@@ -459,3 +459,35 @@ class Application {
     }
 }
 ```
+
+---
+
+## 15. String Literals
+
+Ordinary strings use double quotes with the existing single-line form (`"Hello\nWorld"`). A double quote followed by optional spaces, tabs, or form-feed and a physical line terminator starts a multi-line string. The next unescaped double quote closes it. Braces remain literal; multi-line strings do not perform interpolation.
+
+```ube
+final message = "
+    Hello World!
+    Welcome!
+    "
+```
+
+The opening line terminator is syntax and is not part of the value. LF, CRLF, and CR source line endings normalize to `\n`. The common leading indentation across nonblank content lines and the closing delimiter's indentation is removed, counting each space or tab as one indentation character. Blank and whitespace-only lines become empty lines. The line break immediately before a closing delimiter on its own line is retained; placing the closing quote after the last content character omits that final newline.
+
+Multi-line strings support `\n`, `\t`, `\r`, `\b`, `\f`, `\\`, `\"`, `\'`, `\s`, octal escapes, and `\u` followed by four hexadecimal digits. A backslash immediately followed by a physical line terminator removes that line break after indentation normalization. Unknown or incomplete escapes are errors. An embedded double quote must be escaped; the first unescaped double quote ends the literal. Multi-line string values use the same `string` representation as ordinary literals.
+
+```ube
+final json = "
+    {
+        \"name\": \"Ube\",
+        \"active\": true
+    }
+    "
+
+final sql = "
+    select id, name
+    from users
+    where active = true
+    "
+```

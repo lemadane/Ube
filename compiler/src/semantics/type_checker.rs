@@ -2665,12 +2665,12 @@ impl TypeChecker {
                 None => None,
             },
             ExprKind::Lambda { parameter, body } => {
-                let outer_symbols = std::mem::replace(&mut self.symbol_table, SymbolTable::new());
                 let outer_return_type = self.current_return_type.clone();
                 let return_type = Type::Class {
                     name: "Response".into(),
                 };
                 self.current_return_type = Some(return_type.clone());
+                self.symbol_table.push_scope();
                 self.symbol_table.insert(Symbol {
                     name: parameter.clone(),
                     ty: Type::Class {
@@ -2698,7 +2698,7 @@ impl TypeChecker {
                     self.check_stmt(cls, statement);
                 }
 
-                self.symbol_table = outer_symbols;
+                self.symbol_table.pop_scope();
                 self.current_return_type = outer_return_type;
                 Some(Type::Function {
                     params: vec![Type::Class {

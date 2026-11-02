@@ -32,7 +32,7 @@ function skipBlockComment(source, index, end) {
 }
 
 function skipNonCode(source, index, end) {
-  if (source[index] === '"' || source[index] === "`") {
+  if (source[index] === '"' || source[index] === "`" || source[index] === "'") {
     return skipQuotedString(source, index, end);
   }
   if (source[index] === "/" && source[index + 1] === "/") {
@@ -180,7 +180,7 @@ function markArgumentLines(argument, extraIndent) {
       inLineComment = true;
     } else if (character === "/" && marked[cursor + 1] === "*") {
       inBlockComment = true;
-    } else if (character === '"' || character === "`") {
+    } else if (character === '"' || character === "`" || character === "'") {
       quote = character;
     }
     if (character === "\n" && !quote) {
@@ -290,7 +290,7 @@ function countBraces(line, lexicalState) {
       cursor += 1;
       continue;
     }
-    if (line[cursor] === '"' || line[cursor] === "`") {
+    if (line[cursor] === '"' || line[cursor] === "`" || line[cursor] === "'") {
       lexicalState.quote = line[cursor];
       continue;
     }
@@ -326,7 +326,7 @@ function indentLines(source) {
       }
 
       if (lexicalState.quote) {
-        countBraces(line, lexicalState);
+        braceDepth = Math.max(0, braceDepth + countBraces(line, lexicalState));
         return line;
       }
 

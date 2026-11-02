@@ -132,7 +132,11 @@ fn compiled_ube_server_stays_running_and_serves_http_requests() {
         class Application {{
             main() {{
                 final server = server()
-                server.get("/", request -> response.ok("Hello from Ube e2e!"));
+                final res = "
+                    Hello from Ube e2e!
+                    This is a captured multiline string.
+                    "
+                server.get("/", request -> response.ok(res));
                 server.start({port})
             }}
         }}
@@ -170,7 +174,10 @@ fn compiled_ube_server_stays_running_and_serves_http_requests() {
     ))
     .expect("HTTP response should be UTF-8");
     assert!(response.starts_with("HTTP/1.1 200 OK\r\n"), "{response}");
-    assert!(response.ends_with("Hello from Ube e2e!"), "{response}");
+    assert!(
+        response.ends_with("Hello from Ube e2e!\nThis is a captured multiline string.\n"),
+        "{response}"
+    );
 
     let missing_route = String::from_utf8(send_request(
         address,

@@ -157,6 +157,31 @@ fn test_e2e_person_birthday() {
 }
 
 #[test]
+fn test_lambda_captures_outer_variables() {
+    let source_code = r#"
+        class Application {
+            main() {
+                final res = "Hello from my Ube server!"
+                server.get("/", request -> response.ok(res))
+            }
+        }
+    "#;
+
+    let lexer = Lexer::new(source_code);
+    let mut parser = Parser::new(lexer);
+    let program = parser.parse_program();
+    assert!(
+        parser.diagnostics.is_empty(),
+        "Parsing failed: {:?}",
+        parser.diagnostics
+    );
+
+    let mut checker = TypeChecker::new();
+    let is_valid = checker.check_program(&program);
+    assert!(is_valid, "Type checking failed: {:?}", checker.diagnostics);
+}
+
+#[test]
 fn test_e2e_trait_polymorphism() {
     let source_code = r#"
         trait Printable {

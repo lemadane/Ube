@@ -246,3 +246,17 @@ test("is idempotent", () => {
   const formatted = formatUbeDocument(source);
   assert.equal(formatUbeDocument(formatted), formatted);
 });
+
+test("ignores punctuation inside single-quoted arguments", () => {
+  const source = "class App {\nmain() {\nprint('hello { (, world')\nprint('done')\n}\n}\n";
+  const expected = "class App {\n    main() {\n        print('hello { (, world')\n        print('done')\n    }\n}\n";
+  assert.equal(formatUbeDocument(source), expected);
+  assert.equal(formatUbeDocument(expected), expected);
+});
+
+test("tracks braces after a text block and preserves its contents", () => {
+  const source = 'class App {\nmain() {\nprint("\n    hello { world\n    ")}\nnext() {\nprint("x")\n}\n}\n';
+  const expected = 'class App {\n    main() {\n        print("\n    hello { world\n    ")}\n    next() {\n        print("x")\n    }\n}\n';
+  assert.equal(formatUbeDocument(source), expected);
+  assert.equal(formatUbeDocument(expected), expected);
+});
