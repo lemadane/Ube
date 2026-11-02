@@ -56,7 +56,10 @@ impl fmt::Display for Type {
                     .join(", ");
                 write!(f, "{{ {} }}", fields_str)
             }
-            Type::Function { params, return_type } => {
+            Type::Function {
+                params,
+                return_type,
+            } => {
                 let params_str = params
                     .iter()
                     .map(|p| p.to_string())

@@ -189,6 +189,10 @@ pub enum ExprKind {
     },
     AsyncSpawn(Box<Expr>),
     Await(Box<Expr>),
+    Lambda {
+        parameter: String,
+        body: Vec<Stmt>,
+    },
     If {
         condition: Box<Expr>,
         then_branch: Vec<Stmt>,

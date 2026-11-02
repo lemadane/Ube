@@ -38,8 +38,18 @@ fn configure_runtime_linkage(cmd: &mut Command) {
             cmd.arg("-L").arg(path);
         }
     }
+    if let Ok(executable) = env::current_exe() {
+        if let Some(executable_dir) = executable.parent() {
+            if executable_dir.join("libube_runtime.a").exists()
+                || executable_dir.join("ube_runtime.lib").exists()
+            {
+                cmd.arg("-L").arg(executable_dir);
+            }
+        }
+    }
     cmd.arg("-L").arg("/usr/local/lib");
-    cmd.arg("-lube_runtime");
+    cmd.arg("-Wl,-Bstatic").arg("-lube_runtime").arg("-Wl,-Bdynamic");
+    cmd.arg("-lm");
     cmd.arg("-Wno-override-module");
 }
 

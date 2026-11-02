@@ -56,7 +56,9 @@ impl<'a> Lexer<'a> {
         let start_pos = Position::new(
             self.line,
             self.column,
-            self.current_char.map(|(i, _)| i).unwrap_or(self.source.len()),
+            self.current_char
+                .map(|(i, _)| i)
+                .unwrap_or(self.source.len()),
         );
 
         let ch = match self.peek() {
@@ -69,7 +71,11 @@ impl<'a> Lexer<'a> {
 
         let kind = match ch {
             '`' => self.read_backtick_string(),
-            '+' => { self.advance(); TokenKind::Plus }
+            '"' => self.read_quoted_string(),
+            '+' => {
+                self.advance();
+                TokenKind::Plus
+            }
             '-' => {
                 self.advance();
                 if self.peek() == Some('>') {
@@ -79,9 +85,18 @@ impl<'a> Lexer<'a> {
                     TokenKind::Minus
                 }
             }
-            '*' => { self.advance(); TokenKind::Star }
-            '/' => { self.advance(); TokenKind::Slash }
-            '%' => { self.advance(); TokenKind::Percent }
+            '*' => {
+                self.advance();
+                TokenKind::Star
+            }
+            '/' => {
+                self.advance();
+                TokenKind::Slash
+            }
+            '%' => {
+                self.advance();
+                TokenKind::Percent
+            }
             '=' => {
                 self.advance();
                 if self.peek() == Some('=') {
@@ -97,7 +112,9 @@ impl<'a> Lexer<'a> {
                     self.advance();
                     TokenKind::BangEqual
                 } else {
-                    TokenKind::Error("Symbol '!' is not a valid operator in Ube. Use 'not' keyword.".into())
+                    TokenKind::Error(
+                        "Symbol '!' is not a valid operator in Ube. Use 'not' keyword.".into(),
+                    )
                 }
             }
             '?' => {
@@ -135,9 +152,18 @@ impl<'a> Lexer<'a> {
                     TokenKind::Greater
                 }
             }
-            ':' => { self.advance(); TokenKind::Colon }
-            ';' => { self.advance(); TokenKind::Semicolon }
-            ',' => { self.advance(); TokenKind::Comma }
+            ':' => {
+                self.advance();
+                TokenKind::Colon
+            }
+            ';' => {
+                self.advance();
+                TokenKind::Semicolon
+            }
+            ',' => {
+                self.advance();
+                TokenKind::Comma
+            }
             '.' => {
                 self.advance();
                 if self.peek() == Some('.') {
@@ -147,8 +173,14 @@ impl<'a> Lexer<'a> {
                     TokenKind::Dot
                 }
             }
-            '(' => { self.advance(); TokenKind::OpenParen }
-            ')' => { self.advance(); TokenKind::CloseParen }
+            '(' => {
+                self.advance();
+                TokenKind::OpenParen
+            }
+            ')' => {
+                self.advance();
+                TokenKind::CloseParen
+            }
             '{' => {
                 self.advance();
                 if self.in_string_interpolation > 0 {
@@ -163,8 +195,14 @@ impl<'a> Lexer<'a> {
                 }
                 TokenKind::CloseBrace
             }
-            '[' => { self.advance(); TokenKind::OpenBracket }
-            ']' => { self.advance(); TokenKind::CloseBracket }
+            '[' => {
+                self.advance();
+                TokenKind::OpenBracket
+            }
+            ']' => {
+                self.advance();
+                TokenKind::CloseBracket
+            }
             '0'..='9' => self.read_number(),
             c if c.is_alphabetic() || c == '_' => self.read_identifier(),
             unexpected => {
@@ -176,7 +214,9 @@ impl<'a> Lexer<'a> {
         let end_pos = Position::new(
             self.line,
             self.column,
-            self.current_char.map(|(i, _)| i).unwrap_or(self.source.len()),
+            self.current_char
+                .map(|(i, _)| i)
+                .unwrap_or(self.source.len()),
         );
         Token::new(kind, Span::new(start_pos, end_pos))
     }
@@ -210,12 +250,30 @@ impl<'a> Lexer<'a> {
             if ch == '\\' {
                 self.advance();
                 match self.peek() {
-                    Some('`') => { self.advance(); content.push('`'); }
-                    Some('\\') => { self.advance(); content.push('\\'); }
-                    Some('n') => { self.advance(); content.push('\n'); }
-                    Some('t') => { self.advance(); content.push('\t'); }
-                    Some('r') => { self.advance(); content.push('\r'); }
-                    Some('$') => { self.advance(); content.push('$'); }
+                    Some('`') => {
+                        self.advance();
+                        content.push('`');
+                    }
+                    Some('\\') => {
+                        self.advance();
+                        content.push('\\');
+                    }
+                    Some('n') => {
+                        self.advance();
+                        content.push('\n');
+                    }
+                    Some('t') => {
+                        self.advance();
+                        content.push('\t');
+                    }
+                    Some('r') => {
+                        self.advance();
+                        content.push('\r');
+                    }
+                    Some('$') => {
+                        self.advance();
+                        content.push('$');
+                    }
                     Some(other) => {
                         self.advance();
                         content.push(other);
@@ -231,6 +289,39 @@ impl<'a> Lexer<'a> {
         TokenKind::Error("Unterminated backtick string literal".into())
     }
 
+    fn read_quoted_string(&mut self) -> TokenKind {
+        self.advance();
+        let mut content = String::new();
+
+        while let Some(ch) = self.peek() {
+            match ch {
+                '"' => {
+                    self.advance();
+                    return TokenKind::StringLiteral(content);
+                }
+                '\\' => {
+                    self.advance();
+                    match self.peek() {
+                        Some('"') => content.push('"'),
+                        Some('\\') => content.push('\\'),
+                        Some('n') => content.push('\n'),
+                        Some('t') => content.push('\t'),
+                        Some('r') => content.push('\r'),
+                        Some(other) => content.push(other),
+                        None => break,
+                    }
+                    self.advance();
+                }
+                _ => {
+                    content.push(ch);
+                    self.advance();
+                }
+            }
+        }
+
+        TokenKind::Error("Unterminated double-quoted string literal".into())
+    }
+
     fn read_number(&mut self) -> TokenKind {
         let start_idx = self.current_char.map(|(i, _)| i).unwrap_or(0);
         let mut is_decimal = false;
@@ -239,7 +330,10 @@ impl<'a> Lexer<'a> {
         while let Some(ch) = self.peek() {
             if ch.is_ascii_digit() || ch == '_' {
                 self.advance();
-            } else if ch == '.' && !is_decimal && self.peek_next().map_or(false, |c| c.is_ascii_digit()) {
+            } else if ch == '.'
+                && !is_decimal
+                && self.peek_next().map_or(false, |c| c.is_ascii_digit())
+            {
                 is_decimal = true;
                 self.advance();
             } else if (ch == 'L' || ch == 'l') && !is_decimal {
@@ -251,9 +345,15 @@ impl<'a> Lexer<'a> {
             }
         }
 
-        let end_idx = self.current_char.map(|(i, _)| i).unwrap_or(self.source.len());
+        let end_idx = self
+            .current_char
+            .map(|(i, _)| i)
+            .unwrap_or(self.source.len());
         let raw_num_str = &self.source[start_idx..end_idx];
-        let cleaned_num_str = raw_num_str.replace('_', "").trim_end_matches(['L', 'l']).to_string();
+        let cleaned_num_str = raw_num_str
+            .replace('_', "")
+            .trim_end_matches(['L', 'l'])
+            .to_string();
 
         if is_decimal {
             match cleaned_num_str.parse::<f64>() {
@@ -284,7 +384,10 @@ impl<'a> Lexer<'a> {
             }
         }
 
-        let end_idx = self.current_char.map(|(i, _)| i).unwrap_or(self.source.len());
+        let end_idx = self
+            .current_char
+            .map(|(i, _)| i)
+            .unwrap_or(self.source.len());
         let ident_str = &self.source[start_idx..end_idx];
 
         match ident_str {

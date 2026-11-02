@@ -129,7 +129,10 @@ mod tests {
         )));
         assert!(instructions.iter().any(|instruction| matches!(
             instruction,
-            IrInstruction::Binary { op: crate::parser::BinaryOp::Less, .. }
+            IrInstruction::Binary {
+                op: crate::parser::BinaryOp::Less,
+                ..
+            }
         )));
         assert!(instructions.iter().any(|instruction| matches!(
             instruction,
@@ -177,11 +180,17 @@ mod tests {
         )));
         assert!(instructions.iter().any(|instruction| matches!(
             instruction,
-            IrInstruction::Alloca { ty: Type::String, .. }
+            IrInstruction::Alloca {
+                ty: Type::String,
+                ..
+            }
         )));
         assert!(instructions.iter().any(|instruction| matches!(
             instruction,
-            IrInstruction::Load { ty: Type::String, .. }
+            IrInstruction::Load {
+                ty: Type::String,
+                ..
+            }
         )));
         assert!(instructions.iter().any(|instruction| matches!(
             instruction,

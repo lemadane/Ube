@@ -1,3 +1,4 @@
+use crate::builtins::canonical_builtin_class_name;
 use crate::diagnostics::Diagnostic;
 use crate::parser::*;
 use crate::resolver::{Symbol, SymbolTable};
@@ -95,8 +96,14 @@ impl TypeChecker {
         );
 
         let mut channel_methods = HashMap::new();
-        channel_methods.insert("send".into(), (vec![Type::Int], Type::Task(Box::new(Type::Bool))));
-        channel_methods.insert("receive".into(), (Vec::new(), Type::Task(Box::new(Type::Int))));
+        channel_methods.insert(
+            "send".into(),
+            (vec![Type::Int], Type::Task(Box::new(Type::Bool))),
+        );
+        channel_methods.insert(
+            "receive".into(),
+            (Vec::new(), Type::Task(Box::new(Type::Int))),
+        );
         channel_methods.insert("close".into(), (Vec::new(), Type::Void));
         self.classes.insert(
             "Channel".into(),
@@ -111,10 +118,46 @@ impl TypeChecker {
         );
 
         let mut task_methods = HashMap::new();
-        task_methods.insert("all".into(), (vec![Type::Class { name: "List".into() }], Type::Task(Box::new(Type::Class { name: "List".into() }))));
-        task_methods.insert("any".into(), (vec![Type::Class { name: "List".into() }], Type::Task(Box::new(Type::Int))));
-        task_methods.insert("race".into(), (vec![Type::Class { name: "List".into() }], Type::Task(Box::new(Type::Int))));
-        task_methods.insert("allSettled".into(), (vec![Type::Class { name: "List".into() }], Type::Task(Box::new(Type::Class { name: "List".into() }))));
+        task_methods.insert(
+            "all".into(),
+            (
+                vec![Type::Class {
+                    name: "List".into(),
+                }],
+                Type::Task(Box::new(Type::Class {
+                    name: "List".into(),
+                })),
+            ),
+        );
+        task_methods.insert(
+            "any".into(),
+            (
+                vec![Type::Class {
+                    name: "List".into(),
+                }],
+                Type::Task(Box::new(Type::Int)),
+            ),
+        );
+        task_methods.insert(
+            "race".into(),
+            (
+                vec![Type::Class {
+                    name: "List".into(),
+                }],
+                Type::Task(Box::new(Type::Int)),
+            ),
+        );
+        task_methods.insert(
+            "allSettled".into(),
+            (
+                vec![Type::Class {
+                    name: "List".into(),
+                }],
+                Type::Task(Box::new(Type::Class {
+                    name: "List".into(),
+                })),
+            ),
+        );
         task_methods.insert("cancel".into(), (Vec::new(), Type::Bool));
 
         self.classes.insert(
@@ -130,14 +173,78 @@ impl TypeChecker {
         );
 
         let mut datetime_methods = HashMap::new();
-        datetime_methods.insert("now".into(), (Vec::new(), Type::Class { name: "DateTime".into() }));
-        datetime_methods.insert("date".into(), (vec![Type::Int, Type::Int, Type::Int], Type::Class { name: "DateTime".into() }));
-        datetime_methods.insert("time".into(), (vec![Type::Int, Type::Int], Type::Class { name: "DateTime".into() }));
-        datetime_methods.insert("of".into(), (vec![Type::Int, Type::Int, Type::Int, Type::Int, Type::Int], Type::Class { name: "DateTime".into() }));
-        datetime_methods.insert("utc".into(), (Vec::new(), Type::Class { name: "DateTime".into() }));
-        datetime_methods.insert("parse".into(), (vec![Type::String], Type::Class { name: "DateTime".into() }));
-        datetime_methods.insert("fromUnix".into(), (vec![Type::Int], Type::Class { name: "DateTime".into() }));
-        datetime_methods.insert("fromUnixMillis".into(), (vec![Type::Int], Type::Class { name: "DateTime".into() }));
+        datetime_methods.insert(
+            "now".into(),
+            (
+                Vec::new(),
+                Type::Class {
+                    name: "DateTime".into(),
+                },
+            ),
+        );
+        datetime_methods.insert(
+            "date".into(),
+            (
+                vec![Type::Int, Type::Int, Type::Int],
+                Type::Class {
+                    name: "DateTime".into(),
+                },
+            ),
+        );
+        datetime_methods.insert(
+            "time".into(),
+            (
+                vec![Type::Int, Type::Int],
+                Type::Class {
+                    name: "DateTime".into(),
+                },
+            ),
+        );
+        datetime_methods.insert(
+            "of".into(),
+            (
+                vec![Type::Int, Type::Int, Type::Int, Type::Int, Type::Int],
+                Type::Class {
+                    name: "DateTime".into(),
+                },
+            ),
+        );
+        datetime_methods.insert(
+            "utc".into(),
+            (
+                Vec::new(),
+                Type::Class {
+                    name: "DateTime".into(),
+                },
+            ),
+        );
+        datetime_methods.insert(
+            "parse".into(),
+            (
+                vec![Type::String],
+                Type::Class {
+                    name: "DateTime".into(),
+                },
+            ),
+        );
+        datetime_methods.insert(
+            "fromUnix".into(),
+            (
+                vec![Type::Int],
+                Type::Class {
+                    name: "DateTime".into(),
+                },
+            ),
+        );
+        datetime_methods.insert(
+            "fromUnixMillis".into(),
+            (
+                vec![Type::Int],
+                Type::Class {
+                    name: "DateTime".into(),
+                },
+            ),
+        );
 
         datetime_methods.insert("year".into(), (Vec::new(), Type::Int));
         datetime_methods.insert("month".into(), (Vec::new(), Type::Int));
@@ -150,13 +257,71 @@ impl TypeChecker {
         datetime_methods.insert("unixMillis".into(), (Vec::new(), Type::Int));
         datetime_methods.insert("unixNanos".into(), (Vec::new(), Type::Int));
         datetime_methods.insert("zone".into(), (Vec::new(), Type::String));
-        datetime_methods.insert("in".into(), (vec![Type::String], Type::Class { name: "DateTime".into() }));
-        datetime_methods.insert("addDays".into(), (vec![Type::Int], Type::Class { name: "DateTime".into() }));
-        datetime_methods.insert("addHours".into(), (vec![Type::Int], Type::Class { name: "DateTime".into() }));
-        datetime_methods.insert("addMinutes".into(), (vec![Type::Int], Type::Class { name: "DateTime".into() }));
-        datetime_methods.insert("addDuration".into(), (vec![Type::Class { name: "Duration".into() }], Type::Class { name: "DateTime".into() }));
-        datetime_methods.insert("diffSeconds".into(), (vec![Type::Class { name: "DateTime".into() }], Type::Int));
-        datetime_methods.insert("diffDays".into(), (vec![Type::Class { name: "DateTime".into() }], Type::Int));
+        datetime_methods.insert(
+            "in".into(),
+            (
+                vec![Type::String],
+                Type::Class {
+                    name: "DateTime".into(),
+                },
+            ),
+        );
+        datetime_methods.insert(
+            "addDays".into(),
+            (
+                vec![Type::Int],
+                Type::Class {
+                    name: "DateTime".into(),
+                },
+            ),
+        );
+        datetime_methods.insert(
+            "addHours".into(),
+            (
+                vec![Type::Int],
+                Type::Class {
+                    name: "DateTime".into(),
+                },
+            ),
+        );
+        datetime_methods.insert(
+            "addMinutes".into(),
+            (
+                vec![Type::Int],
+                Type::Class {
+                    name: "DateTime".into(),
+                },
+            ),
+        );
+        datetime_methods.insert(
+            "addDuration".into(),
+            (
+                vec![Type::Class {
+                    name: "Duration".into(),
+                }],
+                Type::Class {
+                    name: "DateTime".into(),
+                },
+            ),
+        );
+        datetime_methods.insert(
+            "diffSeconds".into(),
+            (
+                vec![Type::Class {
+                    name: "DateTime".into(),
+                }],
+                Type::Int,
+            ),
+        );
+        datetime_methods.insert(
+            "diffDays".into(),
+            (
+                vec![Type::Class {
+                    name: "DateTime".into(),
+                }],
+                Type::Int,
+            ),
+        );
         datetime_methods.insert("format".into(), (vec![Type::String], Type::String));
 
         self.classes.insert(
@@ -172,10 +337,42 @@ impl TypeChecker {
         );
 
         let mut duration_methods = HashMap::new();
-        duration_methods.insert("seconds".into(), (vec![Type::Int], Type::Class { name: "Duration".into() }));
-        duration_methods.insert("minutes".into(), (vec![Type::Int], Type::Class { name: "Duration".into() }));
-        duration_methods.insert("hours".into(), (vec![Type::Int], Type::Class { name: "Duration".into() }));
-        duration_methods.insert("days".into(), (vec![Type::Int], Type::Class { name: "Duration".into() }));
+        duration_methods.insert(
+            "seconds".into(),
+            (
+                vec![Type::Int],
+                Type::Class {
+                    name: "Duration".into(),
+                },
+            ),
+        );
+        duration_methods.insert(
+            "minutes".into(),
+            (
+                vec![Type::Int],
+                Type::Class {
+                    name: "Duration".into(),
+                },
+            ),
+        );
+        duration_methods.insert(
+            "hours".into(),
+            (
+                vec![Type::Int],
+                Type::Class {
+                    name: "Duration".into(),
+                },
+            ),
+        );
+        duration_methods.insert(
+            "days".into(),
+            (
+                vec![Type::Int],
+                Type::Class {
+                    name: "Duration".into(),
+                },
+            ),
+        );
         duration_methods.insert("totalSeconds".into(), (Vec::new(), Type::Int));
 
         self.classes.insert(
@@ -192,11 +389,51 @@ impl TypeChecker {
 
         let mut currency_methods = HashMap::new();
         currency_methods.insert("code".into(), (Vec::new(), Type::String));
-        currency_methods.insert("PHP".into(), (Vec::new(), Type::Class { name: "Currency".into() }));
-        currency_methods.insert("USD".into(), (Vec::new(), Type::Class { name: "Currency".into() }));
-        currency_methods.insert("EUR".into(), (Vec::new(), Type::Class { name: "Currency".into() }));
-        currency_methods.insert("JPY".into(), (Vec::new(), Type::Class { name: "Currency".into() }));
-        currency_methods.insert("GBP".into(), (Vec::new(), Type::Class { name: "Currency".into() }));
+        currency_methods.insert(
+            "PHP".into(),
+            (
+                Vec::new(),
+                Type::Class {
+                    name: "Currency".into(),
+                },
+            ),
+        );
+        currency_methods.insert(
+            "USD".into(),
+            (
+                Vec::new(),
+                Type::Class {
+                    name: "Currency".into(),
+                },
+            ),
+        );
+        currency_methods.insert(
+            "EUR".into(),
+            (
+                Vec::new(),
+                Type::Class {
+                    name: "Currency".into(),
+                },
+            ),
+        );
+        currency_methods.insert(
+            "JPY".into(),
+            (
+                Vec::new(),
+                Type::Class {
+                    name: "Currency".into(),
+                },
+            ),
+        );
+        currency_methods.insert(
+            "GBP".into(),
+            (
+                Vec::new(),
+                Type::Class {
+                    name: "Currency".into(),
+                },
+            ),
+        );
 
         self.classes.insert(
             "Currency".into(),
@@ -211,16 +448,94 @@ impl TypeChecker {
         );
 
         let mut money_methods = HashMap::new();
-        money_methods.insert("php".into(), (vec![Type::Decimal], Type::Class { name: "Money".into() }));
-        money_methods.insert("usd".into(), (vec![Type::Decimal], Type::Class { name: "Money".into() }));
-        money_methods.insert("eur".into(), (vec![Type::Decimal], Type::Class { name: "Money".into() }));
-        money_methods.insert("jpy".into(), (vec![Type::Decimal], Type::Class { name: "Money".into() }));
-        money_methods.insert("gbp".into(), (vec![Type::Decimal], Type::Class { name: "Money".into() }));
+        money_methods.insert(
+            "php".into(),
+            (
+                vec![Type::Decimal],
+                Type::Class {
+                    name: "Money".into(),
+                },
+            ),
+        );
+        money_methods.insert(
+            "usd".into(),
+            (
+                vec![Type::Decimal],
+                Type::Class {
+                    name: "Money".into(),
+                },
+            ),
+        );
+        money_methods.insert(
+            "eur".into(),
+            (
+                vec![Type::Decimal],
+                Type::Class {
+                    name: "Money".into(),
+                },
+            ),
+        );
+        money_methods.insert(
+            "jpy".into(),
+            (
+                vec![Type::Decimal],
+                Type::Class {
+                    name: "Money".into(),
+                },
+            ),
+        );
+        money_methods.insert(
+            "gbp".into(),
+            (
+                vec![Type::Decimal],
+                Type::Class {
+                    name: "Money".into(),
+                },
+            ),
+        );
         money_methods.insert("amount".into(), (Vec::new(), Type::Decimal));
-        money_methods.insert("currency".into(), (Vec::new(), Type::Class { name: "Currency".into() }));
-        money_methods.insert("add".into(), (vec![Type::Class { name: "Money".into() }], Type::Class { name: "Money".into() }));
-        money_methods.insert("subtract".into(), (vec![Type::Class { name: "Money".into() }], Type::Class { name: "Money".into() }));
-        money_methods.insert("multiply".into(), (vec![Type::Class { name: "Percent".into() }], Type::Class { name: "Money".into() }));
+        money_methods.insert(
+            "currency".into(),
+            (
+                Vec::new(),
+                Type::Class {
+                    name: "Currency".into(),
+                },
+            ),
+        );
+        money_methods.insert(
+            "add".into(),
+            (
+                vec![Type::Class {
+                    name: "Money".into(),
+                }],
+                Type::Class {
+                    name: "Money".into(),
+                },
+            ),
+        );
+        money_methods.insert(
+            "subtract".into(),
+            (
+                vec![Type::Class {
+                    name: "Money".into(),
+                }],
+                Type::Class {
+                    name: "Money".into(),
+                },
+            ),
+        );
+        money_methods.insert(
+            "multiply".into(),
+            (
+                vec![Type::Class {
+                    name: "Percent".into(),
+                }],
+                Type::Class {
+                    name: "Money".into(),
+                },
+            ),
+        );
 
         self.classes.insert(
             "Money".into(),
@@ -228,14 +543,35 @@ impl TypeChecker {
                 name: "Money".into(),
                 fields: HashMap::new(),
                 methods: money_methods,
-                param_types: vec![Type::Decimal, Type::Class { name: "Currency".into() }],
+                param_types: vec![
+                    Type::Decimal,
+                    Type::Class {
+                        name: "Currency".into(),
+                    },
+                ],
                 min_constructor_args: 2,
                 max_constructor_args: 2,
             },
         );
 
         let mut exchange_methods = HashMap::new();
-        exchange_methods.insert("convert".into(), (vec![Type::Class { name: "Money".into() }, Type::Class { name: "Currency".into() }, Type::Decimal], Type::Class { name: "Money".into() }));
+        exchange_methods.insert(
+            "convert".into(),
+            (
+                vec![
+                    Type::Class {
+                        name: "Money".into(),
+                    },
+                    Type::Class {
+                        name: "Currency".into(),
+                    },
+                    Type::Decimal,
+                ],
+                Type::Class {
+                    name: "Money".into(),
+                },
+            ),
+        );
 
         self.classes.insert(
             "Exchange".into(),
@@ -250,7 +586,15 @@ impl TypeChecker {
         );
 
         let mut percent_methods = HashMap::new();
-        percent_methods.insert("of".into(), (vec![Type::Decimal], Type::Class { name: "Percent".into() }));
+        percent_methods.insert(
+            "of".into(),
+            (
+                vec![Type::Decimal],
+                Type::Class {
+                    name: "Percent".into(),
+                },
+            ),
+        );
         percent_methods.insert("value".into(), (Vec::new(), Type::Decimal));
 
         self.classes.insert(
@@ -266,7 +610,15 @@ impl TypeChecker {
         );
 
         let mut rate_methods = HashMap::new();
-        rate_methods.insert("percent".into(), (vec![Type::Decimal], Type::Class { name: "Rate".into() }));
+        rate_methods.insert(
+            "percent".into(),
+            (
+                vec![Type::Decimal],
+                Type::Class {
+                    name: "Rate".into(),
+                },
+            ),
+        );
         rate_methods.insert("value".into(), (Vec::new(), Type::Decimal));
 
         self.classes.insert(
@@ -284,8 +636,26 @@ impl TypeChecker {
         let mut geopoint_methods = HashMap::new();
         geopoint_methods.insert("latitude".into(), (Vec::new(), Type::Decimal));
         geopoint_methods.insert("longitude".into(), (Vec::new(), Type::Decimal));
-        geopoint_methods.insert("distanceTo".into(), (vec![Type::Class { name: "GeoPoint".into() }], Type::Class { name: "Distance".into() }));
-        geopoint_methods.insert("bearingTo".into(), (vec![Type::Class { name: "GeoPoint".into() }], Type::Decimal));
+        geopoint_methods.insert(
+            "distanceTo".into(),
+            (
+                vec![Type::Class {
+                    name: "GeoPoint".into(),
+                }],
+                Type::Class {
+                    name: "Distance".into(),
+                },
+            ),
+        );
+        geopoint_methods.insert(
+            "bearingTo".into(),
+            (
+                vec![Type::Class {
+                    name: "GeoPoint".into(),
+                }],
+                Type::Decimal,
+            ),
+        );
 
         self.classes.insert(
             "GeoPoint".into(),
@@ -300,9 +670,33 @@ impl TypeChecker {
         );
 
         let mut distance_methods = HashMap::new();
-        distance_methods.insert("meters".into(), (vec![Type::Decimal], Type::Class { name: "Distance".into() }));
-        distance_methods.insert("kilometers".into(), (vec![Type::Decimal], Type::Class { name: "Distance".into() }));
-        distance_methods.insert("miles".into(), (vec![Type::Decimal], Type::Class { name: "Distance".into() }));
+        distance_methods.insert(
+            "meters".into(),
+            (
+                vec![Type::Decimal],
+                Type::Class {
+                    name: "Distance".into(),
+                },
+            ),
+        );
+        distance_methods.insert(
+            "kilometers".into(),
+            (
+                vec![Type::Decimal],
+                Type::Class {
+                    name: "Distance".into(),
+                },
+            ),
+        );
+        distance_methods.insert(
+            "miles".into(),
+            (
+                vec![Type::Decimal],
+                Type::Class {
+                    name: "Distance".into(),
+                },
+            ),
+        );
 
         self.classes.insert(
             "Distance".into(),
@@ -317,9 +711,33 @@ impl TypeChecker {
         );
 
         let mut geobounds_methods = HashMap::new();
-        geobounds_methods.insert("southwest".into(), (Vec::new(), Type::Class { name: "GeoPoint".into() }));
-        geobounds_methods.insert("northeast".into(), (Vec::new(), Type::Class { name: "GeoPoint".into() }));
-        geobounds_methods.insert("contains".into(), (vec![Type::Class { name: "GeoPoint".into() }], Type::Bool));
+        geobounds_methods.insert(
+            "southwest".into(),
+            (
+                Vec::new(),
+                Type::Class {
+                    name: "GeoPoint".into(),
+                },
+            ),
+        );
+        geobounds_methods.insert(
+            "northeast".into(),
+            (
+                Vec::new(),
+                Type::Class {
+                    name: "GeoPoint".into(),
+                },
+            ),
+        );
+        geobounds_methods.insert(
+            "contains".into(),
+            (
+                vec![Type::Class {
+                    name: "GeoPoint".into(),
+                }],
+                Type::Bool,
+            ),
+        );
 
         self.classes.insert(
             "GeoBounds".into(),
@@ -327,14 +745,29 @@ impl TypeChecker {
                 name: "GeoBounds".into(),
                 fields: HashMap::new(),
                 methods: geobounds_methods,
-                param_types: vec![Type::Class { name: "GeoPoint".into() }, Type::Class { name: "GeoPoint".into() }],
+                param_types: vec![
+                    Type::Class {
+                        name: "GeoPoint".into(),
+                    },
+                    Type::Class {
+                        name: "GeoPoint".into(),
+                    },
+                ],
                 min_constructor_args: 2,
                 max_constructor_args: 2,
             },
         );
 
         let mut geolocation_methods = HashMap::new();
-        geolocation_methods.insert("current".into(), (Vec::new(), Type::Class { name: "GeoPoint".into() }));
+        geolocation_methods.insert(
+            "current".into(),
+            (
+                Vec::new(),
+                Type::Class {
+                    name: "GeoPoint".into(),
+                },
+            ),
+        );
 
         self.classes.insert(
             "Geolocation".into(),
@@ -382,17 +815,32 @@ impl TypeChecker {
         math_methods.insert("TAU".into(), (Vec::new(), Type::Decimal));
 
         math_methods.insert("abs".into(), (vec![Type::Decimal], Type::Decimal));
-        math_methods.insert("min".into(), (vec![Type::Decimal, Type::Decimal], Type::Decimal));
-        math_methods.insert("max".into(), (vec![Type::Decimal, Type::Decimal], Type::Decimal));
+        math_methods.insert(
+            "min".into(),
+            (vec![Type::Decimal, Type::Decimal], Type::Decimal),
+        );
+        math_methods.insert(
+            "max".into(),
+            (vec![Type::Decimal, Type::Decimal], Type::Decimal),
+        );
         math_methods.insert("sqrt".into(), (vec![Type::Decimal], Type::Decimal));
         math_methods.insert("cbrt".into(), (vec![Type::Decimal], Type::Decimal));
-        math_methods.insert("pow".into(), (vec![Type::Decimal, Type::Decimal], Type::Decimal));
+        math_methods.insert(
+            "pow".into(),
+            (vec![Type::Decimal, Type::Decimal], Type::Decimal),
+        );
 
         math_methods.insert("floor".into(), (vec![Type::Decimal], Type::Decimal));
         math_methods.insert("ceil".into(), (vec![Type::Decimal], Type::Decimal));
         math_methods.insert("round".into(), (vec![Type::Decimal], Type::Decimal));
         math_methods.insert("truncate".into(), (vec![Type::Decimal], Type::Decimal));
-        math_methods.insert("clamp".into(), (vec![Type::Decimal, Type::Decimal, Type::Decimal], Type::Decimal));
+        math_methods.insert(
+            "clamp".into(),
+            (
+                vec![Type::Decimal, Type::Decimal, Type::Decimal],
+                Type::Decimal,
+            ),
+        );
         math_methods.insert("sign".into(), (vec![Type::Decimal], Type::Int));
 
         math_methods.insert("sin".into(), (vec![Type::Decimal], Type::Decimal));
@@ -401,7 +849,10 @@ impl TypeChecker {
         math_methods.insert("asin".into(), (vec![Type::Decimal], Type::Decimal));
         math_methods.insert("acos".into(), (vec![Type::Decimal], Type::Decimal));
         math_methods.insert("atan".into(), (vec![Type::Decimal], Type::Decimal));
-        math_methods.insert("atan2".into(), (vec![Type::Decimal, Type::Decimal], Type::Decimal));
+        math_methods.insert(
+            "atan2".into(),
+            (vec![Type::Decimal, Type::Decimal], Type::Decimal),
+        );
         math_methods.insert("radians".into(), (vec![Type::Decimal], Type::Decimal));
         math_methods.insert("degrees".into(), (vec![Type::Decimal], Type::Decimal));
 
@@ -435,7 +886,15 @@ impl TypeChecker {
         random_methods.insert("decimal".into(), (Vec::new(), Type::Decimal));
         random_methods.insert("bool".into(), (Vec::new(), Type::Bool));
         random_methods.insert("uuid".into(), (Vec::new(), Type::String));
-        random_methods.insert("bytes".into(), (vec![Type::Int], Type::Class { name: "List".into() }));
+        random_methods.insert(
+            "bytes".into(),
+            (
+                vec![Type::Int],
+                Type::Class {
+                    name: "List".into(),
+                },
+            ),
+        );
 
         self.classes.insert(
             "Random".into(),
@@ -450,7 +909,15 @@ impl TypeChecker {
         );
 
         let mut secure_random_methods = HashMap::new();
-        secure_random_methods.insert("bytes".into(), (vec![Type::Int], Type::Class { name: "List".into() }));
+        secure_random_methods.insert(
+            "bytes".into(),
+            (
+                vec![Type::Int],
+                Type::Class {
+                    name: "List".into(),
+                },
+            ),
+        );
 
         self.classes.insert(
             "SecureRandom".into(),
@@ -465,13 +932,82 @@ impl TypeChecker {
         );
 
         let mut statistics_methods = HashMap::new();
-        statistics_methods.insert("mean".into(), (vec![Type::Class { name: "List".into() }], Type::Decimal));
-        statistics_methods.insert("median".into(), (vec![Type::Class { name: "List".into() }], Type::Decimal));
-        statistics_methods.insert("variance".into(), (vec![Type::Class { name: "List".into() }], Type::Decimal));
-        statistics_methods.insert("standardDeviation".into(), (vec![Type::Class { name: "List".into() }], Type::Decimal));
-        statistics_methods.insert("percentile".into(), (vec![Type::Class { name: "List".into() }, Type::Decimal], Type::Decimal));
-        statistics_methods.insert("covariance".into(), (vec![Type::Class { name: "List".into() }, Type::Class { name: "List".into() }], Type::Decimal));
-        statistics_methods.insert("correlation".into(), (vec![Type::Class { name: "List".into() }, Type::Class { name: "List".into() }], Type::Decimal));
+        statistics_methods.insert(
+            "mean".into(),
+            (
+                vec![Type::Class {
+                    name: "List".into(),
+                }],
+                Type::Decimal,
+            ),
+        );
+        statistics_methods.insert(
+            "median".into(),
+            (
+                vec![Type::Class {
+                    name: "List".into(),
+                }],
+                Type::Decimal,
+            ),
+        );
+        statistics_methods.insert(
+            "variance".into(),
+            (
+                vec![Type::Class {
+                    name: "List".into(),
+                }],
+                Type::Decimal,
+            ),
+        );
+        statistics_methods.insert(
+            "standardDeviation".into(),
+            (
+                vec![Type::Class {
+                    name: "List".into(),
+                }],
+                Type::Decimal,
+            ),
+        );
+        statistics_methods.insert(
+            "percentile".into(),
+            (
+                vec![
+                    Type::Class {
+                        name: "List".into(),
+                    },
+                    Type::Decimal,
+                ],
+                Type::Decimal,
+            ),
+        );
+        statistics_methods.insert(
+            "covariance".into(),
+            (
+                vec![
+                    Type::Class {
+                        name: "List".into(),
+                    },
+                    Type::Class {
+                        name: "List".into(),
+                    },
+                ],
+                Type::Decimal,
+            ),
+        );
+        statistics_methods.insert(
+            "correlation".into(),
+            (
+                vec![
+                    Type::Class {
+                        name: "List".into(),
+                    },
+                    Type::Class {
+                        name: "List".into(),
+                    },
+                ],
+                Type::Decimal,
+            ),
+        );
 
         self.classes.insert(
             "Statistics".into(),
@@ -487,13 +1023,37 @@ impl TypeChecker {
 
         let mut probability_methods = HashMap::new();
         probability_methods.insert("factorial".into(), (vec![Type::Int], Type::Int));
-        probability_methods.insert("permutations".into(), (vec![Type::Int, Type::Int], Type::Int));
-        probability_methods.insert("combinations".into(), (vec![Type::Int, Type::Int], Type::Int));
+        probability_methods.insert(
+            "permutations".into(),
+            (vec![Type::Int, Type::Int], Type::Int),
+        );
+        probability_methods.insert(
+            "combinations".into(),
+            (vec![Type::Int, Type::Int], Type::Int),
+        );
 
-        probability_methods.insert("normal".into(), (vec![Type::Decimal, Type::Decimal, Type::Decimal], Type::Decimal));
-        probability_methods.insert("binomial".into(), (vec![Type::Int, Type::Int, Type::Decimal], Type::Decimal));
-        probability_methods.insert("poisson".into(), (vec![Type::Int, Type::Decimal], Type::Decimal));
-        probability_methods.insert("uniform".into(), (vec![Type::Decimal, Type::Decimal, Type::Decimal], Type::Decimal));
+        probability_methods.insert(
+            "normal".into(),
+            (
+                vec![Type::Decimal, Type::Decimal, Type::Decimal],
+                Type::Decimal,
+            ),
+        );
+        probability_methods.insert(
+            "binomial".into(),
+            (vec![Type::Int, Type::Int, Type::Decimal], Type::Decimal),
+        );
+        probability_methods.insert(
+            "poisson".into(),
+            (vec![Type::Int, Type::Decimal], Type::Decimal),
+        );
+        probability_methods.insert(
+            "uniform".into(),
+            (
+                vec![Type::Decimal, Type::Decimal, Type::Decimal],
+                Type::Decimal,
+            ),
+        );
 
         self.classes.insert(
             "Probability".into(),
@@ -508,13 +1068,35 @@ impl TypeChecker {
         );
 
         let mut file_methods = HashMap::new();
-        file_methods.insert("open".into(), (vec![Type::String], Type::Class { name: "File".into() }));
+        file_methods.insert(
+            "open".into(),
+            (
+                vec![Type::String],
+                Type::Class {
+                    name: "File".into(),
+                },
+            ),
+        );
         file_methods.insert("read".into(), (vec![Type::String], Type::String));
-        file_methods.insert("write".into(), (vec![Type::String, Type::String], Type::Void));
-        file_methods.insert("append".into(), (vec![Type::String, Type::String], Type::Void));
+        file_methods.insert(
+            "write".into(),
+            (vec![Type::String, Type::String], Type::Void),
+        );
+        file_methods.insert(
+            "append".into(),
+            (vec![Type::String, Type::String], Type::Void),
+        );
         file_methods.insert("delete".into(), (vec![Type::String], Type::Void));
         file_methods.insert("exists".into(), (vec![Type::String], Type::Bool));
-        file_methods.insert("info".into(), (vec![Type::String], Type::Class { name: "FileInfo".into() }));
+        file_methods.insert(
+            "info".into(),
+            (
+                vec![Type::String],
+                Type::Class {
+                    name: "FileInfo".into(),
+                },
+            ),
+        );
         file_methods.insert("close".into(), (Vec::new(), Type::Void));
 
         self.classes.insert(
@@ -531,8 +1113,24 @@ impl TypeChecker {
 
         let mut fileinfo_methods = HashMap::new();
         fileinfo_methods.insert("size".into(), (Vec::new(), Type::Long));
-        fileinfo_methods.insert("createdAt".into(), (Vec::new(), Type::Class { name: "DateTime".into() }));
-        fileinfo_methods.insert("modifiedAt".into(), (Vec::new(), Type::Class { name: "DateTime".into() }));
+        fileinfo_methods.insert(
+            "createdAt".into(),
+            (
+                Vec::new(),
+                Type::Class {
+                    name: "DateTime".into(),
+                },
+            ),
+        );
+        fileinfo_methods.insert(
+            "modifiedAt".into(),
+            (
+                Vec::new(),
+                Type::Class {
+                    name: "DateTime".into(),
+                },
+            ),
+        );
         fileinfo_methods.insert("isDirectory".into(), (Vec::new(), Type::Bool));
 
         self.classes.insert(
@@ -550,7 +1148,15 @@ impl TypeChecker {
         let mut directory_methods = HashMap::new();
         directory_methods.insert("create".into(), (vec![Type::String], Type::Void));
         directory_methods.insert("delete".into(), (vec![Type::String], Type::Void));
-        directory_methods.insert("list".into(), (vec![Type::String], Type::Class { name: "List".into() }));
+        directory_methods.insert(
+            "list".into(),
+            (
+                vec![Type::String],
+                Type::Class {
+                    name: "List".into(),
+                },
+            ),
+        );
 
         self.classes.insert(
             "Directory".into(),
@@ -565,7 +1171,10 @@ impl TypeChecker {
         );
 
         let mut path_methods = HashMap::new();
-        path_methods.insert("join".into(), (vec![Type::String, Type::String], Type::String));
+        path_methods.insert(
+            "join".into(),
+            (vec![Type::String, Type::String], Type::String),
+        );
         path_methods.insert("filename".into(), (vec![Type::String], Type::String));
         path_methods.insert("extension".into(), (vec![Type::String], Type::String));
 
@@ -581,7 +1190,14 @@ impl TypeChecker {
             },
         );
 
-        let file_errors = vec!["FileError", "FileNotFoundError", "PermissionError", "AlreadyExistsError", "InvalidPathError", "DiskFullError"];
+        let file_errors = vec![
+            "FileError",
+            "FileNotFoundError",
+            "PermissionError",
+            "AlreadyExistsError",
+            "InvalidPathError",
+            "DiskFullError",
+        ];
         for err_name in file_errors {
             let mut err_methods = HashMap::new();
             err_methods.insert("message".into(), (Vec::new(), Type::String));
@@ -600,18 +1216,92 @@ impl TypeChecker {
             );
         }
 
-        let handler_type = Type::Class { name: "Function".into() };
+        let response_handler_type = Type::Function {
+            params: vec![Type::Class {
+                name: "Request".into(),
+            }],
+            return_type: Box::new(Type::Class {
+                name: "Response".into(),
+            }),
+        };
         let mut server_methods = HashMap::new();
-        server_methods.insert("get".into(), (vec![Type::String, handler_type.clone()], Type::Void));
-        server_methods.insert("post".into(), (vec![Type::String, handler_type.clone()], Type::Void));
-        server_methods.insert("put".into(), (vec![Type::String, handler_type.clone()], Type::Void));
-        server_methods.insert("patch".into(), (vec![Type::String, handler_type.clone()], Type::Void));
-        server_methods.insert("delete".into(), (vec![Type::String, handler_type.clone()], Type::Void));
-        server_methods.insert("options".into(), (vec![Type::String, handler_type.clone()], Type::Void));
-        server_methods.insert("head".into(), (vec![Type::String, handler_type.clone()], Type::Void));
-        server_methods.insert("use".into(), (vec![Type::String, handler_type.clone()], Type::Void));
-        server_methods.insert("static".into(), (vec![Type::String, Type::String], Type::Void));
-        server_methods.insert("websocket".into(), (vec![Type::String, handler_type.clone()], Type::Void));
+        server_methods.insert(
+            "get".into(),
+            (
+                vec![Type::String, response_handler_type.clone()],
+                Type::Void,
+            ),
+        );
+        server_methods.insert(
+            "post".into(),
+            (
+                vec![Type::String, response_handler_type.clone()],
+                Type::Void,
+            ),
+        );
+        server_methods.insert(
+            "put".into(),
+            (
+                vec![Type::String, response_handler_type.clone()],
+                Type::Void,
+            ),
+        );
+        server_methods.insert(
+            "patch".into(),
+            (
+                vec![Type::String, response_handler_type.clone()],
+                Type::Void,
+            ),
+        );
+        server_methods.insert(
+            "delete".into(),
+            (
+                vec![Type::String, response_handler_type.clone()],
+                Type::Void,
+            ),
+        );
+        server_methods.insert(
+            "options".into(),
+            (
+                vec![Type::String, response_handler_type.clone()],
+                Type::Void,
+            ),
+        );
+        server_methods.insert(
+            "head".into(),
+            (
+                vec![Type::String, response_handler_type.clone()],
+                Type::Void,
+            ),
+        );
+        server_methods.insert(
+            "use".into(),
+            (
+                vec![
+                    Type::String,
+                    Type::Class {
+                        name: "Function".into(),
+                    },
+                ],
+                Type::Void,
+            ),
+        );
+        server_methods.insert(
+            "static".into(),
+            (vec![Type::String, Type::String], Type::Void),
+        );
+        server_methods.insert(
+            "websocket".into(),
+            (
+                vec![
+                    Type::String,
+                    Type::Class {
+                        name: "Function".into(),
+                    },
+                ],
+                Type::Void,
+            ),
+        );
         server_methods.insert("start".into(), (vec![Type::Int], Type::Void));
         server_methods.insert("stop".into(), (Vec::new(), Type::Void));
         server_methods.insert("port".into(), (Vec::new(), Type::Int));
@@ -660,16 +1350,96 @@ impl TypeChecker {
         );
 
         let mut response_methods = HashMap::new();
-        response_methods.insert("ok".into(), (vec![Type::String], Type::Class { name: "Response".into() }));
-        response_methods.insert("json".into(), (vec![Type::String], Type::Class { name: "Response".into() }));
-        response_methods.insert("html".into(), (vec![Type::String], Type::Class { name: "Response".into() }));
-        response_methods.insert("text".into(), (vec![Type::String], Type::Class { name: "Response".into() }));
-        response_methods.insert("created".into(), (vec![Type::String], Type::Class { name: "Response".into() }));
-        response_methods.insert("notFound".into(), (vec![Type::String], Type::Class { name: "Response".into() }));
-        response_methods.insert("internalServerError".into(), (vec![Type::String], Type::Class { name: "Response".into() }));
-        response_methods.insert("unauthorized".into(), (vec![Type::String], Type::Class { name: "Response".into() }));
-        response_methods.insert("redirect".into(), (vec![Type::String], Type::Class { name: "Response".into() }));
-        response_methods.insert("status".into(), (vec![Type::Int], Type::Class { name: "Response".into() }));
+        response_methods.insert(
+            "ok".into(),
+            (
+                vec![Type::String],
+                Type::Class {
+                    name: "Response".into(),
+                },
+            ),
+        );
+        response_methods.insert(
+            "json".into(),
+            (
+                vec![Type::String],
+                Type::Class {
+                    name: "Response".into(),
+                },
+            ),
+        );
+        response_methods.insert(
+            "html".into(),
+            (
+                vec![Type::String],
+                Type::Class {
+                    name: "Response".into(),
+                },
+            ),
+        );
+        response_methods.insert(
+            "text".into(),
+            (
+                vec![Type::String],
+                Type::Class {
+                    name: "Response".into(),
+                },
+            ),
+        );
+        response_methods.insert(
+            "created".into(),
+            (
+                vec![Type::String],
+                Type::Class {
+                    name: "Response".into(),
+                },
+            ),
+        );
+        response_methods.insert(
+            "notFound".into(),
+            (
+                vec![Type::String],
+                Type::Class {
+                    name: "Response".into(),
+                },
+            ),
+        );
+        response_methods.insert(
+            "internalServerError".into(),
+            (
+                vec![Type::String],
+                Type::Class {
+                    name: "Response".into(),
+                },
+            ),
+        );
+        response_methods.insert(
+            "unauthorized".into(),
+            (
+                vec![Type::String],
+                Type::Class {
+                    name: "Response".into(),
+                },
+            ),
+        );
+        response_methods.insert(
+            "redirect".into(),
+            (
+                vec![Type::String],
+                Type::Class {
+                    name: "Response".into(),
+                },
+            ),
+        );
+        response_methods.insert(
+            "status".into(),
+            (
+                vec![Type::Int],
+                Type::Class {
+                    name: "Response".into(),
+                },
+            ),
+        );
 
         self.classes.insert(
             "Response".into(),
@@ -700,7 +1470,15 @@ impl TypeChecker {
         );
 
         let mut websocket_methods = HashMap::new();
-        websocket_methods.insert("onMessage".into(), (vec![handler_type], Type::Void));
+        websocket_methods.insert(
+            "onMessage".into(),
+            (
+                vec![Type::Class {
+                    name: "Function".into(),
+                }],
+                Type::Void,
+            ),
+        );
         websocket_methods.insert("send".into(), (vec![Type::String], Type::Void));
         websocket_methods.insert("close".into(), (Vec::new(), Type::Void));
 
@@ -717,11 +1495,51 @@ impl TypeChecker {
         );
 
         let mut json_methods = HashMap::new();
-        json_methods.insert("parse".into(), (vec![Type::String], Type::Class { name: "JsonObject".into() }));
-        json_methods.insert("partialParse".into(), (vec![Type::String], Type::Class { name: "JsonObject".into() }));
-        json_methods.insert("stringify".into(), (vec![Type::Class { name: "JsonObject".into() }], Type::String));
-        json_methods.insert("from".into(), (vec![Type::Class { name: "JsonObject".into() }], Type::String));
-        json_methods.insert("to".into(), (vec![Type::String, Type::String], Type::Class { name: "JsonObject".into() }));
+        json_methods.insert(
+            "parse".into(),
+            (
+                vec![Type::String],
+                Type::Class {
+                    name: "JsonObject".into(),
+                },
+            ),
+        );
+        json_methods.insert(
+            "partialParse".into(),
+            (
+                vec![Type::String],
+                Type::Class {
+                    name: "JsonObject".into(),
+                },
+            ),
+        );
+        json_methods.insert(
+            "stringify".into(),
+            (
+                vec![Type::Class {
+                    name: "JsonObject".into(),
+                }],
+                Type::String,
+            ),
+        );
+        json_methods.insert(
+            "from".into(),
+            (
+                vec![Type::Class {
+                    name: "JsonObject".into(),
+                }],
+                Type::String,
+            ),
+        );
+        json_methods.insert(
+            "to".into(),
+            (
+                vec![Type::String, Type::String],
+                Type::Class {
+                    name: "JsonObject".into(),
+                },
+            ),
+        );
 
         self.classes.insert(
             "Json".into(),
@@ -741,8 +1559,24 @@ impl TypeChecker {
         jsonobject_methods.insert("getLong".into(), (vec![Type::String], Type::Long));
         jsonobject_methods.insert("getDecimal".into(), (vec![Type::String], Type::Decimal));
         jsonobject_methods.insert("getBool".into(), (vec![Type::String], Type::Bool));
-        jsonobject_methods.insert("getObject".into(), (vec![Type::String], Type::Class { name: "JsonObject".into() }));
-        jsonobject_methods.insert("getArray".into(), (vec![Type::String], Type::Class { name: "JsonArray".into() }));
+        jsonobject_methods.insert(
+            "getObject".into(),
+            (
+                vec![Type::String],
+                Type::Class {
+                    name: "JsonObject".into(),
+                },
+            ),
+        );
+        jsonobject_methods.insert(
+            "getArray".into(),
+            (
+                vec![Type::String],
+                Type::Class {
+                    name: "JsonArray".into(),
+                },
+            ),
+        );
 
         self.classes.insert(
             "JsonObject".into(),
@@ -758,7 +1592,15 @@ impl TypeChecker {
 
         let mut jsonarray_methods = HashMap::new();
         jsonarray_methods.insert("len".into(), (Vec::new(), Type::Int));
-        jsonarray_methods.insert("get".into(), (vec![Type::Int], Type::Class { name: "JsonObject".into() }));
+        jsonarray_methods.insert(
+            "get".into(),
+            (
+                vec![Type::Int],
+                Type::Class {
+                    name: "JsonObject".into(),
+                },
+            ),
+        );
         jsonarray_methods.insert("getString".into(), (vec![Type::Int], Type::String));
 
         self.classes.insert(
@@ -774,12 +1616,60 @@ impl TypeChecker {
         );
 
         let mut xml_methods = HashMap::new();
-        xml_methods.insert("parse".into(), (vec![Type::String], Type::Class { name: "XmlDocument".into() }));
-        xml_methods.insert("partialParse".into(), (vec![Type::String], Type::Class { name: "XmlDocument".into() }));
-        xml_methods.insert("create".into(), (vec![Type::String], Type::Class { name: "XmlDocument".into() }));
-        xml_methods.insert("stringify".into(), (vec![Type::Class { name: "XmlDocument".into() }], Type::String));
-        xml_methods.insert("from".into(), (vec![Type::Class { name: "XmlDocument".into() }], Type::String));
-        xml_methods.insert("to".into(), (vec![Type::String, Type::String], Type::Class { name: "XmlDocument".into() }));
+        xml_methods.insert(
+            "parse".into(),
+            (
+                vec![Type::String],
+                Type::Class {
+                    name: "XmlDocument".into(),
+                },
+            ),
+        );
+        xml_methods.insert(
+            "partialParse".into(),
+            (
+                vec![Type::String],
+                Type::Class {
+                    name: "XmlDocument".into(),
+                },
+            ),
+        );
+        xml_methods.insert(
+            "create".into(),
+            (
+                vec![Type::String],
+                Type::Class {
+                    name: "XmlDocument".into(),
+                },
+            ),
+        );
+        xml_methods.insert(
+            "stringify".into(),
+            (
+                vec![Type::Class {
+                    name: "XmlDocument".into(),
+                }],
+                Type::String,
+            ),
+        );
+        xml_methods.insert(
+            "from".into(),
+            (
+                vec![Type::Class {
+                    name: "XmlDocument".into(),
+                }],
+                Type::String,
+            ),
+        );
+        xml_methods.insert(
+            "to".into(),
+            (
+                vec![Type::String, Type::String],
+                Type::Class {
+                    name: "XmlDocument".into(),
+                },
+            ),
+        );
 
         self.classes.insert(
             "Xml".into(),
@@ -794,7 +1684,15 @@ impl TypeChecker {
         );
 
         let mut xmldoc_methods = HashMap::new();
-        xmldoc_methods.insert("root".into(), (Vec::new(), Type::Class { name: "XmlElement".into() }));
+        xmldoc_methods.insert(
+            "root".into(),
+            (
+                Vec::new(),
+                Type::Class {
+                    name: "XmlElement".into(),
+                },
+            ),
+        );
         xmldoc_methods.insert("toString".into(), (Vec::new(), Type::String));
 
         self.classes.insert(
@@ -810,9 +1708,33 @@ impl TypeChecker {
         );
 
         let mut xmlem_methods = HashMap::new();
-        xmlem_methods.insert("child".into(), (vec![Type::String], Type::Class { name: "XmlElement".into() }));
-        xmlem_methods.insert("element".into(), (vec![Type::String], Type::Class { name: "XmlElement".into() }));
-        xmlem_methods.insert("text".into(), (vec![Type::String], Type::Class { name: "XmlElement".into() }));
+        xmlem_methods.insert(
+            "child".into(),
+            (
+                vec![Type::String],
+                Type::Class {
+                    name: "XmlElement".into(),
+                },
+            ),
+        );
+        xmlem_methods.insert(
+            "element".into(),
+            (
+                vec![Type::String],
+                Type::Class {
+                    name: "XmlElement".into(),
+                },
+            ),
+        );
+        xmlem_methods.insert(
+            "text".into(),
+            (
+                vec![Type::String],
+                Type::Class {
+                    name: "XmlElement".into(),
+                },
+            ),
+        );
         xmlem_methods.insert("getText".into(), (Vec::new(), Type::String));
 
         self.classes.insert(
@@ -827,7 +1749,14 @@ impl TypeChecker {
             },
         );
 
-        let format_errors = vec!["JsonError", "JsonParseError", "MissingFieldError", "InvalidTypeError", "XmlError", "XmlParseError"];
+        let format_errors = vec![
+            "JsonError",
+            "JsonParseError",
+            "MissingFieldError",
+            "InvalidTypeError",
+            "XmlError",
+            "XmlParseError",
+        ];
         for err_name in format_errors {
             let mut err_methods = HashMap::new();
             err_methods.insert("message".into(), (Vec::new(), Type::String));
@@ -855,17 +1784,34 @@ impl TypeChecker {
                 Item::Trait(tr) => {
                     let mut methods = HashMap::new();
                     for method in &tr.methods {
-                        let param_types = method.params.iter().map(|p| self.type_spec_to_type(&p.type_spec)).collect();
-                        let return_ty = method.return_type.as_ref().map_or(Type::Void, |t| self.type_spec_to_type(t));
+                        let param_types = method
+                            .params
+                            .iter()
+                            .map(|p| self.type_spec_to_type(&p.type_spec))
+                            .collect();
+                        let return_ty = method
+                            .return_type
+                            .as_ref()
+                            .map_or(Type::Void, |t| self.type_spec_to_type(t));
                         methods.insert(method.name.clone(), (param_types, return_ty));
                     }
-                    self.traits.insert(tr.name.clone(), TraitInfo { name: tr.name.clone(), methods });
+                    self.traits.insert(
+                        tr.name.clone(),
+                        TraitInfo {
+                            name: tr.name.clone(),
+                            methods,
+                        },
+                    );
                 }
                 Item::Class(cls) => {
                     let mut fields = HashMap::new();
                     let mut methods = HashMap::new();
                     let max_constructor_args = cls.primary_params.len();
-                    let min_constructor_args = cls.primary_params.iter().filter(|p| p.default_value.is_none()).count();
+                    let min_constructor_args = cls
+                        .primary_params
+                        .iter()
+                        .filter(|p| p.default_value.is_none())
+                        .count();
 
                     for param in &cls.primary_params {
                         let field_name = format!("_{}", param.name);
@@ -876,22 +1822,49 @@ impl TypeChecker {
                     }
 
                     for case in &cls.cases {
-                        let param_types = case.params.iter().map(|p| self.type_spec_to_type(&p.type_spec)).collect();
-                        methods.insert(case.name.clone(), (param_types, Type::Class { name: cls.name.clone() }));
+                        let param_types = case
+                            .params
+                            .iter()
+                            .map(|p| self.type_spec_to_type(&p.type_spec))
+                            .collect();
+                        methods.insert(
+                            case.name.clone(),
+                            (
+                                param_types,
+                                Type::Class {
+                                    name: cls.name.clone(),
+                                },
+                            ),
+                        );
                     }
 
                     for method in &cls.methods {
-                        let param_types = method.params.iter().map(|p| self.type_spec_to_type(&p.type_spec)).collect();
-                        let return_ty = method.return_type.as_ref().map_or(Type::Void, |t| self.type_spec_to_type(t));
+                        let param_types = method
+                            .params
+                            .iter()
+                            .map(|p| self.type_spec_to_type(&p.type_spec))
+                            .collect();
+                        let return_ty = method
+                            .return_type
+                            .as_ref()
+                            .map_or(Type::Void, |t| self.type_spec_to_type(t));
                         let return_ty = if method.is_async {
-                            Type::Task(Box::new(if return_ty == Type::Void { Type::Int } else { return_ty }))
+                            Type::Task(Box::new(if return_ty == Type::Void {
+                                Type::Int
+                            } else {
+                                return_ty
+                            }))
                         } else {
                             return_ty
                         };
                         methods.insert(method.name.clone(), (param_types, return_ty));
                     }
 
-                    let param_types = cls.primary_params.iter().map(|p| self.type_spec_to_type(&p.type_spec)).collect();
+                    let param_types = cls
+                        .primary_params
+                        .iter()
+                        .map(|p| self.type_spec_to_type(&p.type_spec))
+                        .collect();
 
                     self.classes.insert(
                         cls.name.clone(),
@@ -931,11 +1904,15 @@ impl TypeChecker {
     fn stmt_definitely_returns(&self, stmt: &Stmt) -> bool {
         match &stmt.kind {
             StmtKind::Return(_) | StmtKind::Yield(_) => true,
-            StmtKind::If { then_branch, else_branch, .. } => {
+            StmtKind::If {
+                then_branch,
+                else_branch,
+                ..
+            } => {
                 let then_returns = then_branch.iter().any(|s| self.stmt_definitely_returns(s));
-                let else_returns = else_branch
-                    .as_ref()
-                    .map_or(false, |eb| eb.iter().any(|s| self.stmt_definitely_returns(s)));
+                let else_returns = else_branch.as_ref().map_or(false, |eb| {
+                    eb.iter().any(|s| self.stmt_definitely_returns(s))
+                });
                 then_returns && else_returns
             }
             _ => false,
@@ -944,17 +1921,26 @@ impl TypeChecker {
 
     fn check_method(&mut self, cls: &ClassDecl, method: &MethodDecl) {
         self.current_method_is_async = method.is_async;
-        let mut return_type = method.return_type.as_ref().map_or(Type::Void, |t| self.type_spec_to_type(t));
+        let mut return_type = method
+            .return_type
+            .as_ref()
+            .map_or(Type::Void, |t| self.type_spec_to_type(t));
         if method.is_async && return_type == Type::Void {
             return_type = Type::Int;
         }
         self.current_return_type = Some(return_type.clone());
 
         if return_type != Type::Void && !method.is_async {
-            let has_return = method.body.iter().any(|stmt| self.stmt_definitely_returns(stmt));
+            let has_return = method
+                .body
+                .iter()
+                .any(|stmt| self.stmt_definitely_returns(stmt));
             if !has_return {
                 self.diagnostics.push(Diagnostic::error(
-                    format!("Method '{}' must return a value of type '{:?}'", method.name, return_type),
+                    format!(
+                        "Method '{}' must return a value of type '{:?}'",
+                        method.name, return_type
+                    ),
                     Some(method.span),
                 ));
             }
@@ -981,19 +1967,29 @@ impl TypeChecker {
 
     fn check_stmt(&mut self, cls: &ClassDecl, stmt: &Stmt) {
         match &stmt.kind {
-            StmtKind::LocalDecl { name, is_mutable, type_annotation, initializer } => {
+            StmtKind::LocalDecl {
+                name,
+                is_mutable,
+                type_annotation,
+                initializer,
+            } => {
                 let init_ty = if let Some(init) = initializer {
                     self.check_expr(cls, init)
                 } else {
                     None
                 };
 
-                let declared_ty = type_annotation.as_ref().map(|ann| self.type_spec_to_type(ann));
+                let declared_ty = type_annotation
+                    .as_ref()
+                    .map(|ann| self.type_spec_to_type(ann));
 
                 if let (Some(decl_ty), Some(ity)) = (&declared_ty, &init_ty) {
                     if !self.is_assignable_to(ity, decl_ty) {
                         self.diagnostics.push(Diagnostic::error(
-                            format!("Mismatched initializer type: expected '{:?}', found '{:?}'", decl_ty, ity),
+                            format!(
+                                "Mismatched initializer type: expected '{:?}', found '{:?}'",
+                                decl_ty, ity
+                            ),
                             Some(stmt.span),
                         ));
                     }
@@ -1010,12 +2006,19 @@ impl TypeChecker {
             StmtKind::Expr(expr) => {
                 self.check_expr(cls, expr);
             }
-            StmtKind::If { condition, then_branch, else_branch } => {
+            StmtKind::If {
+                condition,
+                then_branch,
+                else_branch,
+            } => {
                 let cond_ty = self.check_expr(cls, condition);
                 if let Some(cty) = cond_ty {
                     if !self.is_valid_condition_type(&cty) {
                         self.diagnostics.push(Diagnostic::error(
-                            format!("Condition must be Bool or truthy expression, found '{:?}'", cty),
+                            format!(
+                                "Condition must be Bool or truthy expression, found '{:?}'",
+                                cty
+                            ),
                             Some(condition.span),
                         ));
                     }
@@ -1034,7 +2037,13 @@ impl TypeChecker {
                     self.symbol_table.pop_scope();
                 }
             }
-            StmtKind::For { loop_var, index_var, condition_or_iterable, body, else_branch } => {
+            StmtKind::For {
+                loop_var,
+                index_var,
+                condition_or_iterable,
+                body,
+                else_branch,
+            } => {
                 self.symbol_table.push_scope();
                 if let Some(lvar) = loop_var {
                     self.symbol_table.insert(Symbol {
@@ -1115,14 +2124,20 @@ impl TypeChecker {
                             if let Some(act) = actual_ty {
                                 if act != expected_ret && act != Type::Void {
                                     self.diagnostics.push(Diagnostic::error(
-                                        format!("Mismatched return type: expected '{:?}', found '{:?}'", expected_ret, act),
+                                        format!(
+                                            "Mismatched return type: expected '{:?}', found '{:?}'",
+                                            expected_ret, act
+                                        ),
                                         Some(stmt.span),
                                     ));
                                 }
                             }
                         } else {
                             self.diagnostics.push(Diagnostic::error(
-                                format!("Non-void method must return a value of type '{:?}'", expected_ret),
+                                format!(
+                                    "Non-void method must return a value of type '{:?}'",
+                                    expected_ret
+                                ),
                                 Some(stmt.span),
                             ));
                         }
@@ -1132,7 +2147,11 @@ impl TypeChecker {
             StmtKind::Yield(expr) => {
                 self.check_expr(cls, expr);
             }
-            StmtKind::Guard { body, catch_clause, exit_body } => {
+            StmtKind::Guard {
+                body,
+                catch_clause,
+                exit_body,
+            } => {
                 self.guard_depth += 1;
                 for s in body {
                     self.check_stmt(cls, s);
@@ -1141,7 +2160,9 @@ impl TypeChecker {
                     self.symbol_table.push_scope();
                     self.symbol_table.insert(Symbol {
                         name: error_var.clone(),
-                        ty: Type::Nullable(Box::new(Type::Class { name: "Error".to_string() })),
+                        ty: Type::Nullable(Box::new(Type::Class {
+                            name: "Error".to_string(),
+                        })),
                         is_mutable: false,
                     });
                     for s in c_body {
@@ -1168,7 +2189,9 @@ impl TypeChecker {
                     let is_valid = match &rty {
                         Type::String => true,
                         Type::Class { name } => {
-                            name == "GenericError" || name == "Error" || self.traits.contains_key("Error")
+                            name == "GenericError"
+                                || name == "Error"
+                                || self.traits.contains_key("Error")
                         }
                         _ => false,
                     };
@@ -1185,7 +2208,9 @@ impl TypeChecker {
 
     fn check_expr(&mut self, cls: &ClassDecl, expr: &Expr) -> Option<Type> {
         match &expr.kind {
-            ExprKind::Print { expr: inner_expr, .. } => {
+            ExprKind::Print {
+                expr: inner_expr, ..
+            } => {
                 self.check_expr(cls, inner_expr);
                 Some(Type::Void)
             }
@@ -1195,9 +2220,15 @@ impl TypeChecker {
             ExprKind::StringLiteral(_) => Some(Type::String),
             ExprKind::BoolLiteral(_) => Some(Type::Bool),
             ExprKind::NullLiteral => Some(Type::Nullable(Box::new(Type::Void))),
-            ExprKind::This => Some(Type::Class { name: cls.name.clone() }),
+            ExprKind::This => Some(Type::Class {
+                name: cls.name.clone(),
+            }),
             ExprKind::Identifier(name) => {
-                let field_name = if name.starts_with('_') { name.clone() } else { format!("_{}", name) };
+                let field_name = if name.starts_with('_') {
+                    name.clone()
+                } else {
+                    format!("_{}", name)
+                };
                 if let Some(info) = self.classes.get(&cls.name) {
                     if info.fields.contains_key(&field_name) || info.fields.contains_key(name) {
                         self.diagnostics.push(Diagnostic::error(
@@ -1210,6 +2241,10 @@ impl TypeChecker {
 
                 if let Some(sym) = self.symbol_table.lookup(name) {
                     Some(sym.ty.clone())
+                } else if let Some(class_name) = canonical_builtin_class_name(name) {
+                    Some(Type::Class {
+                        name: class_name.into(),
+                    })
                 } else if self.classes.contains_key(name) {
                     Some(Type::Class { name: name.clone() })
                 } else {
@@ -1225,8 +2260,16 @@ impl TypeChecker {
                 match obj_ty {
                     Type::Class { name } => {
                         if let Some(info) = self.classes.get(&name) {
-                            let field_name = if member.starts_with('_') { member.clone() } else { format!("_{}", member) };
-                            if let Some((field_ty, _)) = info.fields.get(&field_name).or_else(|| info.fields.get(member)) {
+                            let field_name = if member.starts_with('_') {
+                                member.clone()
+                            } else {
+                                format!("_{}", member)
+                            };
+                            if let Some((field_ty, _)) = info
+                                .fields
+                                .get(&field_name)
+                                .or_else(|| info.fields.get(member))
+                            {
                                 return Some(field_ty.clone());
                             }
                             if let Some((_, ret_ty)) = info.methods.get(member) {
@@ -1295,7 +2338,9 @@ impl TypeChecker {
                                         }
                                         Some(Type::Task(Box::new(Type::Bool)))
                                     }
-                                    "receive" if args.is_empty() => Some(Type::Task(element.clone())),
+                                    "receive" if args.is_empty() => {
+                                        Some(Type::Task(element.clone()))
+                                    }
                                     "close" if args.is_empty() => Some(Type::Void),
                                     _ => {
                                         self.diagnostics.push(Diagnostic::error(
@@ -1315,8 +2360,12 @@ impl TypeChecker {
                                     return None;
                                 }
                                 if let Some(info) = self.classes.get(name).cloned() {
-                                    if let Some((param_types, ret_ty)) = info.methods.get(member).cloned() {
-                                        for (i, (arg_ty, param_ty)) in arg_types.iter().zip(param_types.iter()).enumerate() {
+                                    if let Some((param_types, ret_ty)) =
+                                        info.methods.get(member).cloned()
+                                    {
+                                        for (i, (arg_ty, param_ty)) in
+                                            arg_types.iter().zip(param_types.iter()).enumerate()
+                                        {
                                             if !self.is_assignable_to(arg_ty, param_ty) {
                                                 self.diagnostics.push(Diagnostic::error(
                                                     format!("Expected '{:?}' for argument {} of method '{}', but got '{:?}'", param_ty, i + 1, member, arg_ty),
@@ -1344,7 +2393,10 @@ impl TypeChecker {
                             _ => cls.name.clone(),
                         };
                         if let Some(info) = self.classes.get(&target_cls) {
-                            let field_info = info.fields.get(member).or_else(|| info.fields.get(&format!("_{}", member)));
+                            let field_info = info
+                                .fields
+                                .get(member)
+                                .or_else(|| info.fields.get(&format!("_{}", member)));
                             if let Some((field_ty, is_mutable)) = field_info {
                                 if !is_mutable {
                                     self.diagnostics.push(Diagnostic::error(
@@ -1354,7 +2406,10 @@ impl TypeChecker {
                                 }
                                 if !self.is_assignable_to(&val_ty, field_ty) {
                                     self.diagnostics.push(Diagnostic::error(
-                                        format!("Cannot assign '{:?}' to field '{}' of type '{:?}'", val_ty, member, field_ty),
+                                        format!(
+                                            "Cannot assign '{:?}' to field '{}' of type '{:?}'",
+                                            val_ty, member, field_ty
+                                        ),
                                         Some(target.span),
                                     ));
                                 }
@@ -1371,7 +2426,10 @@ impl TypeChecker {
                             }
                             if !self.is_assignable_to(&val_ty, &sym.ty) {
                                 self.diagnostics.push(Diagnostic::error(
-                                    format!("Cannot assign '{:?}' to variable '{}' of type '{:?}'", val_ty, name, sym.ty),
+                                    format!(
+                                        "Cannot assign '{:?}' to variable '{}' of type '{:?}'",
+                                        val_ty, name, sym.ty
+                                    ),
                                     Some(target.span),
                                 ));
                             }
@@ -1386,7 +2444,12 @@ impl TypeChecker {
                 }
                 Some(val_ty)
             }
-            ExprKind::ClassInstantiation { class_name, generic_type, args } => {
+            ExprKind::ClassInstantiation {
+                class_name,
+                generic_type,
+                args,
+            } => {
+                let class_name = canonical_builtin_class_name(class_name).unwrap_or(class_name);
                 if class_name == "Channel" {
                     if args.len() > 1 {
                         self.diagnostics.push(Diagnostic::error(
@@ -1398,7 +2461,10 @@ impl TypeChecker {
                         if let Some(actual) = self.check_expr(cls, arg) {
                             if actual != Type::Int && actual != Type::Long {
                                 self.diagnostics.push(Diagnostic::error(
-                                    format!("Channel capacity must be an integer, found '{}'", actual),
+                                    format!(
+                                        "Channel capacity must be an integer, found '{}'",
+                                        actual
+                                    ),
                                     Some(arg.span),
                                 ));
                             }
@@ -1449,7 +2515,9 @@ impl TypeChecker {
                             Some(expr.span),
                         ));
                     } else {
-                        for (i, (arg_ty, param_ty)) in arg_types.iter().zip(info.param_types.iter()).enumerate() {
+                        for (i, (arg_ty, param_ty)) in
+                            arg_types.iter().zip(info.param_types.iter()).enumerate()
+                        {
                             if !self.is_assignable_to(arg_ty, param_ty) {
                                 self.diagnostics.push(Diagnostic::error(
                                     format!(
@@ -1470,7 +2538,9 @@ impl TypeChecker {
                         Some(expr.span),
                     ));
                 }
-                Some(Type::Class { name: class_name.clone() })
+                Some(Type::Class {
+                    name: class_name.to_string(),
+                })
             }
             ExprKind::Binary { op, left, right } => {
                 let l_ty = self.check_expr(cls, left);
@@ -1499,7 +2569,9 @@ impl TypeChecker {
                     | BinaryOp::Greater
                     | BinaryOp::GreaterEqual => Some(Type::Bool),
                     _ => {
-                        let is_concurrent = |ty: &Option<Type>| matches!(ty, Some(Type::Task(_) | Type::Channel(_)));
+                        let is_concurrent = |ty: &Option<Type>| {
+                            matches!(ty, Some(Type::Task(_) | Type::Channel(_)))
+                        };
                         if is_concurrent(&l_ty) || is_concurrent(&r_ty) {
                             self.diagnostics.push(Diagnostic::error(
                                 "Cannot do arithmetic on a Task or Channel; `await` it first, or write `async (a + b)` to run the whole expression as a task",
@@ -1517,7 +2589,10 @@ impl TypeChecker {
                         UnaryOp::Not => {
                             if ty != &Type::Bool {
                                 self.diagnostics.push(Diagnostic::error(
-                                    format!("Unary 'not' operator requires Bool operand, found '{:?}'", ty),
+                                    format!(
+                                        "Unary 'not' operator requires Bool operand, found '{:?}'",
+                                        ty
+                                    ),
                                     Some(expr.span),
                                 ));
                             }
@@ -1526,7 +2601,10 @@ impl TypeChecker {
                         UnaryOp::Neg => {
                             if ty != &Type::Int && ty != &Type::Long && ty != &Type::Decimal {
                                 self.diagnostics.push(Diagnostic::error(
-                                    format!("Unary '-' operator requires numeric operand, found '{:?}'", ty),
+                                    format!(
+                                        "Unary '-' operator requires numeric operand, found '{:?}'",
+                                        ty
+                                    ),
                                     Some(expr.span),
                                 ));
                             }
@@ -1550,7 +2628,9 @@ impl TypeChecker {
                 for elem in elements {
                     self.check_expr(cls, elem);
                 }
-                Some(Type::Class { name: "List".into() })
+                Some(Type::Class {
+                    name: "List".into(),
+                })
             }
             ExprKind::MapLiteral(pairs) => {
                 for (k, v) in pairs {
@@ -1569,31 +2649,77 @@ impl TypeChecker {
                 }
                 Some(Type::Int)
             }
-            ExprKind::AsyncSpawn(inner) => {
-                match self.check_expr(cls, inner) {
-                    Some(result_type) => Some(Type::Task(Box::new(result_type))),
-                    None => None,
+            ExprKind::AsyncSpawn(inner) => match self.check_expr(cls, inner) {
+                Some(result_type) => Some(Type::Task(Box::new(result_type))),
+                None => None,
+            },
+            ExprKind::Await(inner) => match self.check_expr(cls, inner) {
+                Some(Type::Task(result)) => Some(*result),
+                Some(other) => {
+                    self.diagnostics.push(Diagnostic::error(
+                        format!("await requires a Task, found '{:?}'", other),
+                        Some(inner.span),
+                    ));
+                    None
                 }
-            }
-            ExprKind::Await(inner) => {
-                match self.check_expr(cls, inner) {
-                    Some(Type::Task(result)) => Some(*result),
-                    Some(other) => {
-                        self.diagnostics.push(Diagnostic::error(
-                            format!("await requires a Task, found '{:?}'", other),
-                            Some(inner.span),
-                        ));
-                        None
+                None => None,
+            },
+            ExprKind::Lambda { parameter, body } => {
+                let outer_symbols = std::mem::replace(&mut self.symbol_table, SymbolTable::new());
+                let outer_return_type = self.current_return_type.clone();
+                let return_type = Type::Class {
+                    name: "Response".into(),
+                };
+                self.current_return_type = Some(return_type.clone());
+                self.symbol_table.insert(Symbol {
+                    name: parameter.clone(),
+                    ty: Type::Class {
+                        name: "Request".into(),
+                    },
+                    is_mutable: false,
+                });
+
+                for (index, statement) in body.iter().enumerate() {
+                    if index + 1 == body.len() {
+                        if let StmtKind::Expr(result) = &statement.kind {
+                            let actual_type = self.check_expr(cls, result);
+                            if actual_type
+                                .as_ref()
+                                .is_some_and(|ty| !self.is_assignable_to(ty, &return_type))
+                            {
+                                self.diagnostics.push(Diagnostic::error(
+                                    format!("Server route handler must return '{}'", return_type),
+                                    Some(result.span),
+                                ));
+                            }
+                            continue;
+                        }
                     }
-                    None => None,
+                    self.check_stmt(cls, statement);
                 }
+
+                self.symbol_table = outer_symbols;
+                self.current_return_type = outer_return_type;
+                Some(Type::Function {
+                    params: vec![Type::Class {
+                        name: "Request".into(),
+                    }],
+                    return_type: Box::new(return_type),
+                })
             }
-            ExprKind::If { condition, then_branch, else_branch } => {
+            ExprKind::If {
+                condition,
+                then_branch,
+                else_branch,
+            } => {
                 let cond_ty = self.check_expr(cls, condition);
                 if let Some(cty) = cond_ty {
                     if !self.is_valid_condition_type(&cty) {
                         self.diagnostics.push(Diagnostic::error(
-                            format!("If condition must be Bool or truthy expression, found '{:?}'", cty),
+                            format!(
+                                "If condition must be Bool or truthy expression, found '{:?}'",
+                                cty
+                            ),
                             Some(condition.span),
                         ));
                     }
@@ -1623,7 +2749,13 @@ impl TypeChecker {
                 }
                 yield_ty.or(Some(Type::Int))
             }
-            ExprKind::For { loop_var, index_var, condition_or_iterable, body, else_branch } => {
+            ExprKind::For {
+                loop_var,
+                index_var,
+                condition_or_iterable,
+                body,
+                else_branch,
+            } => {
                 self.symbol_table.push_scope();
                 if let Some(lvar) = loop_var {
                     self.symbol_table.insert(Symbol {
@@ -1657,7 +2789,9 @@ impl TypeChecker {
                     self.symbol_table.pop_scope();
                 }
 
-                Some(Type::Class { name: "List".into() })
+                Some(Type::Class {
+                    name: "List".into(),
+                })
             }
             _ => None,
         }
@@ -1666,10 +2800,7 @@ impl TypeChecker {
     fn is_valid_condition_type(&self, ty: &Type) -> bool {
         matches!(
             ty,
-            Type::Bool
-                | Type::Nullable(_)
-                | Type::Class { .. }
-                | Type::AnonymousObject { .. }
+            Type::Bool | Type::Nullable(_) | Type::Class { .. } | Type::AnonymousObject { .. }
         )
     }
 
@@ -1686,7 +2817,8 @@ impl TypeChecker {
             }
             (Type::Channel(from), Type::Channel(to)) => self.is_assignable_to(from, to),
             (from_ty, Type::Nullable(inner)) => {
-                from_ty == &Type::Nullable(Box::new(Type::Void)) || self.is_assignable_to(from_ty, inner)
+                from_ty == &Type::Nullable(Box::new(Type::Void))
+                    || self.is_assignable_to(from_ty, inner)
             }
             _ => false,
         }
@@ -1704,13 +2836,17 @@ impl TypeChecker {
                 if name == "void" {
                     Type::Void
                 } else {
-                    Type::Class { name: name.clone() }
+                    Type::Class {
+                        name: canonical_builtin_class_name(name).unwrap_or(name).into(),
+                    }
                 }
             }
             TypeSpec::Generic(name, element) if name == "Channel" => {
                 Type::Channel(Box::new(self.type_spec_to_type(element)))
             }
-            TypeSpec::Generic(name, _) => Type::Class { name: name.clone() },
+            TypeSpec::Generic(name, _) => Type::Class {
+                name: canonical_builtin_class_name(name).unwrap_or(name).into(),
+            },
             TypeSpec::Nullable(inner) => Type::Nullable(Box::new(self.type_spec_to_type(inner))),
         }
     }

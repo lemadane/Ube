@@ -1,5 +1,5 @@
-use std::collections::HashMap;
 use crate::types::Type;
+use std::collections::HashMap;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Symbol {

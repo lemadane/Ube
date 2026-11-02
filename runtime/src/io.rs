@@ -1,8 +1,12 @@
 use std::ffi::{CStr, CString};
 use std::fs::{self, OpenOptions};
-use std::io::Write;
+use std::io::{BufRead, BufReader, Write};
+use std::net::{TcpListener, TcpStream};
 use std::os::raw::c_char;
 use std::path::Path as StdPath;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::thread;
+use std::time::Duration;
 
 use crate::collections::{ube_list_add, ube_list_create, UbeList};
 use crate::datetime::{ube_datetime_from_unix, UbeDateTime};
@@ -281,7 +285,16 @@ pub extern "C" fn ube_path_extension(path_ptr: *const c_char) -> *mut c_char {
 #[repr(C)]
 pub struct UbeServer {
     pub port: i32,
-    pub is_running: bool,
+    pub is_running: AtomicBool,
+    routes: Vec<UbeServerRoute>,
+}
+
+#[derive(Clone)]
+struct UbeServerRoute {
+    method: String,
+    path: String,
+    context: usize,
+    handler: usize,
 }
 
 #[repr(C)]
@@ -311,16 +324,61 @@ pub struct UbeWebSocket {
 pub extern "C" fn ube_server_create() -> *mut UbeServer {
     Box::into_raw(Box::new(UbeServer {
         port: 8080,
-        is_running: false,
+        is_running: AtomicBool::new(false),
+        routes: Vec::new(),
     }))
 }
 
 #[no_mangle]
 pub extern "C" fn ube_server_start(ptr: *mut UbeServer, port: i32) {
-    if !ptr.is_null() {
-        unsafe {
-            (*ptr).port = port;
-            (*ptr).is_running = true;
+    if ptr.is_null() {
+        eprintln!("Ube server error: received a null server");
+        std::process::exit(1);
+    }
+    let Ok(port) = u16::try_from(port) else {
+        eprintln!("Ube server error: port must be between 0 and 65535");
+        std::process::exit(1);
+    };
+
+    let server = unsafe { &mut *ptr };
+    let listener = match TcpListener::bind(("127.0.0.1", port)) {
+        Ok(listener) => listener,
+        Err(error) => {
+            eprintln!("Ube server error: could not bind to 127.0.0.1:{port}: {error}");
+            std::process::exit(1);
+        }
+    };
+    if let Err(error) = listener.set_nonblocking(true) {
+        eprintln!("Ube server error: could not configure listener: {error}");
+        std::process::exit(1);
+    }
+    let bound_port = match listener.local_addr() {
+        Ok(address) => address.port(),
+        Err(error) => {
+            eprintln!("Ube server error: could not inspect listener address: {error}");
+            std::process::exit(1);
+        }
+    };
+    server.port = i32::from(bound_port);
+    server.is_running.store(true, Ordering::Release);
+    let routes = server.routes.clone();
+    eprintln!("Ube server listening at http://127.0.0.1:{bound_port}");
+
+    while server.is_running.load(Ordering::Acquire) {
+        match listener.accept() {
+            Ok((stream, _)) => {
+                if let Err(error) = serve_http_connection(stream, &routes) {
+                    eprintln!("Ube server request error: {error}");
+                }
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                thread::sleep(Duration::from_millis(20));
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
+            Err(error) => {
+                eprintln!("Ube server accept error: {error}");
+                server.is_running.store(false, Ordering::Release);
+            }
         }
     }
 }
@@ -328,9 +386,7 @@ pub extern "C" fn ube_server_start(ptr: *mut UbeServer, port: i32) {
 #[no_mangle]
 pub extern "C" fn ube_server_stop(ptr: *mut UbeServer) {
     if !ptr.is_null() {
-        unsafe {
-            (*ptr).is_running = false;
-        }
+        unsafe { (*ptr).is_running.store(false, Ordering::Release) };
     }
 }
 
@@ -346,7 +402,38 @@ pub extern "C" fn ube_server_port(ptr: *mut UbeServer) -> i32 {
 #[no_mangle]
 pub extern "C" fn ube_server_tls(_ptr: *mut UbeServer, _cert: *const c_char, _key: *const c_char) {}
 #[no_mangle]
-pub extern "C" fn ube_server_route(_ptr: *mut UbeServer, _path: *const c_char, _handler: i64) {}
+pub extern "C" fn ube_server_route(
+    ptr: *mut UbeServer,
+    path: *const c_char,
+    method: *const c_char,
+    context: *mut std::ffi::c_void,
+    handler: i64,
+) {
+    if ptr.is_null() {
+        eprintln!("Ube server error: route registration received a null server");
+        return;
+    }
+    if path.is_null() || method.is_null() || context.is_null() || handler == 0 {
+        eprintln!(
+            "Ube server error: route registration received invalid arguments (path={}, method={}, context={}, handler={})",
+            !path.is_null(),
+            !method.is_null(),
+            !context.is_null(),
+            handler != 0
+        );
+        return;
+    }
+    let path = unsafe { CStr::from_ptr(path) }.to_string_lossy().into_owned();
+    let method = unsafe { CStr::from_ptr(method) }.to_string_lossy().into_owned();
+    unsafe {
+        (*ptr).routes.push(UbeServerRoute {
+            method,
+            path,
+            context: context as usize,
+            handler: handler as usize,
+        });
+    }
+}
 #[no_mangle]
 pub extern "C" fn ube_server_use(_ptr: *mut UbeServer, _handler: i64) {}
 
@@ -386,6 +473,121 @@ pub extern "C" fn ube_response_create(status: i32, body_ptr: *const c_char) -> *
             .into_raw()
     };
     Box::into_raw(Box::new(UbeResponse { status, body }))
+}
+
+fn serve_http_connection(mut stream: TcpStream, routes: &[UbeServerRoute]) -> std::io::Result<()> {
+    let mut reader = BufReader::new(&mut stream);
+    let mut request_line = String::new();
+    reader.read_line(&mut request_line)?;
+    if request_line.len() > 8192 {
+        drop(reader);
+        return write_http_response(&mut stream, 431, b"Request header too large");
+    }
+    let mut parts = request_line.split_whitespace();
+    let Some(method) = parts.next() else {
+        drop(reader);
+        return write_http_response(&mut stream, 400, b"Bad Request");
+    };
+    let Some(url) = parts.next() else {
+        drop(reader);
+        return write_http_response(&mut stream, 400, b"Bad Request");
+    };
+    let Some(version) = parts.next() else {
+        drop(reader);
+        return write_http_response(&mut stream, 400, b"Bad Request");
+    };
+    if !version.starts_with("HTTP/") {
+        drop(reader);
+        return write_http_response(&mut stream, 400, b"Bad Request");
+    }
+
+    let mut headers_size = request_line.len();
+    loop {
+        let mut line = String::new();
+        let bytes_read = reader.read_line(&mut line)?;
+        if bytes_read == 0 {
+            break;
+        }
+        headers_size += bytes_read;
+        if headers_size > 16 * 1024 {
+            drop(reader);
+            return write_http_response(&mut stream, 431, b"Request header too large");
+        }
+        if line == "\r\n" || line == "\n" {
+            break;
+        }
+    }
+    drop(reader);
+
+    let path = url.split('?').next().unwrap_or(url);
+    let route = routes
+        .iter()
+        .find(|route| route.method == method && route.path == path);
+    let Some(route) = route else {
+        return write_http_response(&mut stream, 404, b"Not Found");
+    };
+
+    let Ok(method_string) = CString::new(method) else {
+        return write_http_response(&mut stream, 400, b"Bad Request");
+    };
+    let Ok(url_string) = CString::new(url) else {
+        return write_http_response(&mut stream, 400, b"Bad Request");
+    };
+    let mut request = UbeRequest {
+        method: method_string.into_raw(),
+        url: url_string.into_raw(),
+    };
+    let handler: unsafe extern "C" fn(*mut std::ffi::c_void, *mut UbeRequest) -> *mut UbeResponse =
+        unsafe { std::mem::transmute(route.handler) };
+    let response = unsafe {
+        handler(
+            route.context as *mut std::ffi::c_void,
+            &mut request as *mut UbeRequest,
+        )
+    };
+
+    unsafe {
+        drop(CString::from_raw(request.method));
+        drop(CString::from_raw(request.url));
+    }
+    if response.is_null() {
+        return write_http_response(&mut stream, 500, b"Internal Server Error");
+    }
+    let response = unsafe { Box::from_raw(response) };
+    let body = if response.body.is_null() {
+        &[][..]
+    } else {
+        unsafe { CStr::from_ptr(response.body) }.to_bytes()
+    };
+    let result = write_http_response(&mut stream, response.status, body);
+    if !response.body.is_null() {
+        unsafe { drop(CString::from_raw(response.body)) };
+    }
+    result
+}
+
+fn write_http_response(stream: &mut TcpStream, status: i32, body: &[u8]) -> std::io::Result<()> {
+    let (status, reason) = match status {
+        200 => (200, "OK"),
+        201 => (201, "Created"),
+        301 => (301, "Moved Permanently"),
+        302 => (302, "Found"),
+        400 => (400, "Bad Request"),
+        401 => (401, "Unauthorized"),
+        404 => (404, "Not Found"),
+        405 => (405, "Method Not Allowed"),
+        431 => (431, "Request Header Fields Too Large"),
+        500 => (500, "Internal Server Error"),
+        code if (100..600).contains(&code) => (code, "Response"),
+        _ => (500, "Internal Server Error"),
+    };
+    write!(
+        stream,
+        "HTTP/1.1 {status} {reason}\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+        body.len()
+    )?;
+    stream.write_all(body)?;
+    stream.flush()
 }
 
 #[no_mangle]

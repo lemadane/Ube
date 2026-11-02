@@ -73,6 +73,17 @@
     "strings": {
       "patterns": [
         {
+          "name": "string.quoted.double.ube",
+          "begin": "\"",
+          "end": "\"",
+          "patterns": [
+            {
+              "name": "constant.character.escape.ube",
+              "match": "\\\\([\"\\\\ntr])"
+            }
+          ]
+        },
+        {
           "name": "string.quoted.backtick.ube",
           "begin": "`",
           "end": "`",

@@ -119,10 +119,13 @@
 - **Deferred Cleanup**: Native deferred cleanup using `after file.close()` syntax.
 - **Directories & Paths**: `Directory.create("logs")`, `Path.join("src", "main.Ube")`.
 
-### 21. High-Performance Web Server Standard Library (`Server`, `Request`, `Response`, `HTTP/1.1`, `HTTP/2`, `HTTP/3 QUIC`)
-- **Express / Ktor Ergonomics**: Express-style fluent routing: `server.get("/users") { request -> ... }`, `server.post()`, `server.put()`, `server.delete()`, `server.use()` (middleware), `server.static()`, `server.websocket()`, `server.start(8080)`.
+### 21. Web Server Standard Library (`server`, `request`, `response`)
+- **Lambda and route syntax**: Inline handler arguments are supported, for example `server.get("/", request -> response.ok("hello"));`. The original trailing-lambda form remains supported.
+- **Lowercase built-in type aliases**: Built-in class types accept lowercase names such as `server`, `request`, and `response`; existing PascalCase names such as `Server` and `Response` remain valid.
+- **Express / Ktor Ergonomics**: Fluent routing with `server.get()`, `server.post()`, `server.put()`, `server.delete()`, `server.use()` (middleware), `server.static()`, `server.websocket()`, and `server.start(8080)`.
 - **Multi-Protocol Support**: Default `HTTP/1.1` TCP transport, `server.enableHttp2()` for TLS ALPN multiplexing, and `server.enableHttp3(443)` for native UDP QUIC 0-RTT transport.
 - **Request & Response Ergonomics**: `request.pathLong("id")`, `request.query("search")`, `request.hasBearerToken()`, `request.cookie("session")`, `request.protocol()`, `request.isHttp3()`, `Response.ok("hello")`, `Response.json(data)`.
+- **Current runtime status**: `server.start(port)` currently runs a blocking, loopback-only HTTP/1.1 server with exact method/path route matching. TLS, HTTP/2/3, request-body parsing, middleware, static-file serving, and WebSockets are not implemented yet; several advanced `Request` accessors remain placeholders.
 
 ### 22. First-Class Native JSON & XML Record Mapping (`Json`, `JsonObject`, `JsonArray`, `Xml`, `XmlDocument`, `XmlElement`)
 - **Bi-Directional Document & Class Mapping**: `Json.parse(text)`, `Json.partialParse(text, TargetClass)`, `Json.stringify(obj)`, `Json.from(obj)`, `Json.to(text, TargetClass)`.
@@ -135,24 +138,24 @@
 
 ## VS Code Extension & Syntax Highlighting
 
-Ube includes an official VS Code extension in [`editors/vscode`](editors/vscode) providing full `.Ube` file recognition, syntax highlighting, bracket matching, string interpolation highlighting, and code folding.
+Ube includes an official VS Code extension in [`editors/vscode`](editors/vscode) providing `.ube` file recognition, syntax highlighting, bracket matching, string interpolation highlighting, code folding, and document formatting. Use **Format Document** (Shift+Alt+F on Linux/Windows, Shift+Option+F on macOS) to apply the initial two-space indentation and multiline call-argument rules in [`FORMATTER.md`](editors/vscode/FORMATTER.md).
 
 ### Installation Options:
 
 #### Option 1: Quick Install (Copy Extension Directory)
 ```bash
 # Linux / macOS
-cp -r editors/vscode ~/.vscode/extensions/Ube-vscode
+cp -r editors/vscode ~/.vscode/extensions/ube-lang.ube-vscode-0.6.0
 
 # Windows (Command Prompt)
-xcopy /E /I editors\vscode %USERPROFILE%\.vscode\extensions\Ube-vscode
+xcopy /E /I editors\vscode %USERPROFILE%\.vscode\extensions\ube-lang.ube-vscode-0.6.0
 ```
 
 #### Option 2: Build & Install `.vsix` Package
 ```bash
 cd editors/vscode
 npx vsce package
-code --install-extension Ube-vscode-0.5.0.vsix
+code --install-extension ube-vscode-0.6.0.vsix
 ```
 
 ---
@@ -768,21 +771,9 @@ class Application {
 ```java
 class Application {
     main() {
-        final server = Server()
+        final server = server()
 
-        // Enable HTTP/2 TLS ALPN and HTTP/3 UDP QUIC
-        server.enableHttp2()
-        server.enableHttp3(443)
-
-        // Fluent Express/Ktor style routing & middleware
-        server.use { req ->
-            print(`[${req.method()}] ${req.url()} (${req.protocol()})`)
-        }
-
-        server.get(`/users/{id}`) { request ->
-            long id = request.pathLong(`id`)
-            return Response.json(`{"id": ${id}, "name": "Lem"}`)
-        }
+        server.get("/", request -> response.ok("Hello from Ube!"));
 
         server.start(8080)
     }
@@ -864,8 +855,14 @@ source "$HOME/.cargo/env"
 
 ```bash
 cargo build --release --workspace
-sudo cp target/release/ube-compiler /usr/local/bin/ube
-sudo cp target/release/libUbe_runtime.a /usr/local/lib/libUbe_runtime.a
+
+# Install for the current user (the runtime library is kept beside the CLI)
+install -Dm755 target/release/ube-compiler "$HOME/.cargo/bin/ube"
+install -Dm644 target/release/libube_runtime.a "$HOME/.cargo/bin/libube_runtime.a"
+
+# Or install system-wide
+sudo install -Dm755 target/release/ube-compiler /usr/local/bin/ube
+sudo install -Dm644 target/release/libube_runtime.a /usr/local/lib/libube_runtime.a
 ```
 
 ### 3. Usage Commands

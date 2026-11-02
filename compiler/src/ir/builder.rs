@@ -1,4 +1,5 @@
 use super::nodes::*;
+use crate::builtins::canonical_builtin_class_name;
 use crate::diagnostics::Diagnostic;
 use crate::parser::parser::Precedence;
 use crate::parser::*;
@@ -25,6 +26,7 @@ pub struct IrBuilder {
     current_method_async: bool,
     current_method_return_type: Type,
     generated_functions: Vec<IrFunction>,
+    next_server_handler: usize,
     pub diagnostics: Vec<Diagnostic>,
 }
 
@@ -49,8 +51,135 @@ impl IrBuilder {
             current_method_async: false,
             current_method_return_type: Type::Void,
             generated_functions: Vec::new(),
+            next_server_handler: 0,
             diagnostics: Vec::new(),
         }
+    }
+
+    fn build_server_handler(&mut self, lambda: &Expr) -> Option<(String, IrOperand)> {
+        let ExprKind::Lambda { parameter, body } = &lambda.kind else {
+            self.diagnostics.push(Diagnostic::error(
+                "Server routes require a `{ request -> Response(...) }` handler",
+                Some(lambda.span),
+            ));
+            return None;
+        };
+        let Some((context_slot, context_ty)) = self.lookup_var("this") else {
+            self.diagnostics.push(Diagnostic::error(
+                "Server route handlers must be registered from an instance method",
+                Some(lambda.span),
+            ));
+            return None;
+        };
+        let context_reg = self.fresh_reg();
+        self.emit(IrInstruction::Load {
+            dest: context_reg,
+            ptr: context_slot,
+            ty: context_ty.clone(),
+        });
+        let context = IrOperand::Register(context_reg, context_ty.clone());
+
+        let handler_index = self.next_server_handler;
+        self.next_server_handler += 1;
+        let class_name = format!("UbeRouteHandler{}", handler_index);
+        let method_name = "handle".to_string();
+
+        let mut handler_builder = self.clone();
+        handler_builder.next_reg = 0;
+        handler_builder.next_block = 0;
+        handler_builder.blocks.clear();
+        handler_builder.current_instructions.clear();
+        handler_builder.var_pointers.clear();
+        handler_builder.loop_stack.clear();
+        handler_builder.guard_stack.clear();
+        handler_builder.guard_exit_stack.clear();
+        handler_builder.yield_target_stack.clear();
+        handler_builder.generated_functions.clear();
+        handler_builder.current_method_async = false;
+        let return_type = Type::Class {
+            name: "Response".into(),
+        };
+        handler_builder.current_method_return_type = return_type.clone();
+
+        let entry = handler_builder.fresh_block();
+        handler_builder.current_block_id = Some(entry);
+        handler_builder.push_var_scope();
+
+        let receiver = handler_builder.fresh_reg();
+        let request_ty = Type::Class {
+            name: "Request".into(),
+        };
+        let request = handler_builder.fresh_reg();
+        let receiver_slot = handler_builder.fresh_reg();
+        handler_builder.emit(IrInstruction::Alloca {
+            dest: receiver_slot,
+            ty: context_ty.clone(),
+        });
+        handler_builder.emit(IrInstruction::Store {
+            val: IrOperand::Register(receiver, context_ty.clone()),
+            ptr: receiver_slot,
+        });
+        handler_builder.insert_var("this".into(), receiver_slot, context_ty.clone());
+
+        let request_slot = handler_builder.fresh_reg();
+        handler_builder.emit(IrInstruction::Alloca {
+            dest: request_slot,
+            ty: request_ty.clone(),
+        });
+        handler_builder.emit(IrInstruction::Store {
+            val: IrOperand::Register(request, request_ty.clone()),
+            ptr: request_slot,
+        });
+        handler_builder.insert_var(parameter.clone(), request_slot, request_ty.clone());
+
+        for (index, statement) in body.iter().enumerate() {
+            if handler_builder.is_current_terminated() {
+                break;
+            }
+            if index + 1 == body.len() {
+                if let StmtKind::Expr(result_expr) = &statement.kind {
+                    let result = handler_builder.build_expr(result_expr);
+                    if result.get_type() != return_type {
+                        self.diagnostics.push(Diagnostic::error(
+                            format!(
+                                "Server route handlers must return Response, found '{}'",
+                                result.get_type()
+                            ),
+                            Some(result_expr.span),
+                        ));
+                        return None;
+                    }
+                    handler_builder.emit(IrInstruction::Return { val: Some(result) });
+                    continue;
+                }
+            }
+            handler_builder.build_stmt(statement);
+        }
+        if !handler_builder.is_current_terminated() {
+            self.diagnostics.push(Diagnostic::error(
+                "Server route handler must return a Response on every path",
+                Some(lambda.span),
+            ));
+            handler_builder.emit(IrInstruction::Return {
+                val: Some(IrOperand::NullOf(return_type.clone())),
+            });
+        }
+        let last_block = handler_builder.current_block_id.unwrap_or(entry);
+        handler_builder.finish_block(last_block);
+        handler_builder.pop_var_scope();
+
+        self.generated_functions
+            .extend(std::mem::take(&mut handler_builder.generated_functions));
+        self.generated_functions.push(IrFunction {
+            class_name: class_name.clone(),
+            name: method_name.clone(),
+            receiver: (receiver, context_ty),
+            params: vec![(request, request_ty)],
+            return_type,
+            is_async: false,
+            blocks: std::mem::take(&mut handler_builder.blocks),
+        });
+        Some((format!("{}_{}", class_name, method_name), context))
     }
 
     fn type_spec_to_type(&self, ts: &TypeSpec) -> Type {
@@ -65,13 +194,17 @@ impl IrBuilder {
                 if n == "void" {
                     Type::Void
                 } else {
-                    Type::Class { name: n.clone() }
+                    Type::Class {
+                        name: canonical_builtin_class_name(n).unwrap_or(n).into(),
+                    }
                 }
             }
             TypeSpec::Generic(name, element) if name == "Channel" => {
                 Type::Channel(Box::new(self.type_spec_to_type(element)))
             }
-            TypeSpec::Generic(name, _) => Type::Class { name: name.clone() },
+            TypeSpec::Generic(name, _) => Type::Class {
+                name: canonical_builtin_class_name(name).unwrap_or(name).into(),
+            },
             TypeSpec::Nullable(inner) => Type::Nullable(Box::new(self.type_spec_to_type(inner))),
         }
     }
@@ -94,12 +227,20 @@ impl IrBuilder {
 
     fn finish_block(&mut self, id: BlockId) {
         let instrs = std::mem::take(&mut self.current_instructions);
-        self.blocks.push(BasicBlock { id, instructions: instrs });
+        self.blocks.push(BasicBlock {
+            id,
+            instructions: instrs,
+        });
     }
 
     fn is_current_terminated(&self) -> bool {
         self.current_instructions.last().map_or(false, |i| {
-            matches!(i, IrInstruction::Return { .. } | IrInstruction::Jump { .. } | IrInstruction::Branch { .. })
+            matches!(
+                i,
+                IrInstruction::Return { .. }
+                    | IrInstruction::Jump { .. }
+                    | IrInstruction::Branch { .. }
+            )
         })
     }
 
@@ -108,7 +249,9 @@ impl IrBuilder {
             self.route_unguarded_await_error();
             return;
         };
-        let error_ty = Type::Nullable(Box::new(Type::Class { name: "Error".into() }));
+        let error_ty = Type::Nullable(Box::new(Type::Class {
+            name: "Error".into(),
+        }));
         let condition = self.fresh_reg();
         self.emit(IrInstruction::Binary {
             dest: condition,
@@ -134,7 +277,9 @@ impl IrBuilder {
             val: IrOperand::Register(error_dest, error_ty),
             ptr: err_ptr,
         });
-        self.emit(IrInstruction::Jump { target: catch_target });
+        self.emit(IrInstruction::Jump {
+            target: catch_target,
+        });
         self.finish_block(error_block);
         self.current_block_id = Some(success_block);
     }
@@ -189,7 +334,11 @@ impl IrBuilder {
         let mut capture_info = Vec::with_capacity(captured.len());
         for (name, (pointer, ty)) in captured {
             let value = self.fresh_reg();
-            self.emit(IrInstruction::Load { dest: value, ptr: pointer, ty: ty.clone() });
+            self.emit(IrInstruction::Load {
+                dest: value,
+                ptr: pointer,
+                ty: ty.clone(),
+            });
             capture_values.push(IrOperand::Register(value, ty.clone()));
             capture_info.push((name, ty));
         }
@@ -228,7 +377,10 @@ impl IrBuilder {
         }
         for (name, ty, parameter) in parameters {
             let slot = deferred.fresh_reg();
-            deferred.emit(IrInstruction::Alloca { dest: slot, ty: ty.clone() });
+            deferred.emit(IrInstruction::Alloca {
+                dest: slot,
+                ty: ty.clone(),
+            });
             deferred.emit(IrInstruction::Store {
                 val: IrOperand::Register(parameter, ty.clone()),
                 ptr: slot,
@@ -254,7 +406,8 @@ impl IrBuilder {
         deferred.finish_block(last_block);
         self.next_async_thunk = deferred.next_async_thunk;
         let known_diagnostics = self.diagnostics.len();
-        self.diagnostics.extend(deferred.diagnostics.drain(known_diagnostics..));
+        self.diagnostics
+            .extend(deferred.diagnostics.drain(known_diagnostics..));
         let nested_functions = std::mem::take(&mut deferred.generated_functions);
         self.generated_functions.extend(nested_functions);
         self.generated_functions.push(IrFunction {
@@ -335,14 +488,18 @@ impl IrBuilder {
                     then_branch,
                     else_branch,
                     ..
-                } => probe
-                    .yield_type_in_stmts(then_branch)
-                    .or_else(|| else_branch.as_ref().and_then(|s| probe.yield_type_in_stmts(s))),
+                } => probe.yield_type_in_stmts(then_branch).or_else(|| {
+                    else_branch
+                        .as_ref()
+                        .and_then(|s| probe.yield_type_in_stmts(s))
+                }),
                 StmtKind::For {
                     body, else_branch, ..
-                } => probe
-                    .yield_type_in_stmts(body)
-                    .or_else(|| else_branch.as_ref().and_then(|s| probe.yield_type_in_stmts(s))),
+                } => probe.yield_type_in_stmts(body).or_else(|| {
+                    else_branch
+                        .as_ref()
+                        .and_then(|s| probe.yield_type_in_stmts(s))
+                }),
                 StmtKind::Guard {
                     body,
                     catch_clause,
@@ -354,7 +511,11 @@ impl IrBuilder {
                             .as_ref()
                             .and_then(|(_, body)| probe.yield_type_in_stmts(body))
                     })
-                    .or_else(|| exit_body.as_ref().and_then(|s| probe.yield_type_in_stmts(s))),
+                    .or_else(|| {
+                        exit_body
+                            .as_ref()
+                            .and_then(|s| probe.yield_type_in_stmts(s))
+                    }),
                 _ => None,
             };
             if let Some(ty) = result {
@@ -405,6 +566,7 @@ impl IrBuilder {
         self.class_field_indices.clear();
         self.class_decls.clear();
         self.next_async_thunk = 0;
+        self.next_server_handler = 0;
         self.generated_functions.clear();
 
         for item in &program.items {
@@ -430,25 +592,49 @@ impl IrBuilder {
                 Item::Class(cls) => {
                     for (i, param) in cls.primary_params.iter().enumerate() {
                         let field_ty = self.type_spec_to_type(&param.type_spec);
-                        self.class_fields.insert((cls.name.clone(), format!("_{}", param.name)), field_ty.clone());
-                        self.class_fields.insert((cls.name.clone(), param.name.clone()), field_ty.clone());
-                        self.class_field_indices.insert((cls.name.clone(), format!("_{}", param.name)), (i, field_ty.clone()));
-                        self.class_field_indices.insert((cls.name.clone(), param.name.clone()), (i, field_ty.clone()));
-                        self.method_return_types.insert((cls.name.clone(), param.name.clone()), field_ty);
+                        self.class_fields.insert(
+                            (cls.name.clone(), format!("_{}", param.name)),
+                            field_ty.clone(),
+                        );
+                        self.class_fields
+                            .insert((cls.name.clone(), param.name.clone()), field_ty.clone());
+                        self.class_field_indices.insert(
+                            (cls.name.clone(), format!("_{}", param.name)),
+                            (i, field_ty.clone()),
+                        );
+                        self.class_field_indices.insert(
+                            (cls.name.clone(), param.name.clone()),
+                            (i, field_ty.clone()),
+                        );
+                        self.method_return_types
+                            .insert((cls.name.clone(), param.name.clone()), field_ty);
                     }
                     for case in &cls.cases {
-                        self.method_return_types.insert((cls.name.clone(), case.name.clone()), Type::Class { name: cls.name.clone() });
+                        self.method_return_types.insert(
+                            (cls.name.clone(), case.name.clone()),
+                            Type::Class {
+                                name: cls.name.clone(),
+                            },
+                        );
                     }
                     for method in &cls.methods {
-                        let ret_ty = method.return_type.as_ref().map_or(Type::Void, |t| self.type_spec_to_type(t));
-                        self.method_return_types.insert((cls.name.clone(), method.name.clone()), ret_ty.clone());
+                        let ret_ty = method
+                            .return_type
+                            .as_ref()
+                            .map_or(Type::Void, |t| self.type_spec_to_type(t));
+                        self.method_return_types
+                            .insert((cls.name.clone(), method.name.clone()), ret_ty.clone());
 
-                        let has_trait_param = method.params.iter().any(|p| matches!(p.type_spec, TypeSpec::Class(_)));
+                        let has_trait_param = method
+                            .params
+                            .iter()
+                            .any(|p| matches!(p.type_spec, TypeSpec::Class(_)));
                         if has_trait_param {
                             for target_cls in &concrete_classes {
                                 if target_cls.name != cls.name {
                                     let spec_name = format!("{}_{}", method.name, target_cls.name);
-                                    self.method_return_types.insert((cls.name.clone(), spec_name), ret_ty.clone());
+                                    self.method_return_types
+                                        .insert((cls.name.clone(), spec_name), ret_ty.clone());
                                 }
                             }
                         }
@@ -456,8 +642,12 @@ impl IrBuilder {
                 }
                 Item::Trait(tr) => {
                     for method in &tr.methods {
-                        let ret_ty = method.return_type.as_ref().map_or(Type::Void, |t| self.type_spec_to_type(t));
-                        self.method_return_types.insert((tr.name.clone(), method.name.clone()), ret_ty.clone());
+                        let ret_ty = method
+                            .return_type
+                            .as_ref()
+                            .map_or(Type::Void, |t| self.type_spec_to_type(t));
+                        self.method_return_types
+                            .insert((tr.name.clone(), method.name.clone()), ret_ty.clone());
                         for cls in &concrete_classes {
                             self.method_return_types
                                 .entry((cls.name.clone(), method.name.clone()))
@@ -501,7 +691,11 @@ impl IrBuilder {
         }
     }
 
-    fn build_class(&mut self, cls: &ClassDecl, concrete_classes: &[ClassDecl]) -> (IrClass, Vec<IrFunction>) {
+    fn build_class(
+        &mut self,
+        cls: &ClassDecl,
+        concrete_classes: &[ClassDecl],
+    ) -> (IrClass, Vec<IrFunction>) {
         let mut fields = Vec::new();
 
         for param in &cls.primary_params {
@@ -523,7 +717,10 @@ impl IrBuilder {
         }
 
         for method in &cls.methods {
-            let has_trait_param = method.params.iter().any(|p| matches!(p.type_spec, TypeSpec::Class(_)));
+            let has_trait_param = method
+                .params
+                .iter()
+                .any(|p| matches!(p.type_spec, TypeSpec::Class(_)));
             if has_trait_param {
                 // Monomorphize method for each concrete class
                 for target_cls in concrete_classes {
@@ -547,7 +744,12 @@ impl IrBuilder {
         (ir_cls, functions)
     }
 
-    fn build_getter(&mut self, cls: &ClassDecl, param: &ConstructorParam, field_index: usize) -> IrFunction {
+    fn build_getter(
+        &mut self,
+        cls: &ClassDecl,
+        param: &ConstructorParam,
+        field_index: usize,
+    ) -> IrFunction {
         self.next_reg = 0;
         self.next_block = 0;
         self.blocks.clear();
@@ -556,7 +758,9 @@ impl IrBuilder {
 
         let entry_block = self.fresh_block();
         let receiver_reg = self.fresh_reg();
-        let this_ty = Type::Class { name: cls.name.clone() };
+        let this_ty = Type::Class {
+            name: cls.name.clone(),
+        };
 
         let field_ty = self.type_spec_to_type(&param.type_spec);
 
@@ -585,7 +789,12 @@ impl IrBuilder {
         }
     }
 
-    fn build_trait_method(&mut self, cls: &ClassDecl, method: &MethodDecl, _concrete_classes: &[ClassDecl]) -> IrFunction {
+    fn build_trait_method(
+        &mut self,
+        cls: &ClassDecl,
+        method: &MethodDecl,
+        _concrete_classes: &[ClassDecl],
+    ) -> IrFunction {
         if !method.body.is_empty() {
             return self.build_method(cls, method);
         }
@@ -598,7 +807,9 @@ impl IrBuilder {
 
         let entry_block = self.fresh_block();
         let receiver_reg = self.fresh_reg();
-        let this_ty = Type::Class { name: cls.name.clone() };
+        let this_ty = Type::Class {
+            name: cls.name.clone(),
+        };
 
         let mut param_info = Vec::new();
         let mut ir_params = Vec::new();
@@ -610,7 +821,10 @@ impl IrBuilder {
             param_info.push((p.name.clone(), p_reg, p_ty));
         }
 
-        let ret_ty = method.return_type.as_ref().map_or(Type::Void, |t| self.type_spec_to_type(t));
+        let ret_ty = method
+            .return_type
+            .as_ref()
+            .map_or(Type::Void, |t| self.type_spec_to_type(t));
         let ret_val = if ret_ty == Type::Void {
             None
         } else {
@@ -633,7 +847,13 @@ impl IrBuilder {
     fn build_method(&mut self, cls: &ClassDecl, method: &MethodDecl) -> IrFunction {
         self.current_method_async = method.is_async;
         let ret_ty = method.return_type.as_ref().map_or_else(
-            || if method.is_async { Type::Int } else { Type::Void },
+            || {
+                if method.is_async {
+                    Type::Int
+                } else {
+                    Type::Void
+                }
+            },
             |t| self.type_spec_to_type(t),
         );
         self.current_method_return_type = ret_ty.clone();
@@ -649,7 +869,9 @@ impl IrBuilder {
         self.current_block_id = Some(entry_block);
 
         let receiver_reg = self.fresh_reg();
-        let this_ty = Type::Class { name: cls.name.clone() };
+        let this_ty = Type::Class {
+            name: cls.name.clone(),
+        };
 
         let mut param_info = Vec::new();
         let mut ir_params = Vec::new();
@@ -662,7 +884,10 @@ impl IrBuilder {
         }
 
         let this_ptr = self.fresh_reg();
-        self.emit(IrInstruction::Alloca { dest: this_ptr, ty: this_ty.clone() });
+        self.emit(IrInstruction::Alloca {
+            dest: this_ptr,
+            ty: this_ty.clone(),
+        });
         self.emit(IrInstruction::Store {
             val: IrOperand::Register(receiver_reg, this_ty.clone()),
             ptr: this_ptr,
@@ -671,8 +896,14 @@ impl IrBuilder {
 
         for (p_name, p_reg, p_ty) in param_info {
             let ptr_reg = self.fresh_reg();
-            self.emit(IrInstruction::Alloca { dest: ptr_reg, ty: p_ty.clone() });
-            self.emit(IrInstruction::Store { val: IrOperand::Register(p_reg, p_ty.clone()), ptr: ptr_reg });
+            self.emit(IrInstruction::Alloca {
+                dest: ptr_reg,
+                ty: p_ty.clone(),
+            });
+            self.emit(IrInstruction::Store {
+                val: IrOperand::Register(p_reg, p_ty.clone()),
+                ptr: ptr_reg,
+            });
             self.insert_var(p_name, ptr_reg, p_ty);
         }
 
@@ -714,6 +945,19 @@ impl IrBuilder {
         if class_name == "Channel" {
             return self.build_channel_instantiation(args, Type::Int);
         }
+        if class_name == "Server" {
+            let dest = self.fresh_reg();
+            let ty = Type::Class {
+                name: "Server".into(),
+            };
+            self.emit(IrInstruction::CallRuntime {
+                dest: Some(dest),
+                symbol: "ube_server_create".into(),
+                args: Vec::new(),
+                ret_ty: ty.clone(),
+            });
+            return IrOperand::Register(dest, ty);
+        }
         let mut arg_ops: Vec<IrOperand> = args.iter().map(|a| self.build_expr(a)).collect();
         if let Some(cls_decl) = self.class_decls.get(class_name).cloned() {
             if arg_ops.len() < cls_decl.primary_params.len() {
@@ -742,7 +986,12 @@ impl IrBuilder {
             class_name: class_name.to_string(),
             args: arg_ops,
         });
-        IrOperand::Register(dest, Type::Class { name: class_name.to_string() })
+        IrOperand::Register(
+            dest,
+            Type::Class {
+                name: class_name.to_string(),
+            },
+        )
     }
 
     fn build_channel_instantiation(&mut self, args: &[Expr], element_ty: Type) -> IrOperand {
@@ -763,7 +1012,12 @@ impl IrBuilder {
 
     fn build_stmt(&mut self, stmt: &Stmt) {
         match &stmt.kind {
-            StmtKind::LocalDecl { name, initializer, type_annotation, .. } => {
+            StmtKind::LocalDecl {
+                name,
+                initializer,
+                type_annotation,
+                ..
+            } => {
                 let init_op = if let Some(init) = initializer {
                     self.build_expr(init)
                 } else if let Some(ts) = type_annotation {
@@ -783,14 +1037,24 @@ impl IrBuilder {
                 };
                 let ty = init_op.get_type();
                 let ptr_reg = self.fresh_reg();
-                self.emit(IrInstruction::Alloca { dest: ptr_reg, ty: ty.clone() });
-                self.emit(IrInstruction::Store { val: init_op, ptr: ptr_reg });
+                self.emit(IrInstruction::Alloca {
+                    dest: ptr_reg,
+                    ty: ty.clone(),
+                });
+                self.emit(IrInstruction::Store {
+                    val: init_op,
+                    ptr: ptr_reg,
+                });
                 self.insert_var(name.clone(), ptr_reg, ty);
             }
             StmtKind::Expr(expr) => {
                 self.build_expr(expr);
             }
-            StmtKind::If { condition, then_branch, else_branch } => {
+            StmtKind::If {
+                condition,
+                then_branch,
+                else_branch,
+            } => {
                 let condition = self.build_expr(condition);
                 let cond_op = self.condition_to_bool(condition);
                 let then_block = self.fresh_block();
@@ -801,7 +1065,11 @@ impl IrBuilder {
                     self.emit(IrInstruction::Branch {
                         cond: cond_op,
                         then_block,
-                        else_block: if else_branch.is_some() { else_block } else { merge_block },
+                        else_block: if else_branch.is_some() {
+                            else_block
+                        } else {
+                            merge_block
+                        },
                     });
                     self.finish_block(cb);
                 }
@@ -815,7 +1083,9 @@ impl IrBuilder {
                     }
                 }
                 if !self.is_current_terminated() {
-                    self.emit(IrInstruction::Jump { target: merge_block });
+                    self.emit(IrInstruction::Jump {
+                        target: merge_block,
+                    });
                 }
                 if let Some(cb) = self.current_block_id {
                     self.finish_block(cb);
@@ -832,7 +1102,9 @@ impl IrBuilder {
                         }
                     }
                     if !self.is_current_terminated() {
-                        self.emit(IrInstruction::Jump { target: merge_block });
+                        self.emit(IrInstruction::Jump {
+                            target: merge_block,
+                        });
                     }
                     if let Some(cb) = self.current_block_id {
                         self.finish_block(cb);
@@ -842,7 +1114,13 @@ impl IrBuilder {
 
                 self.current_block_id = Some(merge_block);
             }
-            StmtKind::For { loop_var, index_var, condition_or_iterable, body, else_branch } => {
+            StmtKind::For {
+                loop_var,
+                index_var,
+                condition_or_iterable,
+                body,
+                else_branch,
+            } => {
                 let header_block = self.fresh_block();
                 let body_block = self.fresh_block();
                 let increment_block = if loop_var.is_some() {
@@ -852,14 +1130,22 @@ impl IrBuilder {
                 };
                 let exit_block = self.fresh_block();
                 let iterable = if loop_var.is_some() {
-                    condition_or_iterable.as_ref().map(|expr| self.build_expr(expr))
+                    condition_or_iterable
+                        .as_ref()
+                        .map(|expr| self.build_expr(expr))
                 } else {
                     None
                 };
                 let iterable_index_ptr = if iterable.is_some() {
                     let ptr = self.fresh_reg();
-                    self.emit(IrInstruction::Alloca { dest: ptr, ty: Type::Int });
-                    self.emit(IrInstruction::Store { val: IrOperand::ConstantInt(0), ptr });
+                    self.emit(IrInstruction::Alloca {
+                        dest: ptr,
+                        ty: Type::Int,
+                    });
+                    self.emit(IrInstruction::Store {
+                        val: IrOperand::ConstantInt(0),
+                        ptr,
+                    });
                     Some(ptr)
                 } else {
                     None
@@ -867,8 +1153,14 @@ impl IrBuilder {
 
                 let has_iter_ptr = if else_branch.is_some() {
                     let ptr = self.fresh_reg();
-                    self.emit(IrInstruction::Alloca { dest: ptr, ty: Type::Bool });
-                    self.emit(IrInstruction::Store { val: IrOperand::ConstantBool(false), ptr });
+                    self.emit(IrInstruction::Alloca {
+                        dest: ptr,
+                        ty: Type::Bool,
+                    });
+                    self.emit(IrInstruction::Store {
+                        val: IrOperand::ConstantBool(false),
+                        ptr,
+                    });
                     Some(ptr)
                 } else {
                     None
@@ -882,13 +1174,16 @@ impl IrBuilder {
 
                 let false_target = else_check_block.unwrap_or(exit_block);
 
-                self.emit(IrInstruction::Jump { target: header_block });
+                self.emit(IrInstruction::Jump {
+                    target: header_block,
+                });
                 if let Some(cb) = self.current_block_id {
                     self.finish_block(cb);
                 }
 
                 self.current_block_id = Some(header_block);
-                let cond_op = if let (Some(list), Some(index_ptr)) = (&iterable, iterable_index_ptr) {
+                let cond_op = if let (Some(list), Some(index_ptr)) = (&iterable, iterable_index_ptr)
+                {
                     let index_reg = self.fresh_reg();
                     self.emit(IrInstruction::Load {
                         dest: index_reg,
@@ -928,7 +1223,10 @@ impl IrBuilder {
 
                 self.current_block_id = Some(body_block);
                 if let Some(ptr) = has_iter_ptr {
-                    self.emit(IrInstruction::Store { val: IrOperand::ConstantBool(true), ptr });
+                    self.emit(IrInstruction::Store {
+                        val: IrOperand::ConstantBool(true),
+                        ptr,
+                    });
                 }
 
                 self.push_var_scope();
@@ -981,7 +1279,9 @@ impl IrBuilder {
                     }
                 }
                 if !self.is_current_terminated() {
-                    self.emit(IrInstruction::Jump { target: continue_target });
+                    self.emit(IrInstruction::Jump {
+                        target: continue_target,
+                    });
                 }
                 if let Some(cb) = self.current_block_id {
                     self.finish_block(cb);
@@ -1007,16 +1307,24 @@ impl IrBuilder {
                         val: IrOperand::Register(next_index, Type::Int),
                         ptr: index_ptr,
                     });
-                    self.emit(IrInstruction::Jump { target: header_block });
+                    self.emit(IrInstruction::Jump {
+                        target: header_block,
+                    });
                     self.finish_block(increment);
                 }
                 self.pop_var_scope();
                 self.loop_stack.pop();
 
-                if let (Some(check_block), Some(e_stmts), Some(ptr)) = (else_check_block, else_branch, has_iter_ptr) {
+                if let (Some(check_block), Some(e_stmts), Some(ptr)) =
+                    (else_check_block, else_branch, has_iter_ptr)
+                {
                     self.current_block_id = Some(check_block);
                     let has_iter_reg = self.fresh_reg();
-                    self.emit(IrInstruction::Load { dest: has_iter_reg, ptr, ty: Type::Bool });
+                    self.emit(IrInstruction::Load {
+                        dest: has_iter_reg,
+                        ptr,
+                        ty: Type::Bool,
+                    });
 
                     let else_block = self.fresh_block();
                     self.emit(IrInstruction::Branch {
@@ -1047,14 +1355,20 @@ impl IrBuilder {
             }
             StmtKind::Break => {
                 if let Some((_, exit_target)) = self.loop_stack.last().cloned() {
-                    self.emit(IrInstruction::Jump { target: exit_target });
+                    self.emit(IrInstruction::Jump {
+                        target: exit_target,
+                    });
                 } else if let Some(exit_target) = self.guard_exit_stack.last().cloned() {
-                    self.emit(IrInstruction::Jump { target: exit_target });
+                    self.emit(IrInstruction::Jump {
+                        target: exit_target,
+                    });
                 }
             }
             StmtKind::Continue => {
                 if let Some((header_target, _)) = self.loop_stack.last().cloned() {
-                    self.emit(IrInstruction::Jump { target: header_target });
+                    self.emit(IrInstruction::Jump {
+                        target: header_target,
+                    });
                 }
             }
             StmtKind::Return(expr_opt) => {
@@ -1068,8 +1382,14 @@ impl IrBuilder {
                         self.emit(IrInstruction::Store { val, ptr: res_ptr });
                     } else if let Some(list_ptr) = list_ptr_opt {
                         let obj_reg = self.fresh_reg();
-                        let list_ty = Type::Class { name: "List".into() };
-                        self.emit(IrInstruction::Load { dest: obj_reg, ptr: list_ptr, ty: list_ty.clone() });
+                        let list_ty = Type::Class {
+                            name: "List".into(),
+                        };
+                        self.emit(IrInstruction::Load {
+                            dest: obj_reg,
+                            ptr: list_ptr,
+                            ty: list_ty.clone(),
+                        });
                         self.emit(IrInstruction::CallRuntime {
                             dest: None,
                             symbol: "ube_list_add".into(),
@@ -1081,11 +1401,23 @@ impl IrBuilder {
                     self.emit(IrInstruction::Return { val: Some(val) });
                 }
             }
-            StmtKind::Guard { body, catch_clause, exit_body } => {
-                let err_ty = Type::Nullable(Box::new(Type::Class { name: "Error".into() }));
+            StmtKind::Guard {
+                body,
+                catch_clause,
+                exit_body,
+            } => {
+                let err_ty = Type::Nullable(Box::new(Type::Class {
+                    name: "Error".into(),
+                }));
                 let err_ptr = self.fresh_reg();
-                self.emit(IrInstruction::Alloca { dest: err_ptr, ty: err_ty.clone() });
-                self.emit(IrInstruction::Store { val: IrOperand::Null, ptr: err_ptr });
+                self.emit(IrInstruction::Alloca {
+                    dest: err_ptr,
+                    ty: err_ty.clone(),
+                });
+                self.emit(IrInstruction::Store {
+                    val: IrOperand::Null,
+                    ptr: err_ptr,
+                });
 
                 let catch_target = self.fresh_block();
                 let exit_target = self.fresh_block();
@@ -1102,7 +1434,9 @@ impl IrBuilder {
                     }
                 }
                 if !self.is_current_terminated() {
-                    self.emit(IrInstruction::Jump { target: exit_target });
+                    self.emit(IrInstruction::Jump {
+                        target: exit_target,
+                    });
                 }
                 if let Some(cb) = self.current_block_id {
                     self.finish_block(cb);
@@ -1123,14 +1457,18 @@ impl IrBuilder {
                         }
                     }
                     if !self.is_current_terminated() {
-                        self.emit(IrInstruction::Jump { target: exit_target });
+                        self.emit(IrInstruction::Jump {
+                            target: exit_target,
+                        });
                     }
                     if let Some(cb) = self.current_block_id {
                         self.finish_block(cb);
                     }
                     self.pop_var_scope();
                 } else {
-                    self.emit(IrInstruction::Jump { target: exit_target });
+                    self.emit(IrInstruction::Jump {
+                        target: exit_target,
+                    });
                     if let Some(cb) = self.current_block_id {
                         self.finish_block(cb);
                     }
@@ -1147,14 +1485,18 @@ impl IrBuilder {
                         }
                     }
                     if !self.is_current_terminated() {
-                        self.emit(IrInstruction::Jump { target: merge_target });
+                        self.emit(IrInstruction::Jump {
+                            target: merge_target,
+                        });
                     }
                     if let Some(cb) = self.current_block_id {
                         self.finish_block(cb);
                     }
                     self.pop_var_scope();
                 } else {
-                    self.emit(IrInstruction::Jump { target: merge_target });
+                    self.emit(IrInstruction::Jump {
+                        target: merge_target,
+                    });
                     if let Some(cb) = self.current_block_id {
                         self.finish_block(cb);
                     }
@@ -1170,8 +1512,13 @@ impl IrBuilder {
                     } else {
                         val_op
                     };
-                    self.emit(IrInstruction::Store { val: error, ptr: err_ptr });
-                    self.emit(IrInstruction::Jump { target: catch_target });
+                    self.emit(IrInstruction::Store {
+                        val: error,
+                        ptr: err_ptr,
+                    });
+                    self.emit(IrInstruction::Jump {
+                        target: catch_target,
+                    });
                 } else if self.current_method_async {
                     let error_message = if val_op.get_type() == Type::String {
                         val_op
@@ -1185,8 +1532,9 @@ impl IrBuilder {
                         ret_ty: Type::Void,
                     });
                     self.emit(IrInstruction::Return {
-                        val: (self.current_method_return_type != Type::Void)
-                            .then(|| Self::default_operand_for_type(&self.current_method_return_type)),
+                        val: (self.current_method_return_type != Type::Void).then(|| {
+                            Self::default_operand_for_type(&self.current_method_return_type)
+                        }),
                     });
                 } else {
                     self.diagnostics.push(Diagnostic::error(
@@ -1254,7 +1602,11 @@ impl IrBuilder {
                                 parts.push(expr_op);
                             } else if let Some((ptr, ty)) = self.lookup_var(expr_str) {
                                 let dest = self.fresh_reg();
-                                self.emit(IrInstruction::Load { dest, ptr, ty: ty.clone() });
+                                self.emit(IrInstruction::Load {
+                                    dest,
+                                    ptr,
+                                    ty: ty.clone(),
+                                });
                                 parts.push(IrOperand::Register(dest, ty));
                             }
                             curr = &rest[end + 1..];
@@ -1286,22 +1638,34 @@ impl IrBuilder {
                 } else {
                     IrOperand::ConstantString(v.clone())
                 }
-            },
+            }
             ExprKind::BoolLiteral(v) => IrOperand::ConstantBool(*v),
             ExprKind::NullLiteral => IrOperand::Null,
             ExprKind::This => {
                 let (ptr, ty) = self.lookup_var("this").expect("'this' pointer missing");
                 let dest = self.fresh_reg();
-                self.emit(IrInstruction::Load { dest, ptr, ty: ty.clone() });
+                self.emit(IrInstruction::Load {
+                    dest,
+                    ptr,
+                    ty: ty.clone(),
+                });
                 IrOperand::Register(dest, ty)
             }
             ExprKind::Identifier(name) => {
                 let (ptr, ty) = self.lookup_var(name).expect("Variable missing in IR");
                 let dest = self.fresh_reg();
-                self.emit(IrInstruction::Load { dest, ptr, ty: ty.clone() });
+                self.emit(IrInstruction::Load {
+                    dest,
+                    ptr,
+                    ty: ty.clone(),
+                });
                 IrOperand::Register(dest, ty)
             }
-            ExprKind::ClassInstantiation { class_name, generic_type, args } => {
+            ExprKind::ClassInstantiation {
+                class_name,
+                generic_type,
+                args,
+            } => {
                 if class_name == "Channel" {
                     let ty = generic_type
                         .as_ref()
@@ -1313,13 +1677,49 @@ impl IrBuilder {
                 }
             }
             ExprKind::Call { callee, args } => {
+                if let ExprKind::MemberAccess { object, member, .. } = &callee.kind {
+                    if let Some(method) = match member.as_str() {
+                        "get" => Some("GET"),
+                        "post" => Some("POST"),
+                        "put" => Some("PUT"),
+                        "patch" => Some("PATCH"),
+                        "delete" => Some("DELETE"),
+                        "options" => Some("OPTIONS"),
+                        "head" => Some("HEAD"),
+                        _ => None,
+                    } {
+                        if args.len() != 2 {
+                            self.diagnostics.push(Diagnostic::error(
+                                format!("Server.{} requires a path and a handler", member),
+                                Some(expr.span),
+                            ));
+                            return IrOperand::Null;
+                        }
+                        let server = self.build_expr(object);
+                        let path = self.build_expr(&args[0]);
+                        let Some((handler_symbol, context)) = self.build_server_handler(&args[1])
+                        else {
+                            return IrOperand::Null;
+                        };
+                        self.emit(IrInstruction::ServerRoute {
+                            server,
+                            path,
+                            method: method.into(),
+                            context,
+                            handler_symbol,
+                        });
+                        return IrOperand::Null;
+                    }
+                }
                 let arg_ops: Vec<IrOperand> = args.iter().map(|a| self.build_expr(a)).collect();
                 match &callee.kind {
                     ExprKind::MemberAccess { object, member, .. } => {
                         let static_class_name = match &object.kind {
-                            ExprKind::Identifier(name) if self.lookup_var(name).is_none() => {
-                                Some(name.clone())
-                            }
+                            ExprKind::Identifier(name) if self.lookup_var(name).is_none() => Some(
+                                canonical_builtin_class_name(name)
+                                    .unwrap_or(name)
+                                    .to_string(),
+                            ),
                             _ => None,
                         };
                         let obj_op = if static_class_name.is_some() {
@@ -1328,15 +1728,16 @@ impl IrBuilder {
                             self.build_expr(object)
                         };
                         let dest = self.fresh_reg();
-                        let mut class_name = static_class_name.unwrap_or_else(|| match obj_op.get_type() {
-                            Type::Class { name } => name,
-                            Type::Channel(_) => "Channel".into(),
-                            Type::Nullable(inner) => match *inner {
+                        let mut class_name =
+                            static_class_name.unwrap_or_else(|| match obj_op.get_type() {
                                 Type::Class { name } => name,
+                                Type::Channel(_) => "Channel".into(),
+                                Type::Nullable(inner) => match *inner {
+                                    Type::Class { name } => name,
+                                    _ => "Application".into(),
+                                },
                                 _ => "Application".into(),
-                            },
-                            _ => "Application".into(),
-                        });
+                            });
                         if class_name == "Error" && member == "message" {
                             self.emit(IrInstruction::CallRuntime {
                                 dest: Some(dest),
@@ -1350,7 +1751,9 @@ impl IrBuilder {
                         let async_method = self
                             .class_decls
                             .get(&class_name)
-                            .and_then(|decl| decl.methods.iter().find(|method| method.name == *member))
+                            .and_then(|decl| {
+                                decl.methods.iter().find(|method| method.name == *member)
+                            })
                             .filter(|method| method.is_async)
                             .cloned();
                         if let Some(method) = async_method {
@@ -1381,14 +1784,26 @@ impl IrBuilder {
                             let dest = self.fresh_reg();
                             let mut call_args = vec![obj_op];
                             call_args.extend(arg_ops);
-                            let ret_ty = if member == "len" { Type::Int } else { Type::Void };
+                            let ret_ty = if member == "len" {
+                                Type::Int
+                            } else {
+                                Type::Void
+                            };
                             self.emit(IrInstruction::CallRuntime {
-                                dest: if ret_ty == Type::Void { None } else { Some(dest) },
+                                dest: if ret_ty == Type::Void {
+                                    None
+                                } else {
+                                    Some(dest)
+                                },
                                 symbol: symbol.into(),
                                 args: call_args,
                                 ret_ty: ret_ty.clone(),
                             });
-                            return if ret_ty == Type::Void { IrOperand::Null } else { IrOperand::Register(dest, ret_ty) };
+                            return if ret_ty == Type::Void {
+                                IrOperand::Null
+                            } else {
+                                IrOperand::Register(dest, ret_ty)
+                            };
                         }
                         if class_name == "Map" {
                             let symbol = match member.as_str() {
@@ -1398,14 +1813,26 @@ impl IrBuilder {
                             let dest = self.fresh_reg();
                             let mut call_args = vec![obj_op];
                             call_args.extend(arg_ops);
-                            let ret_ty = if member == "len" { Type::Int } else { Type::Void };
+                            let ret_ty = if member == "len" {
+                                Type::Int
+                            } else {
+                                Type::Void
+                            };
                             self.emit(IrInstruction::CallRuntime {
-                                dest: if ret_ty == Type::Void { None } else { Some(dest) },
+                                dest: if ret_ty == Type::Void {
+                                    None
+                                } else {
+                                    Some(dest)
+                                },
                                 symbol: symbol.into(),
                                 args: call_args,
                                 ret_ty: ret_ty.clone(),
                             });
-                            return if ret_ty == Type::Void { IrOperand::Null } else { IrOperand::Register(dest, ret_ty) };
+                            return if ret_ty == Type::Void {
+                                IrOperand::Null
+                            } else {
+                                IrOperand::Register(dest, ret_ty)
+                            };
                         }
                         if class_name == "Channel" {
                             let symbol = match member.as_str() {
@@ -1425,12 +1852,20 @@ impl IrBuilder {
                                 _ => Type::Void,
                             };
                             self.emit(IrInstruction::CallRuntime {
-                                dest: if ret_ty == Type::Void { None } else { Some(dest) },
+                                dest: if ret_ty == Type::Void {
+                                    None
+                                } else {
+                                    Some(dest)
+                                },
                                 symbol: symbol.into(),
                                 args: call_args,
                                 ret_ty: ret_ty.clone(),
                             });
-                            return if ret_ty == Type::Void { IrOperand::Null } else { IrOperand::Register(dest, ret_ty) };
+                            return if ret_ty == Type::Void {
+                                IrOperand::Null
+                            } else {
+                                IrOperand::Register(dest, ret_ty)
+                            };
                         }
                         if class_name == "Task" || matches!(obj_op.get_type(), Type::Task(_)) {
                             let symbol = match member.as_str() {
@@ -1448,7 +1883,9 @@ impl IrBuilder {
                                     Type::Task(result) => Type::Task(result),
                                     _ => Type::Task(Box::new(Type::Int)),
                                 },
-                                "all" | "allSettled" => Type::Task(Box::new(Type::Class { name: "List".into() })),
+                                "all" | "allSettled" => Type::Task(Box::new(Type::Class {
+                                    name: "List".into(),
+                                })),
                                 "cancel" => Type::Bool,
                                 _ => Type::Task(Box::new(Type::Int)),
                             };
@@ -1470,7 +1907,16 @@ impl IrBuilder {
                             return IrOperand::Register(dest, ret_ty);
                         }
 
-                        if class_name == "DateTime" || member == "now" || member == "date" || member == "time" || member == "of" || member == "utc" || member == "parse" || member == "fromUnix" || member == "fromUnixMillis" {
+                        if class_name == "DateTime"
+                            || member == "now"
+                            || member == "date"
+                            || member == "time"
+                            || member == "of"
+                            || member == "utc"
+                            || member == "parse"
+                            || member == "fromUnix"
+                            || member == "fromUnixMillis"
+                        {
                             let symbol = match member.as_str() {
                                 "now" => "ube_datetime_now",
                                 "utc" => "ube_datetime_utc",
@@ -1492,14 +1938,27 @@ impl IrBuilder {
                                 "unixNanos" => "ube_datetime_unix_nanos",
                                 "zone" => "ube_datetime_zone",
                                 "in" => "ube_datetime_in_zone",
-                                "addDays" | "addHours" | "addMinutes" | "addDuration" => "ube_datetime_add_seconds",
+                                "addDays" | "addHours" | "addMinutes" | "addDuration" => {
+                                    "ube_datetime_add_seconds"
+                                }
                                 "diffSeconds" | "diffDays" => "ube_datetime_diff_seconds",
                                 "format" => "ube_datetime_format",
                                 _ => "ube_datetime_now",
                             };
                             let dest = self.fresh_reg();
                             let mut call_args = Vec::new();
-                            if !["now", "utc", "date", "time", "of", "parse", "fromUnix", "fromUnixMillis"].contains(&member.as_str()) {
+                            if ![
+                                "now",
+                                "utc",
+                                "date",
+                                "time",
+                                "of",
+                                "parse",
+                                "fromUnix",
+                                "fromUnixMillis",
+                            ]
+                            .contains(&member.as_str())
+                            {
                                 call_args.push(obj_op);
                             }
                             for arg in arg_ops {
@@ -1523,8 +1982,12 @@ impl IrBuilder {
                             }
                             let ret_ty = match member.as_str() {
                                 "zone" | "format" => Type::String,
-                                "year" | "month" | "day" | "hour" | "minute" | "second" | "timestamp" | "unix" | "unixMillis" | "unixNanos" | "diffSeconds" | "diffDays" => Type::Int,
-                                _ => Type::Class { name: "DateTime".into() },
+                                "year" | "month" | "day" | "hour" | "minute" | "second"
+                                | "timestamp" | "unix" | "unixMillis" | "unixNanos"
+                                | "diffSeconds" | "diffDays" => Type::Int,
+                                _ => Type::Class {
+                                    name: "DateTime".into(),
+                                },
                             };
                             self.emit(IrInstruction::CallRuntime {
                                 dest: Some(dest),
@@ -1547,7 +2010,12 @@ impl IrBuilder {
                             return IrOperand::Register(dest, ret_ty);
                         }
 
-                        if class_name == "Duration" || member == "seconds" || member == "minutes" || member == "hours" || member == "days" {
+                        if class_name == "Duration"
+                            || member == "seconds"
+                            || member == "minutes"
+                            || member == "hours"
+                            || member == "days"
+                        {
                             let symbol = match member.as_str() {
                                 "seconds" | "minutes" | "hours" | "days" => "ube_duration_create",
                                 "totalSeconds" => "ube_duration_total_seconds",
@@ -1571,7 +2039,13 @@ impl IrBuilder {
                                     self.scale_integer_operand(arg, factor)
                                 });
                             }
-                            let ret_ty = if member == "totalSeconds" { Type::Int } else { Type::Class { name: "Duration".into() } };
+                            let ret_ty = if member == "totalSeconds" {
+                                Type::Int
+                            } else {
+                                Type::Class {
+                                    name: "Duration".into(),
+                                }
+                            };
                             self.emit(IrInstruction::CallRuntime {
                                 dest: Some(dest),
                                 symbol: symbol.into(),
@@ -1581,7 +2055,10 @@ impl IrBuilder {
                             return IrOperand::Register(dest, ret_ty);
                         }
 
-                        if class_name == "Currency" || member == "code" || ["PHP", "USD", "EUR", "JPY", "GBP"].contains(&member.as_str()) {
+                        if class_name == "Currency"
+                            || member == "code"
+                            || ["PHP", "USD", "EUR", "JPY", "GBP"].contains(&member.as_str())
+                        {
                             let symbol = match member.as_str() {
                                 "code" => "ube_currency_code",
                                 _ => "ube_currency_create",
@@ -1592,7 +2069,13 @@ impl IrBuilder {
                                 call_args.push(obj_op);
                             }
                             call_args.extend(arg_ops);
-                            let ret_ty = if member == "code" { Type::String } else { Type::Class { name: "Currency".into() } };
+                            let ret_ty = if member == "code" {
+                                Type::String
+                            } else {
+                                Type::Class {
+                                    name: "Currency".into(),
+                                }
+                            };
                             self.emit(IrInstruction::CallRuntime {
                                 dest: Some(dest),
                                 symbol: symbol.into(),
@@ -1602,7 +2085,13 @@ impl IrBuilder {
                             return IrOperand::Register(dest, ret_ty);
                         }
 
-                        if class_name == "Money" || ["php", "usd", "eur", "jpy", "gbp", "amount", "currency", "add", "subtract", "multiply"].contains(&member.as_str()) {
+                        if class_name == "Money"
+                            || [
+                                "php", "usd", "eur", "jpy", "gbp", "amount", "currency", "add",
+                                "subtract", "multiply",
+                            ]
+                            .contains(&member.as_str())
+                        {
                             let symbol = match member.as_str() {
                                 "php" => "ube_money_php",
                                 "usd" => "ube_money_usd",
@@ -1618,14 +2107,20 @@ impl IrBuilder {
                             };
                             let dest = self.fresh_reg();
                             let mut call_args = Vec::new();
-                            if ["amount", "currency", "add", "subtract", "multiply"].contains(&member.as_str()) {
+                            if ["amount", "currency", "add", "subtract", "multiply"]
+                                .contains(&member.as_str())
+                            {
                                 call_args.push(obj_op);
                             }
                             call_args.extend(arg_ops);
                             let ret_ty = match member.as_str() {
                                 "amount" => Type::Decimal,
-                                "currency" => Type::Class { name: "Currency".into() },
-                                _ => Type::Class { name: "Money".into() },
+                                "currency" => Type::Class {
+                                    name: "Currency".into(),
+                                },
+                                _ => Type::Class {
+                                    name: "Money".into(),
+                                },
                             };
                             self.emit(IrInstruction::CallRuntime {
                                 dest: Some(dest),
@@ -1642,20 +2137,37 @@ impl IrBuilder {
                                 dest: Some(dest),
                                 symbol: "ube_exchange_convert".into(),
                                 args: arg_ops,
-                                ret_ty: Type::Class { name: "Money".into() },
+                                ret_ty: Type::Class {
+                                    name: "Money".into(),
+                                },
                             });
-                            return IrOperand::Register(dest, Type::Class { name: "Money".into() });
+                            return IrOperand::Register(
+                                dest,
+                                Type::Class {
+                                    name: "Money".into(),
+                                },
+                            );
                         }
 
                         if class_name == "Percent" || member == "of" || member == "value" {
-                            let symbol = if member == "value" { "ube_percent_value" } else { "ube_percent_create" };
+                            let symbol = if member == "value" {
+                                "ube_percent_value"
+                            } else {
+                                "ube_percent_create"
+                            };
                             let dest = self.fresh_reg();
                             let mut call_args = Vec::new();
                             if member == "value" {
                                 call_args.push(obj_op);
                             }
                             call_args.extend(arg_ops);
-                            let ret_ty = if member == "value" { Type::Decimal } else { Type::Class { name: "Percent".into() } };
+                            let ret_ty = if member == "value" {
+                                Type::Decimal
+                            } else {
+                                Type::Class {
+                                    name: "Percent".into(),
+                                }
+                            };
                             self.emit(IrInstruction::CallRuntime {
                                 dest: Some(dest),
                                 symbol: symbol.into(),
@@ -1666,14 +2178,24 @@ impl IrBuilder {
                         }
 
                         if class_name == "Rate" || member == "percent" || member == "value" {
-                            let symbol = if member == "value" { "ube_rate_value" } else { "ube_rate_create" };
+                            let symbol = if member == "value" {
+                                "ube_rate_value"
+                            } else {
+                                "ube_rate_create"
+                            };
                             let dest = self.fresh_reg();
                             let mut call_args = Vec::new();
                             if member == "value" {
                                 call_args.push(obj_op);
                             }
                             call_args.extend(arg_ops);
-                            let ret_ty = if member == "value" { Type::Decimal } else { Type::Class { name: "Rate".into() } };
+                            let ret_ty = if member == "value" {
+                                Type::Decimal
+                            } else {
+                                Type::Class {
+                                    name: "Rate".into(),
+                                }
+                            };
                             self.emit(IrInstruction::CallRuntime {
                                 dest: Some(dest),
                                 symbol: symbol.into(),
@@ -1683,7 +2205,10 @@ impl IrBuilder {
                             return IrOperand::Register(dest, ret_ty);
                         }
 
-                        if class_name == "GeoPoint" || ["latitude", "longitude", "distanceTo", "bearingTo"].contains(&member.as_str()) {
+                        if class_name == "GeoPoint"
+                            || ["latitude", "longitude", "distanceTo", "bearingTo"]
+                                .contains(&member.as_str())
+                        {
                             let symbol = match member.as_str() {
                                 "latitude" => "ube_geopoint_latitude",
                                 "longitude" => "ube_geopoint_longitude",
@@ -1695,7 +2220,9 @@ impl IrBuilder {
                             let mut call_args = vec![obj_op];
                             call_args.extend(arg_ops);
                             let ret_ty = match member.as_str() {
-                                "distanceTo" => Type::Class { name: "Distance".into() },
+                                "distanceTo" => Type::Class {
+                                    name: "Distance".into(),
+                                },
                                 _ => Type::Decimal,
                             };
                             self.emit(IrInstruction::CallRuntime {
@@ -1707,8 +2234,13 @@ impl IrBuilder {
                             return IrOperand::Register(dest, ret_ty);
                         }
 
-                        if class_name == "Distance" || ["meters", "kilometers", "miles"].contains(&member.as_str()) {
-                            let is_inst = obj_op.get_type() == (Type::Class { name: "Distance".into() });
+                        if class_name == "Distance"
+                            || ["meters", "kilometers", "miles"].contains(&member.as_str())
+                        {
+                            let is_inst = obj_op.get_type()
+                                == (Type::Class {
+                                    name: "Distance".into(),
+                                });
                             let symbol = if is_inst {
                                 match member.as_str() {
                                     "meters" => "ube_distance_meters",
@@ -1730,7 +2262,13 @@ impl IrBuilder {
                                 call_args.push(obj_op);
                             }
                             call_args.extend(arg_ops);
-                            let ret_ty = if is_inst { Type::Decimal } else { Type::Class { name: "Distance".into() } };
+                            let ret_ty = if is_inst {
+                                Type::Decimal
+                            } else {
+                                Type::Class {
+                                    name: "Distance".into(),
+                                }
+                            };
                             self.emit(IrInstruction::CallRuntime {
                                 dest: Some(dest),
                                 symbol: symbol.into(),
@@ -1740,7 +2278,9 @@ impl IrBuilder {
                             return IrOperand::Register(dest, ret_ty);
                         }
 
-                        if class_name == "GeoBounds" || ["southwest", "northeast", "contains"].contains(&member.as_str()) {
+                        if class_name == "GeoBounds"
+                            || ["southwest", "northeast", "contains"].contains(&member.as_str())
+                        {
                             let symbol = match member.as_str() {
                                 "contains" => "ube_geobounds_contains",
                                 _ => "ube_geobounds_create",
@@ -1748,7 +2288,13 @@ impl IrBuilder {
                             let dest = self.fresh_reg();
                             let mut call_args = vec![obj_op];
                             call_args.extend(arg_ops);
-                            let ret_ty = if member == "contains" { Type::Bool } else { Type::Class { name: "GeoPoint".into() } };
+                            let ret_ty = if member == "contains" {
+                                Type::Bool
+                            } else {
+                                Type::Class {
+                                    name: "GeoPoint".into(),
+                                }
+                            };
                             self.emit(IrInstruction::CallRuntime {
                                 dest: Some(dest),
                                 symbol: symbol.into(),
@@ -1764,12 +2310,58 @@ impl IrBuilder {
                                 dest: Some(dest),
                                 symbol: "ube_geolocation_current".into(),
                                 args: arg_ops,
-                                ret_ty: Type::Class { name: "GeoPoint".into() },
+                                ret_ty: Type::Class {
+                                    name: "GeoPoint".into(),
+                                },
                             });
-                            return IrOperand::Register(dest, Type::Class { name: "GeoPoint".into() });
+                            return IrOperand::Register(
+                                dest,
+                                Type::Class {
+                                    name: "GeoPoint".into(),
+                                },
+                            );
                         }
 
-                        if class_name == "Math" || ["PI", "E", "TAU", "abs", "min", "max", "sqrt", "cbrt", "pow", "floor", "ceil", "round", "truncate", "clamp", "sign", "sin", "cos", "tan", "asin", "acos", "atan", "atan2", "radians", "degrees", "log", "log10", "log2", "exp", "isNaN", "isInfinite", "isFinite", "isEven", "isOdd", "gcd", "lcm"].contains(&member.as_str()) {
+                        if class_name == "Math"
+                            || [
+                                "PI",
+                                "E",
+                                "TAU",
+                                "abs",
+                                "min",
+                                "max",
+                                "sqrt",
+                                "cbrt",
+                                "pow",
+                                "floor",
+                                "ceil",
+                                "round",
+                                "truncate",
+                                "clamp",
+                                "sign",
+                                "sin",
+                                "cos",
+                                "tan",
+                                "asin",
+                                "acos",
+                                "atan",
+                                "atan2",
+                                "radians",
+                                "degrees",
+                                "log",
+                                "log10",
+                                "log2",
+                                "exp",
+                                "isNaN",
+                                "isInfinite",
+                                "isFinite",
+                                "isEven",
+                                "isOdd",
+                                "gcd",
+                                "lcm",
+                            ]
+                            .contains(&member.as_str())
+                        {
                             let symbol = match member.as_str() {
                                 "PI" => "ube_math_pi",
                                 "E" => "ube_math_e",
@@ -1782,7 +2374,13 @@ impl IrBuilder {
                                 "pow" => "ube_math_pow",
                                 "floor" => "ube_math_floor",
                                 "ceil" => "ube_math_ceil",
-                                "round" => if arg_ops.len() > 1 { "ube_math_round_decimals" } else { "ube_math_round" },
+                                "round" => {
+                                    if arg_ops.len() > 1 {
+                                        "ube_math_round_decimals"
+                                    } else {
+                                        "ube_math_round"
+                                    }
+                                }
                                 "truncate" => "ube_math_truncate",
                                 "clamp" => "ube_math_clamp",
                                 "sign" => "ube_math_sign",
@@ -1811,7 +2409,9 @@ impl IrBuilder {
                             let dest = self.fresh_reg();
                             let ret_ty = match member.as_str() {
                                 "sign" | "gcd" | "lcm" => Type::Int,
-                                "isNaN" | "isInfinite" | "isFinite" | "isEven" | "isOdd" => Type::Bool,
+                                "isNaN" | "isInfinite" | "isFinite" | "isEven" | "isOdd" => {
+                                    Type::Bool
+                                }
                                 _ => Type::Decimal,
                             };
                             self.emit(IrInstruction::CallRuntime {
@@ -1823,7 +2423,10 @@ impl IrBuilder {
                             return IrOperand::Register(dest, ret_ty);
                         }
 
-                        if class_name == "Random" || ["int", "decimal", "bool", "uuid", "bytes"].contains(&member.as_str()) {
+                        if class_name == "Random"
+                            || ["int", "decimal", "bool", "uuid", "bytes"]
+                                .contains(&member.as_str())
+                        {
                             let symbol = match member.as_str() {
                                 "int" => "ube_random_int",
                                 "decimal" => "ube_random_decimal",
@@ -1838,7 +2441,9 @@ impl IrBuilder {
                                 "decimal" => Type::Decimal,
                                 "bool" => Type::Bool,
                                 "uuid" => Type::String,
-                                _ => Type::Class { name: "List".into() },
+                                _ => Type::Class {
+                                    name: "List".into(),
+                                },
                             };
                             self.emit(IrInstruction::CallRuntime {
                                 dest: Some(dest),
@@ -1855,12 +2460,30 @@ impl IrBuilder {
                                 dest: Some(dest),
                                 symbol: "ube_securerandom_bytes".into(),
                                 args: arg_ops,
-                                ret_ty: Type::Class { name: "List".into() },
+                                ret_ty: Type::Class {
+                                    name: "List".into(),
+                                },
                             });
-                            return IrOperand::Register(dest, Type::Class { name: "List".into() });
+                            return IrOperand::Register(
+                                dest,
+                                Type::Class {
+                                    name: "List".into(),
+                                },
+                            );
                         }
 
-                        if class_name == "Statistics" || ["mean", "median", "variance", "standardDeviation", "percentile", "covariance", "correlation"].contains(&member.as_str()) {
+                        if class_name == "Statistics"
+                            || [
+                                "mean",
+                                "median",
+                                "variance",
+                                "standardDeviation",
+                                "percentile",
+                                "covariance",
+                                "correlation",
+                            ]
+                            .contains(&member.as_str())
+                        {
                             let symbol = match member.as_str() {
                                 "mean" => "ube_statistics_mean",
                                 "median" => "ube_statistics_median",
@@ -1881,7 +2504,18 @@ impl IrBuilder {
                             return IrOperand::Register(dest, Type::Decimal);
                         }
 
-                        if class_name == "Probability" || ["factorial", "permutations", "combinations", "normal", "binomial", "poisson", "uniform"].contains(&member.as_str()) {
+                        if class_name == "Probability"
+                            || [
+                                "factorial",
+                                "permutations",
+                                "combinations",
+                                "normal",
+                                "binomial",
+                                "poisson",
+                                "uniform",
+                            ]
+                            .contains(&member.as_str())
+                        {
                             let symbol = match member.as_str() {
                                 "factorial" => "ube_probability_factorial",
                                 "permutations" => "ube_probability_permutations",
@@ -1906,8 +2540,17 @@ impl IrBuilder {
                             return IrOperand::Register(dest, ret_ty);
                         }
 
-                        if class_name == "File" || ["open", "read", "write", "append", "delete", "exists", "info", "close"].contains(&member.as_str()) {
-                            let is_inst = obj_op.get_type() == (Type::Class { name: "File".into() });
+                        if class_name == "File"
+                            || [
+                                "open", "read", "write", "append", "delete", "exists", "info",
+                                "close",
+                            ]
+                            .contains(&member.as_str())
+                        {
+                            let is_inst = obj_op.get_type()
+                                == (Type::Class {
+                                    name: "File".into(),
+                                });
                             let symbol = match member.as_str() {
                                 "open" => "ube_file_open",
                                 "read" => "ube_file_read",
@@ -1926,23 +2569,38 @@ impl IrBuilder {
                             }
                             call_args.extend(arg_ops);
                             let ret_ty = match member.as_str() {
-                                "open" => Type::Class { name: "File".into() },
+                                "open" => Type::Class {
+                                    name: "File".into(),
+                                },
                                 "read" => Type::String,
                                 "exists" => Type::Bool,
-                                "info" => Type::Class { name: "FileInfo".into() },
+                                "info" => Type::Class {
+                                    name: "FileInfo".into(),
+                                },
                                 _ => Type::Void,
                             };
-                            let dest_opt = if ret_ty == Type::Void { None } else { Some(dest) };
+                            let dest_opt = if ret_ty == Type::Void {
+                                None
+                            } else {
+                                Some(dest)
+                            };
                             self.emit(IrInstruction::CallRuntime {
                                 dest: dest_opt,
                                 symbol: symbol.into(),
                                 args: call_args,
                                 ret_ty: ret_ty.clone(),
                             });
-                            return if ret_ty == Type::Void { IrOperand::Null } else { IrOperand::Register(dest, ret_ty) };
+                            return if ret_ty == Type::Void {
+                                IrOperand::Null
+                            } else {
+                                IrOperand::Register(dest, ret_ty)
+                            };
                         }
 
-                        if class_name == "FileInfo" || ["size", "createdAt", "modifiedAt", "isDirectory"].contains(&member.as_str()) {
+                        if class_name == "FileInfo"
+                            || ["size", "createdAt", "modifiedAt", "isDirectory"]
+                                .contains(&member.as_str())
+                        {
                             let symbol = match member.as_str() {
                                 "size" => "ube_fileinfo_size",
                                 "createdAt" => "ube_fileinfo_created_at",
@@ -1955,7 +2613,9 @@ impl IrBuilder {
                             call_args.extend(arg_ops);
                             let ret_ty = match member.as_str() {
                                 "size" => Type::Long,
-                                "createdAt" | "modifiedAt" => Type::Class { name: "DateTime".into() },
+                                "createdAt" | "modifiedAt" => Type::Class {
+                                    name: "DateTime".into(),
+                                },
                                 "isDirectory" => Type::Bool,
                                 _ => Type::Long,
                             };
@@ -1968,7 +2628,9 @@ impl IrBuilder {
                             return IrOperand::Register(dest, ret_ty);
                         }
 
-                        if class_name == "Directory" || ["create", "delete", "list"].contains(&member.as_str()) {
+                        if class_name == "Directory"
+                            || ["create", "delete", "list"].contains(&member.as_str())
+                        {
                             let symbol = match member.as_str() {
                                 "create" => "ube_directory_create",
                                 "delete" => "ube_directory_delete",
@@ -1976,18 +2638,34 @@ impl IrBuilder {
                                 _ => "ube_directory_create",
                             };
                             let dest = self.fresh_reg();
-                            let ret_ty = if member == "list" { Type::Class { name: "List".into() } } else { Type::Void };
-                            let dest_opt = if ret_ty == Type::Void { None } else { Some(dest) };
+                            let ret_ty = if member == "list" {
+                                Type::Class {
+                                    name: "List".into(),
+                                }
+                            } else {
+                                Type::Void
+                            };
+                            let dest_opt = if ret_ty == Type::Void {
+                                None
+                            } else {
+                                Some(dest)
+                            };
                             self.emit(IrInstruction::CallRuntime {
                                 dest: dest_opt,
                                 symbol: symbol.into(),
                                 args: arg_ops,
                                 ret_ty: ret_ty.clone(),
                             });
-                            return if ret_ty == Type::Void { IrOperand::Null } else { IrOperand::Register(dest, ret_ty) };
+                            return if ret_ty == Type::Void {
+                                IrOperand::Null
+                            } else {
+                                IrOperand::Register(dest, ret_ty)
+                            };
                         }
 
-                        if class_name == "Path" || ["join", "filename", "extension"].contains(&member.as_str()) {
+                        if class_name == "Path"
+                            || ["join", "filename", "extension"].contains(&member.as_str())
+                        {
                             let symbol = match member.as_str() {
                                 "join" => "ube_path_join",
                                 "filename" => "ube_path_filename",
@@ -2004,7 +2682,27 @@ impl IrBuilder {
                             return IrOperand::Register(dest, Type::String);
                         }
 
-                        if class_name == "Server" || ["get", "post", "put", "patch", "delete", "options", "head", "use", "static", "websocket", "start", "stop", "port", "tls", "enableHttp2", "enableHttp3"].contains(&member.as_str()) {
+                        if class_name == "Server"
+                            || [
+                                "get",
+                                "post",
+                                "put",
+                                "patch",
+                                "delete",
+                                "options",
+                                "head",
+                                "use",
+                                "static",
+                                "websocket",
+                                "start",
+                                "stop",
+                                "port",
+                                "tls",
+                                "enableHttp2",
+                                "enableHttp3",
+                            ]
+                            .contains(&member.as_str())
+                        {
                             let symbol = match member.as_str() {
                                 "start" => "ube_server_start",
                                 "stop" => "ube_server_stop",
@@ -2018,18 +2716,48 @@ impl IrBuilder {
                             let dest = self.fresh_reg();
                             let mut call_args = vec![obj_op];
                             call_args.extend(arg_ops);
-                            let ret_ty = if member == "port" { Type::Int } else { Type::Void };
-                            let dest_opt = if ret_ty == Type::Void { None } else { Some(dest) };
+                            let ret_ty = if member == "port" {
+                                Type::Int
+                            } else {
+                                Type::Void
+                            };
+                            let dest_opt = if ret_ty == Type::Void {
+                                None
+                            } else {
+                                Some(dest)
+                            };
                             self.emit(IrInstruction::CallRuntime {
                                 dest: dest_opt,
                                 symbol: symbol.into(),
                                 args: call_args,
                                 ret_ty: ret_ty.clone(),
                             });
-                            return if ret_ty == Type::Void { IrOperand::Null } else { IrOperand::Register(dest, ret_ty) };
+                            return if ret_ty == Type::Void {
+                                IrOperand::Null
+                            } else {
+                                IrOperand::Register(dest, ret_ty)
+                            };
                         }
 
-                        if class_name == "Request" || ["path", "pathLong", "pathInt", "query", "queryDecimal", "header", "cookie", "hasBearerToken", "body", "method", "url", "ip", "protocol", "isHttp3"].contains(&member.as_str()) {
+                        if class_name == "Request"
+                            || [
+                                "path",
+                                "pathLong",
+                                "pathInt",
+                                "query",
+                                "queryDecimal",
+                                "header",
+                                "cookie",
+                                "hasBearerToken",
+                                "body",
+                                "method",
+                                "url",
+                                "ip",
+                                "protocol",
+                                "isHttp3",
+                            ]
+                            .contains(&member.as_str())
+                        {
                             let symbol = match member.as_str() {
                                 "pathLong" => "ube_request_path_long",
                                 "pathInt" => "ube_request_path_int",
@@ -2058,7 +2786,21 @@ impl IrBuilder {
                             return IrOperand::Register(dest, ret_ty);
                         }
 
-                        if class_name == "Response" || ["ok", "json", "html", "text", "created", "notFound", "internalServerError", "unauthorized", "redirect", "status"].contains(&member.as_str()) {
+                        if class_name == "Response"
+                            || [
+                                "ok",
+                                "json",
+                                "html",
+                                "text",
+                                "created",
+                                "notFound",
+                                "internalServerError",
+                                "unauthorized",
+                                "redirect",
+                                "status",
+                            ]
+                            .contains(&member.as_str())
+                        {
                             let status_code = match member.as_str() {
                                 "created" => 201,
                                 "notFound" => 404,
@@ -2069,7 +2811,9 @@ impl IrBuilder {
                             let dest = self.fresh_reg();
                             let mut call_args = vec![IrOperand::ConstantInt(status_code)];
                             call_args.extend(arg_ops);
-                            let ret_ty = Type::Class { name: "Response".into() };
+                            let ret_ty = Type::Class {
+                                name: "Response".into(),
+                            };
                             self.emit(IrInstruction::CallRuntime {
                                 dest: Some(dest),
                                 symbol: "ube_response_create".into(),
@@ -2079,7 +2823,9 @@ impl IrBuilder {
                             return IrOperand::Register(dest, ret_ty);
                         }
 
-                        if class_name == "WebSocket" || ["onMessage", "send", "close"].contains(&member.as_str()) {
+                        if class_name == "WebSocket"
+                            || ["onMessage", "send", "close"].contains(&member.as_str())
+                        {
                             let symbol = match member.as_str() {
                                 "onMessage" => "ube_websocket_on_message",
                                 "send" => "ube_websocket_send",
@@ -2096,14 +2842,23 @@ impl IrBuilder {
                             return IrOperand::Null;
                         }
 
-                        if class_name == "Json" || ["parse", "partialParse", "stringify", "from", "to"].contains(&member.as_str()) {
+                        if class_name == "Json"
+                            || ["parse", "partialParse", "stringify", "from", "to"]
+                                .contains(&member.as_str())
+                        {
                             let symbol = match member.as_str() {
                                 "parse" | "partialParse" => "ube_json_parse",
                                 "stringify" | "from" => "ube_json_stringify",
                                 _ => "ube_json_parse",
                             };
                             let dest = self.fresh_reg();
-                            let ret_ty = if member == "stringify" || member == "from" { Type::String } else { Type::Class { name: "JsonObject".into() } };
+                            let ret_ty = if member == "stringify" || member == "from" {
+                                Type::String
+                            } else {
+                                Type::Class {
+                                    name: "JsonObject".into(),
+                                }
+                            };
                             self.emit(IrInstruction::CallRuntime {
                                 dest: Some(dest),
                                 symbol: symbol.into(),
@@ -2113,7 +2868,18 @@ impl IrBuilder {
                             return IrOperand::Register(dest, ret_ty);
                         }
 
-                        if class_name == "JsonObject" || ["getString", "getInt", "getLong", "getDecimal", "getBool", "getObject", "getArray"].contains(&member.as_str()) {
+                        if class_name == "JsonObject"
+                            || [
+                                "getString",
+                                "getInt",
+                                "getLong",
+                                "getDecimal",
+                                "getBool",
+                                "getObject",
+                                "getArray",
+                            ]
+                            .contains(&member.as_str())
+                        {
                             let symbol = match member.as_str() {
                                 "getString" => "ube_jsonobject_get_string",
                                 "getInt" => "ube_jsonobject_get_int",
@@ -2130,8 +2896,12 @@ impl IrBuilder {
                                 "getLong" => Type::Long,
                                 "getDecimal" => Type::Decimal,
                                 "getBool" => Type::Bool,
-                                "getObject" => Type::Class { name: "JsonObject".into() },
-                                "getArray" => Type::Class { name: "JsonArray".into() },
+                                "getObject" => Type::Class {
+                                    name: "JsonObject".into(),
+                                },
+                                "getArray" => Type::Class {
+                                    name: "JsonArray".into(),
+                                },
                                 _ => Type::String,
                             };
                             self.emit(IrInstruction::CallRuntime {
@@ -2143,14 +2913,19 @@ impl IrBuilder {
                             return IrOperand::Register(dest, ret_ty);
                         }
 
-                        if class_name == "Xml" || ["parse", "partialParse", "create", "stringify", "from", "to"].contains(&member.as_str()) {
+                        if class_name == "Xml"
+                            || ["parse", "partialParse", "create", "stringify", "from", "to"]
+                                .contains(&member.as_str())
+                        {
                             let symbol = match member.as_str() {
                                 "parse" | "partialParse" => "ube_xml_parse",
                                 "create" => "ube_xml_create",
                                 _ => "ube_xml_parse",
                             };
                             let dest = self.fresh_reg();
-                            let ret_ty = Type::Class { name: "XmlDocument".into() };
+                            let ret_ty = Type::Class {
+                                name: "XmlDocument".into(),
+                            };
                             self.emit(IrInstruction::CallRuntime {
                                 dest: Some(dest),
                                 symbol: symbol.into(),
@@ -2160,7 +2935,9 @@ impl IrBuilder {
                             return IrOperand::Register(dest, ret_ty);
                         }
 
-                        if class_name == "XmlDocument" || ["root", "toString"].contains(&member.as_str()) {
+                        if class_name == "XmlDocument"
+                            || ["root", "toString"].contains(&member.as_str())
+                        {
                             let symbol = match member.as_str() {
                                 "root" => "ube_xmldocument_root",
                                 "toString" => "ube_xmldocument_to_string",
@@ -2169,7 +2946,13 @@ impl IrBuilder {
                             let dest = self.fresh_reg();
                             let mut call_args = vec![obj_op];
                             call_args.extend(arg_ops);
-                            let ret_ty = if member == "toString" { Type::String } else { Type::Class { name: "XmlElement".into() } };
+                            let ret_ty = if member == "toString" {
+                                Type::String
+                            } else {
+                                Type::Class {
+                                    name: "XmlElement".into(),
+                                }
+                            };
                             self.emit(IrInstruction::CallRuntime {
                                 dest: Some(dest),
                                 symbol: symbol.into(),
@@ -2179,19 +2962,33 @@ impl IrBuilder {
                             return IrOperand::Register(dest, ret_ty);
                         }
 
-                        if class_name == "XmlElement" || ["child", "element", "text", "getText"].contains(&member.as_str()) {
+                        if class_name == "XmlElement"
+                            || ["child", "element", "text", "getText"].contains(&member.as_str())
+                        {
                             let is_text_getter = member == "text" && arg_ops.is_empty();
                             let symbol = match member.as_str() {
                                 "child" => "ube_xmlement_child",
                                 "element" => "ube_xmlement_element",
-                                "text" => if is_text_getter { "ube_xmlement_get_text" } else { "ube_xmlement_text" },
+                                "text" => {
+                                    if is_text_getter {
+                                        "ube_xmlement_get_text"
+                                    } else {
+                                        "ube_xmlement_text"
+                                    }
+                                }
                                 "getText" => "ube_xmlement_get_text",
                                 _ => "ube_xmlement_child",
                             };
                             let dest = self.fresh_reg();
                             let mut call_args = vec![obj_op];
                             call_args.extend(arg_ops);
-                            let ret_ty = if is_text_getter || member == "getText" { Type::String } else { Type::Class { name: "XmlElement".into() } };
+                            let ret_ty = if is_text_getter || member == "getText" {
+                                Type::String
+                            } else {
+                                Type::Class {
+                                    name: "XmlElement".into(),
+                                }
+                            };
                             self.emit(IrInstruction::CallRuntime {
                                 dest: Some(dest),
                                 symbol: symbol.into(),
@@ -2224,7 +3021,11 @@ impl IrBuilder {
                             })
                             .unwrap_or(Type::Void);
 
-                        let dest_opt = if ret_ty == Type::Void { None } else { Some(dest) };
+                        let dest_opt = if ret_ty == Type::Void {
+                            None
+                        } else {
+                            Some(dest)
+                        };
                         self.emit(IrInstruction::CallMethod {
                             dest: dest_opt,
                             class_name,
@@ -2249,11 +3050,26 @@ impl IrBuilder {
                             "Distance" => "ube_distance_create_meters",
                             "Server" => "ube_server_create",
                             "Cookie" => "ube_cookie_create",
-                            "LocationPermissionError" | "LocationUnavailableError" | "FileError" | "FileNotFoundError" | "PermissionError" | "AlreadyExistsError" | "InvalidPathError" | "DiskFullError" | "JsonError" | "JsonParseError" | "MissingFieldError" | "InvalidTypeError" | "XmlError" | "XmlParseError" => "ube_generic_error_create",
+                            "LocationPermissionError"
+                            | "LocationUnavailableError"
+                            | "FileError"
+                            | "FileNotFoundError"
+                            | "PermissionError"
+                            | "AlreadyExistsError"
+                            | "InvalidPathError"
+                            | "DiskFullError"
+                            | "JsonError"
+                            | "JsonParseError"
+                            | "MissingFieldError"
+                            | "InvalidTypeError"
+                            | "XmlError"
+                            | "XmlParseError" => "ube_generic_error_create",
                             _ => "ube_money_create",
                         };
                         let dest = self.fresh_reg();
-                        let ret_ty = Type::Class { name: class_name.clone() };
+                        let ret_ty = Type::Class {
+                            name: class_name.clone(),
+                        };
                         self.emit(IrInstruction::CallRuntime {
                             dest: Some(dest),
                             symbol: symbol.into(),
@@ -2271,7 +3087,11 @@ impl IrBuilder {
                     }
                 }
             }
-            ExprKind::MemberAccess { object, member, is_optional } => {
+            ExprKind::MemberAccess {
+                object,
+                member,
+                is_optional,
+            } => {
                 if *is_optional {
                     self.diagnostics.push(Diagnostic::error(
                         "optional member access '?.' is not yet supported by native code generation",
@@ -2279,7 +3099,11 @@ impl IrBuilder {
                     ));
                 }
                 let static_class_name = match &object.kind {
-                    ExprKind::Identifier(name) if self.lookup_var(name).is_none() => Some(name.clone()),
+                    ExprKind::Identifier(name) if self.lookup_var(name).is_none() => Some(
+                        canonical_builtin_class_name(name)
+                            .unwrap_or(name)
+                            .to_string(),
+                    ),
                     _ => None,
                 };
                 if static_class_name.as_deref() == Some("Math")
@@ -2324,7 +3148,11 @@ impl IrBuilder {
                     });
                     return IrOperand::Register(dest, Type::Decimal);
                 }
-                if let Some((idx, field_ty)) = self.class_field_indices.get(&(class_name.clone(), member.clone())).cloned() {
+                if let Some((idx, field_ty)) = self
+                    .class_field_indices
+                    .get(&(class_name.clone(), member.clone()))
+                    .cloned()
+                {
                     if let IrOperand::Register(ptr, _) = obj_op {
                         self.emit(IrInstruction::GetField {
                             dest,
@@ -2358,7 +3186,10 @@ impl IrBuilder {
                             Type::Class { name } => name,
                             _ => "".into(),
                         };
-                        let field_idx_opt = self.class_field_indices.get(&(class_name.clone(), member.clone())).map(|(i, _)| *i);
+                        let field_idx_opt = self
+                            .class_field_indices
+                            .get(&(class_name.clone(), member.clone()))
+                            .map(|(i, _)| *i);
                         if let Some(idx) = field_idx_opt {
                             if let IrOperand::Register(ptr, _) = obj_op {
                                 self.emit(IrInstruction::StoreField {
@@ -2461,9 +3292,16 @@ impl IrBuilder {
                     dest: Some(list_reg),
                     symbol: "ube_list_create".into(),
                     args: vec![],
-                    ret_ty: Type::Class { name: "List".into() },
+                    ret_ty: Type::Class {
+                        name: "List".into(),
+                    },
                 });
-                let list_op = IrOperand::Register(list_reg, Type::Class { name: "List".into() });
+                let list_op = IrOperand::Register(
+                    list_reg,
+                    Type::Class {
+                        name: "List".into(),
+                    },
+                );
                 for elem in elements {
                     let elem_op = self.build_expr(elem);
                     self.emit(IrInstruction::CallRuntime {
@@ -2563,12 +3401,22 @@ impl IrBuilder {
                     }
 
                     self.current_block_id = Some(oob_block);
-                    let err_inst = self.build_class_instantiation("OutOfBoundsError", &[Expr {
-                        kind: ExprKind::StringLiteral("OutOfBoundsError: List index out of bounds".into()),
-                        span: expr.span,
-                    }]);
-                    self.emit(IrInstruction::Store { val: err_inst, ptr: err_ptr });
-                    self.emit(IrInstruction::Jump { target: check_target });
+                    let err_inst = self.build_class_instantiation(
+                        "OutOfBoundsError",
+                        &[Expr {
+                            kind: ExprKind::StringLiteral(
+                                "OutOfBoundsError: List index out of bounds".into(),
+                            ),
+                            span: expr.span,
+                        }],
+                    );
+                    self.emit(IrInstruction::Store {
+                        val: err_inst,
+                        ptr: err_ptr,
+                    });
+                    self.emit(IrInstruction::Jump {
+                        target: check_target,
+                    });
                     self.finish_block(oob_block);
 
                     self.current_block_id = Some(ok_block);
@@ -2582,9 +3430,7 @@ impl IrBuilder {
                 });
                 IrOperand::Register(dest, Type::Int)
             }
-            ExprKind::AsyncSpawn(inner) => {
-                self.build_deferred_expression(inner)
-            }
+            ExprKind::AsyncSpawn(inner) => self.build_deferred_expression(inner),
             ExprKind::Await(inner) => {
                 let task_op = self.build_expr(inner);
                 let dest = self.fresh_reg();
@@ -2602,7 +3448,18 @@ impl IrBuilder {
                 self.route_await_error(error_dest);
                 IrOperand::Register(dest, result_ty)
             }
-            ExprKind::If { condition, then_branch, else_branch } => {
+            ExprKind::Lambda { .. } => {
+                self.diagnostics.push(Diagnostic::error(
+                    "Lambda expressions are currently supported only as server route handlers",
+                    Some(expr.span),
+                ));
+                IrOperand::Null
+            }
+            ExprKind::If {
+                condition,
+                then_branch,
+                else_branch,
+            } => {
                 let res_ty = self
                     .yield_type_in_stmts(then_branch)
                     .or_else(|| {
@@ -2647,7 +3504,9 @@ impl IrBuilder {
                     }
                 }
                 if !self.is_current_terminated() {
-                    self.emit(IrInstruction::Jump { target: merge_block });
+                    self.emit(IrInstruction::Jump {
+                        target: merge_block,
+                    });
                 }
                 if let Some(cb) = self.current_block_id {
                     self.finish_block(cb);
@@ -2668,7 +3527,9 @@ impl IrBuilder {
                     }
                 }
                 if !self.is_current_terminated() {
-                    self.emit(IrInstruction::Jump { target: merge_block });
+                    self.emit(IrInstruction::Jump {
+                        target: merge_block,
+                    });
                 }
                 if let Some(cb) = self.current_block_id {
                     self.finish_block(cb);
@@ -2685,10 +3546,21 @@ impl IrBuilder {
                 });
                 IrOperand::Register(res_reg, res_ty)
             }
-            ExprKind::For { loop_var, index_var, condition_or_iterable, body, else_branch } => {
+            ExprKind::For {
+                loop_var,
+                index_var,
+                condition_or_iterable,
+                body,
+                else_branch,
+            } => {
                 let list_ptr = self.fresh_reg();
-                let list_ty = Type::Class { name: "List".into() };
-                self.emit(IrInstruction::Alloca { dest: list_ptr, ty: list_ty.clone() });
+                let list_ty = Type::Class {
+                    name: "List".into(),
+                };
+                self.emit(IrInstruction::Alloca {
+                    dest: list_ptr,
+                    ty: list_ty.clone(),
+                });
 
                 let list_reg = self.fresh_reg();
                 self.emit(IrInstruction::CallRuntime {
@@ -2698,7 +3570,10 @@ impl IrBuilder {
                     ret_ty: list_ty.clone(),
                 });
                 let empty_list = IrOperand::Register(list_reg, list_ty.clone());
-                self.emit(IrInstruction::Store { val: empty_list, ptr: list_ptr });
+                self.emit(IrInstruction::Store {
+                    val: empty_list,
+                    ptr: list_ptr,
+                });
 
                 self.yield_target_stack.push((None, Some(list_ptr)));
                 let stmt_for = Stmt {
@@ -2715,12 +3590,19 @@ impl IrBuilder {
                 self.yield_target_stack.pop();
 
                 let res_reg = self.fresh_reg();
-                self.emit(IrInstruction::Load { dest: res_reg, ptr: list_ptr, ty: list_ty.clone() });
+                self.emit(IrInstruction::Load {
+                    dest: res_reg,
+                    ptr: list_ptr,
+                    ty: list_ty.clone(),
+                });
                 IrOperand::Register(res_reg, list_ty)
             }
             unsupported => {
                 self.diagnostics.push(Diagnostic::error(
-                    format!("Native code generation for '{:?}' is not implemented yet", unsupported),
+                    format!(
+                        "Native code generation for '{:?}' is not implemented yet",
+                        unsupported
+                    ),
                     Some(expr.span),
                 ));
                 IrOperand::Null

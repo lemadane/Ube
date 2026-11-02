@@ -84,7 +84,7 @@ pub enum TokenKind {
     Semicolon,
     Comma,
     Dot,
-    DotDot,                // ..
+    DotDot, // ..
     OpenParen,
     CloseParen,
     OpenBrace,

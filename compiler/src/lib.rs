@@ -1,3 +1,4 @@
+pub mod builtins;
 pub mod diagnostics;
 pub mod ir;
 pub mod lexer;

@@ -26,241 +26,423 @@ impl TextualLlvmEmitter {
 
     pub fn emit_program(&mut self, ir_program: &IrProgram) -> String {
         self.output.clear();
-        self.class_map = ir_program.classes.iter().map(|c| (c.name.clone(), c.clone())).collect();
+        self.class_map = ir_program
+            .classes
+            .iter()
+            .map(|c| (c.name.clone(), c.clone()))
+            .collect();
         self.task_thunks.clear();
 
         // Target Data Layout
-        self.output.push_str("; Target Data Layout for Ube Native Binary\n");
+        self.output
+            .push_str("; Target Data Layout for Ube Native Binary\n");
         self.output.push_str("target datalayout = \"e-m:e-p270:32:32-p271:32:32-p272:64:64-i64:64-f80:128-n8:16:32:64-S128\"\n\n");
 
         // External runtime declarations
         self.output.push_str("declare void @ube_runtime_init()\n");
-        self.output.push_str("declare void @ube_runtime_cleanup()\n");
+        self.output
+            .push_str("declare void @ube_runtime_cleanup()\n");
         self.output.push_str("declare i8* @ube_alloc(i64, i64)\n");
         self.output.push_str("declare void @ube_print_str(i8*)\n");
         self.output.push_str("declare void @ube_print_i64(i64)\n");
-        self.output.push_str("declare void @ube_print_f64(double)\n");
+        self.output
+            .push_str("declare void @ube_print_f64(double)\n");
         self.output.push_str("declare void @ube_print_bool(i1)\n");
-        self.output.push_str("declare i8* @ube_string_concat(i8*, i8*)\n");
+        self.output
+            .push_str("declare i8* @ube_string_concat(i8*, i8*)\n");
         self.output.push_str("declare i8* @ube_list_create()\n");
-        self.output.push_str("declare void @ube_list_add(i8*, i64)\n");
-        self.output.push_str("declare i64 @ube_list_get(i8*, i64)\n");
+        self.output
+            .push_str("declare void @ube_list_add(i8*, i64)\n");
+        self.output
+            .push_str("declare i64 @ube_list_get(i8*, i64)\n");
         self.output.push_str("declare i64 @ube_list_len(i8*)\n");
         self.output.push_str("declare i8* @ube_map_create()\n");
-        self.output.push_str("declare void @ube_map_put(i8*, i64, i64)\n");
+        self.output
+            .push_str("declare void @ube_map_put(i8*, i64, i64)\n");
         self.output.push_str("declare i64 @ube_map_get(i8*, i64)\n");
         self.output.push_str("declare i64 @ube_map_len(i8*)\n");
         self.output.push_str("declare i8* @ube_task_create(i64)\n");
-        self.output.push_str("declare i8* @ube_task_spawn(i64, i8*)\n");
-        self.output.push_str("declare i8* @ube_task_context_create(i64)\n");
-        self.output.push_str("declare void @ube_task_context_set(i8*, i64, i64)\n");
-        self.output.push_str("declare i64 @ube_task_context_get(i8*, i64)\n");
+        self.output
+            .push_str("declare i8* @ube_task_spawn(i64, i8*)\n");
+        self.output
+            .push_str("declare i8* @ube_task_context_create(i64)\n");
+        self.output
+            .push_str("declare void @ube_task_context_set(i8*, i64, i64)\n");
+        self.output
+            .push_str("declare i64 @ube_task_context_get(i8*, i64)\n");
         self.output.push_str("declare i64 @ube_task_await(i8*)\n");
-        self.output.push_str("declare %Error* @ube_task_last_error()\n");
-        self.output.push_str("declare void @ube_task_set_error(i8*)\n");
-        self.output.push_str("declare i1 @ube_task_is_cancelled()\n");
-        self.output.push_str("declare void @ube_task_set_cancelled()\n");
-        self.output.push_str("declare i8* @ube_error_message(%Error*)\n");
+        self.output
+            .push_str("declare %Error* @ube_task_last_error()\n");
+        self.output
+            .push_str("declare void @ube_task_set_error(i8*)\n");
+        self.output
+            .push_str("declare i1 @ube_task_is_cancelled()\n");
+        self.output
+            .push_str("declare void @ube_task_set_cancelled()\n");
+        self.output
+            .push_str("declare i8* @ube_error_message(%Error*)\n");
         self.output.push_str("declare void @ube_task_yield()\n");
         self.output.push_str("declare i8* @ube_task_all(i8*)\n");
         self.output.push_str("declare i64 @ube_task_any(i8*)\n");
         self.output.push_str("declare i64 @ube_task_race(i8*)\n");
-        self.output.push_str("declare i8* @ube_task_all_settled(i8*)\n");
-        self.output.push_str("declare i8* @ube_task_all_async(i8*)\n");
-        self.output.push_str("declare i8* @ube_task_any_async(i8*)\n");
-        self.output.push_str("declare i8* @ube_task_race_async(i8*)\n");
-        self.output.push_str("declare i8* @ube_task_all_settled_async(i8*)\n");
+        self.output
+            .push_str("declare i8* @ube_task_all_settled(i8*)\n");
+        self.output
+            .push_str("declare i8* @ube_task_all_async(i8*)\n");
+        self.output
+            .push_str("declare i8* @ube_task_any_async(i8*)\n");
+        self.output
+            .push_str("declare i8* @ube_task_race_async(i8*)\n");
+        self.output
+            .push_str("declare i8* @ube_task_all_settled_async(i8*)\n");
         self.output.push_str("declare i1 @ube_task_cancel(i8*)\n");
-        self.output.push_str("declare i8* @ube_task_timeout(i8*, i64)\n");
-        self.output.push_str("declare void @ube_task_fail_unhandled()\n");
-        self.output.push_str("declare i1 @ube_task_propagate_error()\n");
+        self.output
+            .push_str("declare i8* @ube_task_timeout(i8*, i64)\n");
+        self.output
+            .push_str("declare void @ube_task_fail_unhandled()\n");
+        self.output
+            .push_str("declare i1 @ube_task_propagate_error()\n");
         self.output.push_str("declare i8* @ube_channel_create()\n");
-        self.output.push_str("declare i8* @ube_channel_create_capacity(i64)\n");
-        self.output.push_str("declare i1 @ube_channel_send(i8*, i64)\n");
-        self.output.push_str("declare i8* @ube_channel_send_async(i8*, i64)\n");
+        self.output
+            .push_str("declare i8* @ube_channel_create_capacity(i64)\n");
+        self.output
+            .push_str("declare i1 @ube_channel_send(i8*, i64)\n");
+        self.output
+            .push_str("declare i8* @ube_channel_send_async(i8*, i64)\n");
         self.output.push_str("declare i64 @ube_channel_recv(i8*)\n");
-        self.output.push_str("declare i8* @ube_channel_recv_async(i8*)\n");
-        self.output.push_str("declare void @ube_channel_close(i8*)\n");
+        self.output
+            .push_str("declare i8* @ube_channel_recv_async(i8*)\n");
+        self.output
+            .push_str("declare void @ube_channel_close(i8*)\n");
         self.output.push_str("declare i8* @ube_datetime_now()\n");
         self.output.push_str("declare i8* @ube_datetime_utc()\n");
-        self.output.push_str("declare i8* @ube_datetime_from_unix(i64)\n");
-        self.output.push_str("declare i8* @ube_datetime_from_unix_millis(i64)\n");
-        self.output.push_str("declare i8* @ube_datetime_of(i64, i64, i64, i64, i64)\n");
-        self.output.push_str("declare i8* @ube_datetime_date(i64, i64, i64)\n");
-        self.output.push_str("declare i8* @ube_datetime_time(i64, i64)\n");
-        self.output.push_str("declare i8* @ube_datetime_parse(i8*)\n");
-        self.output.push_str("declare i64 @ube_datetime_year(i8*)\n");
-        self.output.push_str("declare i64 @ube_datetime_month(i8*)\n");
+        self.output
+            .push_str("declare i8* @ube_datetime_from_unix(i64)\n");
+        self.output
+            .push_str("declare i8* @ube_datetime_from_unix_millis(i64)\n");
+        self.output
+            .push_str("declare i8* @ube_datetime_of(i64, i64, i64, i64, i64)\n");
+        self.output
+            .push_str("declare i8* @ube_datetime_date(i64, i64, i64)\n");
+        self.output
+            .push_str("declare i8* @ube_datetime_time(i64, i64)\n");
+        self.output
+            .push_str("declare i8* @ube_datetime_parse(i8*)\n");
+        self.output
+            .push_str("declare i64 @ube_datetime_year(i8*)\n");
+        self.output
+            .push_str("declare i64 @ube_datetime_month(i8*)\n");
         self.output.push_str("declare i64 @ube_datetime_day(i8*)\n");
-        self.output.push_str("declare i64 @ube_datetime_hour(i8*)\n");
-        self.output.push_str("declare i64 @ube_datetime_minute(i8*)\n");
-        self.output.push_str("declare i64 @ube_datetime_second(i8*)\n");
-        self.output.push_str("declare i64 @ube_datetime_timestamp(i8*)\n");
-        self.output.push_str("declare i64 @ube_datetime_unix(i8*)\n");
-        self.output.push_str("declare i64 @ube_datetime_unix_millis(i8*)\n");
-        self.output.push_str("declare i64 @ube_datetime_unix_nanos(i8*)\n");
-        self.output.push_str("declare i8* @ube_datetime_zone(i8*)\n");
-        self.output.push_str("declare i8* @ube_datetime_in_zone(i8*, i8*)\n");
-        self.output.push_str("declare i8* @ube_datetime_add_seconds(i8*, i64)\n");
-        self.output.push_str("declare i64 @ube_datetime_diff_seconds(i8*, i8*)\n");
-        self.output.push_str("declare i8* @ube_datetime_format(i8*, i8*)\n");
-        self.output.push_str("declare i8* @ube_duration_create(i64)\n");
-        self.output.push_str("declare i64 @ube_duration_total_seconds(i8*)\n");
-        self.output.push_str("declare i8* @ube_currency_create(i8*)\n");
-        self.output.push_str("declare i8* @ube_currency_code(i8*)\n");
-        self.output.push_str("declare i8* @ube_money_create(double, i8*)\n");
+        self.output
+            .push_str("declare i64 @ube_datetime_hour(i8*)\n");
+        self.output
+            .push_str("declare i64 @ube_datetime_minute(i8*)\n");
+        self.output
+            .push_str("declare i64 @ube_datetime_second(i8*)\n");
+        self.output
+            .push_str("declare i64 @ube_datetime_timestamp(i8*)\n");
+        self.output
+            .push_str("declare i64 @ube_datetime_unix(i8*)\n");
+        self.output
+            .push_str("declare i64 @ube_datetime_unix_millis(i8*)\n");
+        self.output
+            .push_str("declare i64 @ube_datetime_unix_nanos(i8*)\n");
+        self.output
+            .push_str("declare i8* @ube_datetime_zone(i8*)\n");
+        self.output
+            .push_str("declare i8* @ube_datetime_in_zone(i8*, i8*)\n");
+        self.output
+            .push_str("declare i8* @ube_datetime_add_seconds(i8*, i64)\n");
+        self.output
+            .push_str("declare i64 @ube_datetime_diff_seconds(i8*, i8*)\n");
+        self.output
+            .push_str("declare i8* @ube_datetime_format(i8*, i8*)\n");
+        self.output
+            .push_str("declare i8* @ube_duration_create(i64)\n");
+        self.output
+            .push_str("declare i64 @ube_duration_total_seconds(i8*)\n");
+        self.output
+            .push_str("declare i8* @ube_currency_create(i8*)\n");
+        self.output
+            .push_str("declare i8* @ube_currency_code(i8*)\n");
+        self.output
+            .push_str("declare i8* @ube_money_create(double, i8*)\n");
         self.output.push_str("declare i8* @ube_money_php(double)\n");
         self.output.push_str("declare i8* @ube_money_usd(double)\n");
         self.output.push_str("declare i8* @ube_money_eur(double)\n");
         self.output.push_str("declare i8* @ube_money_jpy(double)\n");
         self.output.push_str("declare i8* @ube_money_gbp(double)\n");
-        self.output.push_str("declare double @ube_money_amount(i8*)\n");
-        self.output.push_str("declare i8* @ube_money_currency(i8*)\n");
-        self.output.push_str("declare i8* @ube_money_add(i8*, i8*)\n");
-        self.output.push_str("declare i8* @ube_money_subtract(i8*, i8*)\n");
-        self.output.push_str("declare i8* @ube_money_multiply_percent(i8*, i8*)\n");
-        self.output.push_str("declare i8* @ube_exchange_convert(i8*, i8*, double)\n");
-        self.output.push_str("declare i8* @ube_percent_create(double)\n");
-        self.output.push_str("declare double @ube_percent_value(i8*)\n");
-        self.output.push_str("declare i8* @ube_rate_create(double)\n");
-        self.output.push_str("declare double @ube_rate_value(i8*)\n");
-        self.output.push_str("declare i8* @ube_geopoint_create(double, double)\n");
-        self.output.push_str("declare double @ube_geopoint_latitude(i8*)\n");
-        self.output.push_str("declare double @ube_geopoint_longitude(i8*)\n");
-        self.output.push_str("declare i8* @ube_geopoint_distance_to(i8*, i8*)\n");
-        self.output.push_str("declare double @ube_geopoint_bearing_to(i8*, i8*)\n");
-        self.output.push_str("declare i8* @ube_distance_create_meters(double)\n");
-        self.output.push_str("declare i8* @ube_distance_create_km(double)\n");
-        self.output.push_str("declare i8* @ube_distance_create_miles(double)\n");
-        self.output.push_str("declare double @ube_distance_meters(i8*)\n");
-        self.output.push_str("declare double @ube_distance_km(i8*)\n");
-        self.output.push_str("declare double @ube_distance_miles(i8*)\n");
-        self.output.push_str("declare i8* @ube_geobounds_create(i8*, i8*)\n");
-        self.output.push_str("declare i1 @ube_geobounds_contains(i8*, i8*)\n");
-        self.output.push_str("declare i8* @ube_geolocation_current()\n");
+        self.output
+            .push_str("declare double @ube_money_amount(i8*)\n");
+        self.output
+            .push_str("declare i8* @ube_money_currency(i8*)\n");
+        self.output
+            .push_str("declare i8* @ube_money_add(i8*, i8*)\n");
+        self.output
+            .push_str("declare i8* @ube_money_subtract(i8*, i8*)\n");
+        self.output
+            .push_str("declare i8* @ube_money_multiply_percent(i8*, i8*)\n");
+        self.output
+            .push_str("declare i8* @ube_exchange_convert(i8*, i8*, double)\n");
+        self.output
+            .push_str("declare i8* @ube_percent_create(double)\n");
+        self.output
+            .push_str("declare double @ube_percent_value(i8*)\n");
+        self.output
+            .push_str("declare i8* @ube_rate_create(double)\n");
+        self.output
+            .push_str("declare double @ube_rate_value(i8*)\n");
+        self.output
+            .push_str("declare i8* @ube_geopoint_create(double, double)\n");
+        self.output
+            .push_str("declare double @ube_geopoint_latitude(i8*)\n");
+        self.output
+            .push_str("declare double @ube_geopoint_longitude(i8*)\n");
+        self.output
+            .push_str("declare i8* @ube_geopoint_distance_to(i8*, i8*)\n");
+        self.output
+            .push_str("declare double @ube_geopoint_bearing_to(i8*, i8*)\n");
+        self.output
+            .push_str("declare i8* @ube_distance_create_meters(double)\n");
+        self.output
+            .push_str("declare i8* @ube_distance_create_km(double)\n");
+        self.output
+            .push_str("declare i8* @ube_distance_create_miles(double)\n");
+        self.output
+            .push_str("declare double @ube_distance_meters(i8*)\n");
+        self.output
+            .push_str("declare double @ube_distance_km(i8*)\n");
+        self.output
+            .push_str("declare double @ube_distance_miles(i8*)\n");
+        self.output
+            .push_str("declare i8* @ube_geobounds_create(i8*, i8*)\n");
+        self.output
+            .push_str("declare i1 @ube_geobounds_contains(i8*, i8*)\n");
+        self.output
+            .push_str("declare i8* @ube_geolocation_current()\n");
         self.output.push_str("declare double @ube_math_pi()\n");
         self.output.push_str("declare double @ube_math_e()\n");
         self.output.push_str("declare double @ube_math_tau()\n");
-        self.output.push_str("declare double @ube_math_abs(double)\n");
-        self.output.push_str("declare double @ube_math_min(double, double)\n");
-        self.output.push_str("declare double @ube_math_max(double, double)\n");
-        self.output.push_str("declare double @ube_math_sqrt(double)\n");
-        self.output.push_str("declare double @ube_math_cbrt(double)\n");
-        self.output.push_str("declare double @ube_math_pow(double, double)\n");
-        self.output.push_str("declare double @ube_math_floor(double)\n");
-        self.output.push_str("declare double @ube_math_ceil(double)\n");
-        self.output.push_str("declare double @ube_math_round(double)\n");
-        self.output.push_str("declare double @ube_math_round_decimals(double, i64)\n");
-        self.output.push_str("declare double @ube_math_truncate(double)\n");
-        self.output.push_str("declare double @ube_math_clamp(double, double, double)\n");
+        self.output
+            .push_str("declare double @ube_math_abs(double)\n");
+        self.output
+            .push_str("declare double @ube_math_min(double, double)\n");
+        self.output
+            .push_str("declare double @ube_math_max(double, double)\n");
+        self.output
+            .push_str("declare double @ube_math_sqrt(double)\n");
+        self.output
+            .push_str("declare double @ube_math_cbrt(double)\n");
+        self.output
+            .push_str("declare double @ube_math_pow(double, double)\n");
+        self.output
+            .push_str("declare double @ube_math_floor(double)\n");
+        self.output
+            .push_str("declare double @ube_math_ceil(double)\n");
+        self.output
+            .push_str("declare double @ube_math_round(double)\n");
+        self.output
+            .push_str("declare double @ube_math_round_decimals(double, i64)\n");
+        self.output
+            .push_str("declare double @ube_math_truncate(double)\n");
+        self.output
+            .push_str("declare double @ube_math_clamp(double, double, double)\n");
         self.output.push_str("declare i64 @ube_math_sign(double)\n");
-        self.output.push_str("declare double @ube_math_sin(double)\n");
-        self.output.push_str("declare double @ube_math_cos(double)\n");
-        self.output.push_str("declare double @ube_math_tan(double)\n");
-        self.output.push_str("declare double @ube_math_asin(double)\n");
-        self.output.push_str("declare double @ube_math_acos(double)\n");
-        self.output.push_str("declare double @ube_math_atan(double)\n");
-        self.output.push_str("declare double @ube_math_atan2(double, double)\n");
-        self.output.push_str("declare double @ube_math_radians(double)\n");
-        self.output.push_str("declare double @ube_math_degrees(double)\n");
-        self.output.push_str("declare double @ube_math_log(double)\n");
-        self.output.push_str("declare double @ube_math_log10(double)\n");
-        self.output.push_str("declare double @ube_math_log2(double)\n");
-        self.output.push_str("declare double @ube_math_exp(double)\n");
-        self.output.push_str("declare i1 @ube_math_is_nan(double)\n");
-        self.output.push_str("declare i1 @ube_math_is_infinite(double)\n");
-        self.output.push_str("declare i1 @ube_math_is_finite(double)\n");
+        self.output
+            .push_str("declare double @ube_math_sin(double)\n");
+        self.output
+            .push_str("declare double @ube_math_cos(double)\n");
+        self.output
+            .push_str("declare double @ube_math_tan(double)\n");
+        self.output
+            .push_str("declare double @ube_math_asin(double)\n");
+        self.output
+            .push_str("declare double @ube_math_acos(double)\n");
+        self.output
+            .push_str("declare double @ube_math_atan(double)\n");
+        self.output
+            .push_str("declare double @ube_math_atan2(double, double)\n");
+        self.output
+            .push_str("declare double @ube_math_radians(double)\n");
+        self.output
+            .push_str("declare double @ube_math_degrees(double)\n");
+        self.output
+            .push_str("declare double @ube_math_log(double)\n");
+        self.output
+            .push_str("declare double @ube_math_log10(double)\n");
+        self.output
+            .push_str("declare double @ube_math_log2(double)\n");
+        self.output
+            .push_str("declare double @ube_math_exp(double)\n");
+        self.output
+            .push_str("declare i1 @ube_math_is_nan(double)\n");
+        self.output
+            .push_str("declare i1 @ube_math_is_infinite(double)\n");
+        self.output
+            .push_str("declare i1 @ube_math_is_finite(double)\n");
         self.output.push_str("declare i1 @ube_math_is_even(i64)\n");
         self.output.push_str("declare i1 @ube_math_is_odd(i64)\n");
-        self.output.push_str("declare i64 @ube_math_gcd(i64, i64)\n");
-        self.output.push_str("declare i64 @ube_math_lcm(i64, i64)\n");
-        self.output.push_str("declare i64 @ube_random_int(i64, i64)\n");
-        self.output.push_str("declare double @ube_random_decimal()\n");
+        self.output
+            .push_str("declare i64 @ube_math_gcd(i64, i64)\n");
+        self.output
+            .push_str("declare i64 @ube_math_lcm(i64, i64)\n");
+        self.output
+            .push_str("declare i64 @ube_random_int(i64, i64)\n");
+        self.output
+            .push_str("declare double @ube_random_decimal()\n");
         self.output.push_str("declare i1 @ube_random_bool()\n");
         self.output.push_str("declare i8* @ube_random_uuid()\n");
         self.output.push_str("declare i8* @ube_random_bytes(i64)\n");
-        self.output.push_str("declare i8* @ube_securerandom_bytes(i64)\n");
-        self.output.push_str("declare double @ube_statistics_mean(i8*)\n");
-        self.output.push_str("declare double @ube_statistics_median(i8*)\n");
-        self.output.push_str("declare double @ube_statistics_variance(i8*)\n");
-        self.output.push_str("declare double @ube_statistics_std_dev(i8*)\n");
-        self.output.push_str("declare double @ube_statistics_percentile(i8*, double)\n");
-        self.output.push_str("declare double @ube_statistics_covariance(i8*, i8*)\n");
-        self.output.push_str("declare double @ube_statistics_correlation(i8*, i8*)\n");
-        self.output.push_str("declare i64 @ube_probability_factorial(i64)\n");
-        self.output.push_str("declare i64 @ube_probability_permutations(i64, i64)\n");
-        self.output.push_str("declare i64 @ube_probability_combinations(i64, i64)\n");
-        self.output.push_str("declare double @ube_probability_normal(double, double, double)\n");
-        self.output.push_str("declare double @ube_probability_binomial(i64, i64, double)\n");
-        self.output.push_str("declare double @ube_probability_poisson(i64, double)\n");
-        self.output.push_str("declare double @ube_probability_uniform(double, double, double)\n");
+        self.output
+            .push_str("declare i8* @ube_securerandom_bytes(i64)\n");
+        self.output
+            .push_str("declare double @ube_statistics_mean(i8*)\n");
+        self.output
+            .push_str("declare double @ube_statistics_median(i8*)\n");
+        self.output
+            .push_str("declare double @ube_statistics_variance(i8*)\n");
+        self.output
+            .push_str("declare double @ube_statistics_std_dev(i8*)\n");
+        self.output
+            .push_str("declare double @ube_statistics_percentile(i8*, double)\n");
+        self.output
+            .push_str("declare double @ube_statistics_covariance(i8*, i8*)\n");
+        self.output
+            .push_str("declare double @ube_statistics_correlation(i8*, i8*)\n");
+        self.output
+            .push_str("declare i64 @ube_probability_factorial(i64)\n");
+        self.output
+            .push_str("declare i64 @ube_probability_permutations(i64, i64)\n");
+        self.output
+            .push_str("declare i64 @ube_probability_combinations(i64, i64)\n");
+        self.output
+            .push_str("declare double @ube_probability_normal(double, double, double)\n");
+        self.output
+            .push_str("declare double @ube_probability_binomial(i64, i64, double)\n");
+        self.output
+            .push_str("declare double @ube_probability_poisson(i64, double)\n");
+        self.output
+            .push_str("declare double @ube_probability_uniform(double, double, double)\n");
         self.output.push_str("declare i8* @ube_file_open(i8*)\n");
         self.output.push_str("declare i8* @ube_file_read(i8*)\n");
-        self.output.push_str("declare void @ube_file_write(i8*, i8*)\n");
-        self.output.push_str("declare void @ube_file_append(i8*, i8*)\n");
+        self.output
+            .push_str("declare void @ube_file_write(i8*, i8*)\n");
+        self.output
+            .push_str("declare void @ube_file_append(i8*, i8*)\n");
         self.output.push_str("declare void @ube_file_delete(i8*)\n");
         self.output.push_str("declare i1 @ube_file_exists(i8*)\n");
         self.output.push_str("declare void @ube_file_close(i8*)\n");
         self.output.push_str("declare i8* @ube_file_info(i8*)\n");
-        self.output.push_str("declare i64 @ube_fileinfo_size(i8*)\n");
-        self.output.push_str("declare i8* @ube_fileinfo_created_at(i8*)\n");
-        self.output.push_str("declare i8* @ube_fileinfo_modified_at(i8*)\n");
-        self.output.push_str("declare i1 @ube_fileinfo_is_directory(i8*)\n");
-        self.output.push_str("declare void @ube_directory_create(i8*)\n");
-        self.output.push_str("declare void @ube_directory_delete(i8*)\n");
-        self.output.push_str("declare i8* @ube_directory_list(i8*)\n");
-        self.output.push_str("declare i8* @ube_path_join(i8*, i8*)\n");
-        self.output.push_str("declare i8* @ube_path_filename(i8*)\n");
-        self.output.push_str("declare i8* @ube_path_extension(i8*)\n");
-        self.output.push_str("declare i8* @ube_server_create()\n");
-        self.output.push_str("declare void @ube_server_start(i8*, i32)\n");
-        self.output.push_str("declare void @ube_server_stop(i8*)\n");
-        self.output.push_str("declare i32 @ube_server_port(i8*)\n");
-        self.output.push_str("declare void @ube_server_tls(i8*, i8*, i8*)\n");
-        self.output.push_str("declare void @ube_server_route(i8*, i8*, i64)\n");
-        self.output.push_str("declare void @ube_server_use(i8*, i64)\n");
-        self.output.push_str("declare i8* @ube_request_path(i8*, i8*)\n");
-        self.output.push_str("declare i32 @ube_request_path_int(i8*, i8*)\n");
-        self.output.push_str("declare i64 @ube_request_path_long(i8*, i8*)\n");
-        self.output.push_str("declare i8* @ube_request_query(i8*, i8*)\n");
-        self.output.push_str("declare i8* @ube_request_header(i8*, i8*)\n");
-        self.output.push_str("declare i1 @ube_request_has_bearer_token(i8*)\n");
-        self.output.push_str("declare i8* @ube_response_create(i32, i8*)\n");
-        self.output.push_str("declare i8* @ube_cookie_create(i8*, i8*)\n");
-        self.output.push_str("declare void @ube_websocket_send(i8*, i8*)\n");
-        self.output.push_str("declare void @ube_websocket_on_message(i8*, i64)\n");
-        self.output.push_str("declare void @ube_server_enable_http2(i8*)\n");
-        self.output.push_str("declare void @ube_server_enable_http3(i8*, i32)\n");
-        self.output.push_str("declare i8* @ube_request_protocol(i8*)\n");
-        self.output.push_str("declare i1 @ube_request_is_http3(i8*)\n");
+        self.output
+            .push_str("declare i64 @ube_fileinfo_size(i8*)\n");
+        self.output
+            .push_str("declare i8* @ube_fileinfo_created_at(i8*)\n");
+        self.output
+            .push_str("declare i8* @ube_fileinfo_modified_at(i8*)\n");
+        self.output
+            .push_str("declare i1 @ube_fileinfo_is_directory(i8*)\n");
+        self.output
+            .push_str("declare void @ube_directory_create(i8*)\n");
+        self.output
+            .push_str("declare void @ube_directory_delete(i8*)\n");
+        self.output
+            .push_str("declare i8* @ube_directory_list(i8*)\n");
+        self.output
+            .push_str("declare i8* @ube_path_join(i8*, i8*)\n");
+        self.output
+            .push_str("declare i8* @ube_path_filename(i8*)\n");
+        self.output
+            .push_str("declare i8* @ube_path_extension(i8*)\n");
+        self.output
+            .push_str("declare %Server* @ube_server_create()\n");
+        self.output
+            .push_str("declare void @ube_server_start(%Server*, i32)\n");
+        self.output
+            .push_str("declare void @ube_server_stop(%Server*)\n");
+        self.output
+            .push_str("declare i32 @ube_server_port(%Server*)\n");
+        self.output
+            .push_str("declare void @ube_server_tls(%Server*, i8*, i8*)\n");
+        self.output
+            .push_str("declare void @ube_server_route(%Server*, i8*, i8*, i8*, i64)\n");
+        self.output
+            .push_str("declare void @ube_server_use(%Server*, i64)\n");
+        self.output
+            .push_str("declare i8* @ube_request_path(i8*, i8*)\n");
+        self.output
+            .push_str("declare i32 @ube_request_path_int(i8*, i8*)\n");
+        self.output
+            .push_str("declare i64 @ube_request_path_long(i8*, i8*)\n");
+        self.output
+            .push_str("declare i8* @ube_request_query(i8*, i8*)\n");
+        self.output
+            .push_str("declare i8* @ube_request_header(i8*, i8*)\n");
+        self.output
+            .push_str("declare i1 @ube_request_has_bearer_token(i8*)\n");
+        self.output
+            .push_str("declare %Response* @ube_response_create(i32, i8*)\n");
+        self.output
+            .push_str("declare i8* @ube_cookie_create(i8*, i8*)\n");
+        self.output
+            .push_str("declare void @ube_websocket_send(i8*, i8*)\n");
+        self.output
+            .push_str("declare void @ube_websocket_on_message(i8*, i64)\n");
+        self.output
+            .push_str("declare void @ube_server_enable_http2(%Server*)\n");
+        self.output
+            .push_str("declare void @ube_server_enable_http3(%Server*, i32)\n");
+        self.output
+            .push_str("declare i8* @ube_request_protocol(i8*)\n");
+        self.output
+            .push_str("declare i1 @ube_request_is_http3(i8*)\n");
         self.output.push_str("declare i8* @ube_bytes_create(i64)\n");
         self.output.push_str("declare void @ube_bytes_free(i8*)\n");
-        self.output.push_str("declare i8* @ube_file_open_read(i8*)\n");
-        self.output.push_str("declare i8* @ube_file_open_write(i8*)\n");
-        self.output.push_str("declare i64 @ube_stream_read(i8*, i8*, i64, i64)\n");
-        self.output.push_str("declare i64 @ube_stream_write(i8*, i8*, i64, i64)\n");
-        self.output.push_str("declare i64 @ube_stream_pipe_to(i8*, i8*)\n");
+        self.output
+            .push_str("declare i8* @ube_file_open_read(i8*)\n");
+        self.output
+            .push_str("declare i8* @ube_file_open_write(i8*)\n");
+        self.output
+            .push_str("declare i64 @ube_stream_read(i8*, i8*, i64, i64)\n");
+        self.output
+            .push_str("declare i64 @ube_stream_write(i8*, i8*, i64, i64)\n");
+        self.output
+            .push_str("declare i64 @ube_stream_pipe_to(i8*, i8*)\n");
         self.output.push_str("declare i8* @ube_file_sha256(i8*)\n");
-        self.output.push_str("declare i8* @ube_response_stream(i32, i8*)\n");
-        self.output.push_str("declare i8* @ube_response_file(i8*)\n");
+        self.output
+            .push_str("declare i8* @ube_response_stream(i32, i8*)\n");
+        self.output
+            .push_str("declare i8* @ube_response_file(i8*)\n");
         self.output.push_str("declare i8* @ube_json_parse(i8*)\n");
 
-        self.output.push_str("declare i8* @ube_json_stringify(i8*)\n");
-        self.output.push_str("declare i8* @ube_jsonobject_get_string(i8*, i8*)\n");
-        self.output.push_str("declare i32 @ube_jsonobject_get_int(i8*, i8*)\n");
-        self.output.push_str("declare i64 @ube_jsonobject_get_long(i8*, i8*)\n");
-        self.output.push_str("declare double @ube_jsonobject_get_decimal(i8*, i8*)\n");
-        self.output.push_str("declare i1 @ube_jsonobject_get_bool(i8*, i8*)\n");
+        self.output
+            .push_str("declare i8* @ube_json_stringify(i8*)\n");
+        self.output
+            .push_str("declare i8* @ube_jsonobject_get_string(i8*, i8*)\n");
+        self.output
+            .push_str("declare i32 @ube_jsonobject_get_int(i8*, i8*)\n");
+        self.output
+            .push_str("declare i64 @ube_jsonobject_get_long(i8*, i8*)\n");
+        self.output
+            .push_str("declare double @ube_jsonobject_get_decimal(i8*, i8*)\n");
+        self.output
+            .push_str("declare i1 @ube_jsonobject_get_bool(i8*, i8*)\n");
         self.output.push_str("declare i8* @ube_xml_parse(i8*)\n");
         self.output.push_str("declare i8* @ube_xml_create(i8*)\n");
-        self.output.push_str("declare i8* @ube_xmldocument_root(i8*)\n");
-        self.output.push_str("declare i8* @ube_xmldocument_to_string(i8*)\n");
-        self.output.push_str("declare i8* @ube_xmlement_child(i8*, i8*)\n");
-        self.output.push_str("declare i8* @ube_xmlement_element(i8*, i8*)\n");
-        self.output.push_str("declare i8* @ube_xmlement_text(i8*, i8*)\n");
-        self.output.push_str("declare i8* @ube_xmlement_get_text(i8*)\n\n");
+        self.output
+            .push_str("declare i8* @ube_xmldocument_root(i8*)\n");
+        self.output
+            .push_str("declare i8* @ube_xmldocument_to_string(i8*)\n");
+        self.output
+            .push_str("declare i8* @ube_xmlement_child(i8*, i8*)\n");
+        self.output
+            .push_str("declare i8* @ube_xmlement_element(i8*, i8*)\n");
+        self.output
+            .push_str("declare i8* @ube_xmlement_text(i8*, i8*)\n");
+        self.output
+            .push_str("declare i8* @ube_xmlement_get_text(i8*)\n\n");
 
-        let mut declared_types: HashSet<String> = ir_program.classes.iter().map(|c| c.name.clone()).collect();
+        let mut declared_types: HashSet<String> =
+            ir_program.classes.iter().map(|c| c.name.clone()).collect();
 
         // Object layouts for concrete classes
         for cls in &ir_program.classes {
@@ -270,7 +452,8 @@ impl TextualLlvmEmitter {
                 .map(|(_, ty)| self.type_to_llvm(ty))
                 .collect::<Vec<_>>()
                 .join(", ");
-            self.output.push_str(&format!("%{} = type {{ {} }}\n", cls.name, field_types));
+            self.output
+                .push_str(&format!("%{} = type {{ {} }}\n", cls.name, field_types));
         }
 
         let builtins = vec![
@@ -330,7 +513,8 @@ impl TextualLlvmEmitter {
 
         for (name, fields) in builtins {
             if !declared_types.contains(name) {
-                self.output.push_str(&format!("%{} = type {{ {} }}\n", name, fields));
+                self.output
+                    .push_str(&format!("%{} = type {{ {} }}\n", name, fields));
                 declared_types.insert(name.to_string());
             }
         }
@@ -369,33 +553,63 @@ impl TextualLlvmEmitter {
         if let Some(m_fn) = main_fn {
             let target_symbol = format!("{}_{}", m_fn.class_name, m_fn.name);
             let class_type = format!("%{}", m_fn.class_name);
-            self.output.push_str("define i32 @main(i32 %argc, i8** %argv) {\n");
+            self.output
+                .push_str("define i32 @main(i32 %argc, i8** %argv) {\n");
             self.output.push_str("entry:\n");
             self.output.push_str("  call void @ube_runtime_init()\n");
-            self.output.push_str(&format!("  %sz_ptr = getelementptr {}, {}* null, i32 1\n", class_type, class_type));
-            self.output.push_str(&format!("  %app_sz = ptrtoint {}* %sz_ptr to i64\n", class_type));
-            self.output.push_str("  %raw_mem = call i8* @ube_alloc(i64 %app_sz, i64 8)\n");
-            self.output.push_str(&format!("  %app = bitcast i8* %raw_mem to {}*\n", class_type));
+            self.output.push_str(&format!(
+                "  %sz_ptr = getelementptr {}, {}* null, i32 1\n",
+                class_type, class_type
+            ));
+            self.output.push_str(&format!(
+                "  %app_sz = ptrtoint {}* %sz_ptr to i64\n",
+                class_type
+            ));
+            self.output
+                .push_str("  %raw_mem = call i8* @ube_alloc(i64 %app_sz, i64 8)\n");
+            self.output.push_str(&format!(
+                "  %app = bitcast i8* %raw_mem to {}*\n",
+                class_type
+            ));
 
-            if let Some(cls) = ir_program.classes.iter().find(|c| c.name == m_fn.class_name) {
+            if let Some(cls) = ir_program
+                .classes
+                .iter()
+                .find(|c| c.name == m_fn.class_name)
+            {
                 for (i, (field_name, field_ty)) in cls.fields.iter().enumerate() {
                     let field_ty_str = self.type_to_llvm(field_ty);
-                    self.output.push_str(&format!("  %app_gep_{} = getelementptr inbounds {}, {}* %app, i32 0, i32 {}\n", i, class_type, class_type, i));
+                    self.output.push_str(&format!(
+                        "  %app_gep_{} = getelementptr inbounds {}, {}* %app, i32 0, i32 {}\n",
+                        i, class_type, class_type, i
+                    ));
                     if field_name.contains("port") || field_ty == &Type::Int {
-                        self.output.push_str(&format!("  store i32 8080, i32* %app_gep_{}, align 8\n", i));
+                        self.output
+                            .push_str(&format!("  store i32 8080, i32* %app_gep_{}, align 8\n", i));
                     } else if field_ty == &Type::Long {
-                        self.output.push_str(&format!("  store i64 0, i64* %app_gep_{}, align 8\n", i));
+                        self.output
+                            .push_str(&format!("  store i64 0, i64* %app_gep_{}, align 8\n", i));
                     } else if field_ty == &Type::Decimal {
-                        self.output.push_str(&format!("  store double 0.0, double* %app_gep_{}, align 8\n", i));
+                        self.output.push_str(&format!(
+                            "  store double 0.0, double* %app_gep_{}, align 8\n",
+                            i
+                        ));
                     } else if field_ty == &Type::Bool {
-                        self.output.push_str(&format!("  store i1 false, i1* %app_gep_{}, align 8\n", i));
+                        self.output
+                            .push_str(&format!("  store i1 false, i1* %app_gep_{}, align 8\n", i));
                     } else {
-                        self.output.push_str(&format!("  store {} null, {}* %app_gep_{}, align 8\n", field_ty_str, field_ty_str, i));
+                        self.output.push_str(&format!(
+                            "  store {} null, {}* %app_gep_{}, align 8\n",
+                            field_ty_str, field_ty_str, i
+                        ));
                     }
                 }
             }
 
-            self.output.push_str(&format!("  call void @{}({}* %app)\n", target_symbol, class_type));
+            self.output.push_str(&format!(
+                "  call void @{}({}* %app)\n",
+                target_symbol, class_type
+            ));
             self.output.push_str("  call void @ube_runtime_cleanup()\n");
             self.output.push_str("  ret i32 0\n");
             self.output.push_str("}\n\n");
@@ -408,9 +622,7 @@ impl TextualLlvmEmitter {
             let escaped = self.escape_llvm_string(str_val);
             self.output.push_str(&format!(
                 "@{} = private unnamed_addr constant [{} x i8] c\"{}\", align 1\n",
-                label,
-                bytes_len,
-                escaped
+                label, bytes_len, escaped
             ));
         }
 
@@ -439,7 +651,11 @@ impl TextualLlvmEmitter {
         let mut buf = String::new();
         let ret_ty_str = self.type_to_llvm(&func.return_type);
         let fn_name = format!("{}_{}", func.class_name, func.name);
-        let receiver_str = format!("{} %{}", self.type_to_llvm(&func.receiver.1), func.receiver.0.0);
+        let receiver_str = format!(
+            "{} %{}",
+            self.type_to_llvm(&func.receiver.1),
+            func.receiver.0 .0
+        );
 
         let other_params = func
             .params
@@ -453,7 +669,10 @@ impl TextualLlvmEmitter {
             format!("{}, {}", receiver_str, other_params.join(", "))
         };
 
-        buf.push_str(&format!("define {} @{}({}) {{\n", ret_ty_str, fn_name, all_params));
+        buf.push_str(&format!(
+            "define {} @{}({}) {{\n",
+            ret_ty_str, fn_name, all_params
+        ));
 
         for block in &func.blocks {
             buf.push_str(&format!("{}:\n", block.id));
@@ -470,7 +689,11 @@ impl TextualLlvmEmitter {
                 } else {
                     let default = match &func.return_type {
                         Type::Decimal => "0.0",
-                        Type::Class { .. } | Type::Nullable(_) | Type::String | Type::Task(_) | Type::Channel(_) => "null",
+                        Type::Class { .. }
+                        | Type::Nullable(_)
+                        | Type::String
+                        | Type::Task(_)
+                        | Type::Channel(_) => "null",
                         Type::Bool => "false",
                         _ => "0",
                     };
@@ -502,15 +725,27 @@ impl TextualLlvmEmitter {
             }
             IrInstruction::Load { dest, ptr, ty } => {
                 let ty_str = self.type_to_llvm(ty);
-                format!("%{} = load {}, {}* %{}, align 8", dest.0, ty_str, ty_str, ptr.0)
+                format!(
+                    "%{} = load {}, {}* %{}, align 8",
+                    dest.0, ty_str, ty_str, ptr.0
+                )
             }
             IrInstruction::Store { val, ptr } => {
                 let val_ty = val.get_type();
                 let ty_str = self.type_to_llvm(&val_ty);
                 let val_str = self.emit_operand(val);
-                format!("store {} {}, {}* %{}, align 8", ty_str, val_str, ty_str, ptr.0)
+                format!(
+                    "store {} {}, {}* %{}, align 8",
+                    ty_str, val_str, ty_str, ptr.0
+                )
             }
-            IrInstruction::GetField { dest, ptr, class_name, field_index, field_ty } => {
+            IrInstruction::GetField {
+                dest,
+                ptr,
+                class_name,
+                field_index,
+                field_ty,
+            } => {
                 let class_type = format!("%{}", class_name);
                 let field_ty_str = self.type_to_llvm(field_ty);
                 let gep_reg = format!("gep_{}_{}", ptr.0, self.string_counter);
@@ -521,7 +756,12 @@ impl TextualLlvmEmitter {
                     dest.0, field_ty_str, field_ty_str, gep_reg
                 )
             }
-            IrInstruction::StoreField { ptr, class_name, field_index, val } => {
+            IrInstruction::StoreField {
+                ptr,
+                class_name,
+                field_index,
+                val,
+            } => {
                 let class_type = format!("%{}", class_name);
                 let val_ty = val.get_type();
                 let val_ty_str = self.type_to_llvm(&val_ty);
@@ -534,7 +774,14 @@ impl TextualLlvmEmitter {
                     val_ty_str, val_str, val_ty_str, gep_reg
                 )
             }
-            IrInstruction::Binary { dest, op, left, right, operand_ty, result_ty: _ } => {
+            IrInstruction::Binary {
+                dest,
+                op,
+                left,
+                right,
+                operand_ty,
+                result_ty: _,
+            } => {
                 let ty_str = self.type_to_llvm(operand_ty);
                 let l_str = self.emit_operand(left);
                 let r_str = self.emit_operand(right);
@@ -573,17 +820,83 @@ impl TextualLlvmEmitter {
                     }
                     _ => {
                         let op_str = match op {
-                            BinaryOp::Add => if operand_ty == &Type::Decimal { "fadd" } else { "add" },
-                            BinaryOp::Sub => if operand_ty == &Type::Decimal { "fsub" } else { "sub" },
-                            BinaryOp::Mul => if operand_ty == &Type::Decimal { "fmul" } else { "mul" },
-                            BinaryOp::Div => if operand_ty == &Type::Decimal { "fdiv" } else { "sdiv" },
-                            BinaryOp::Mod => if operand_ty == &Type::Decimal { "frem" } else { "srem" },
-                            BinaryOp::Equal => if operand_ty == &Type::Decimal { "fcmp oeq" } else { "icmp eq" },
-                            BinaryOp::NotEqual => if operand_ty == &Type::Decimal { "fcmp one" } else { "icmp ne" },
-                            BinaryOp::Less => if operand_ty == &Type::Decimal { "fcmp olt" } else { "icmp slt" },
-                            BinaryOp::LessEqual => if operand_ty == &Type::Decimal { "fcmp ole" } else { "icmp sle" },
-                            BinaryOp::Greater => if operand_ty == &Type::Decimal { "fcmp ogt" } else { "icmp sgt" },
-                            BinaryOp::GreaterEqual => if operand_ty == &Type::Decimal { "fcmp oge" } else { "icmp sge" },
+                            BinaryOp::Add => {
+                                if operand_ty == &Type::Decimal {
+                                    "fadd"
+                                } else {
+                                    "add"
+                                }
+                            }
+                            BinaryOp::Sub => {
+                                if operand_ty == &Type::Decimal {
+                                    "fsub"
+                                } else {
+                                    "sub"
+                                }
+                            }
+                            BinaryOp::Mul => {
+                                if operand_ty == &Type::Decimal {
+                                    "fmul"
+                                } else {
+                                    "mul"
+                                }
+                            }
+                            BinaryOp::Div => {
+                                if operand_ty == &Type::Decimal {
+                                    "fdiv"
+                                } else {
+                                    "sdiv"
+                                }
+                            }
+                            BinaryOp::Mod => {
+                                if operand_ty == &Type::Decimal {
+                                    "frem"
+                                } else {
+                                    "srem"
+                                }
+                            }
+                            BinaryOp::Equal => {
+                                if operand_ty == &Type::Decimal {
+                                    "fcmp oeq"
+                                } else {
+                                    "icmp eq"
+                                }
+                            }
+                            BinaryOp::NotEqual => {
+                                if operand_ty == &Type::Decimal {
+                                    "fcmp one"
+                                } else {
+                                    "icmp ne"
+                                }
+                            }
+                            BinaryOp::Less => {
+                                if operand_ty == &Type::Decimal {
+                                    "fcmp olt"
+                                } else {
+                                    "icmp slt"
+                                }
+                            }
+                            BinaryOp::LessEqual => {
+                                if operand_ty == &Type::Decimal {
+                                    "fcmp ole"
+                                } else {
+                                    "icmp sle"
+                                }
+                            }
+                            BinaryOp::Greater => {
+                                if operand_ty == &Type::Decimal {
+                                    "fcmp ogt"
+                                } else {
+                                    "icmp sgt"
+                                }
+                            }
+                            BinaryOp::GreaterEqual => {
+                                if operand_ty == &Type::Decimal {
+                                    "fcmp oge"
+                                } else {
+                                    "icmp sge"
+                                }
+                            }
                             BinaryOp::And => "and",
                             BinaryOp::Or => "or",
                             BinaryOp::Xor => "xor",
@@ -593,7 +906,11 @@ impl TextualLlvmEmitter {
                     }
                 }
             }
-            IrInstruction::InstantiateClass { dest, class_name, args } => {
+            IrInstruction::InstantiateClass {
+                dest,
+                class_name,
+                args,
+            } => {
                 let class_type = format!("%{}", class_name);
                 let bitcast_reg = format!("obj_{}_{}", dest.0, self.string_counter);
                 let sz_ptr = format!("sz_ptr_{}", self.string_counter);
@@ -601,10 +918,22 @@ impl TextualLlvmEmitter {
                 self.string_counter += 1;
 
                 let mut instrs = Vec::new();
-                instrs.push(format!("%{} = getelementptr {}, {}* null, i32 1", sz_ptr, class_type, class_type));
-                instrs.push(format!("%{} = ptrtoint {}* %{} to i64", sz_val, class_type, sz_ptr));
-                instrs.push(format!("%{} = call i8* @ube_alloc(i64 %{}, i64 8)", dest.0, sz_val));
-                instrs.push(format!("%{} = bitcast i8* %{} to {}*", bitcast_reg, dest.0, class_type));
+                instrs.push(format!(
+                    "%{} = getelementptr {}, {}* null, i32 1",
+                    sz_ptr, class_type, class_type
+                ));
+                instrs.push(format!(
+                    "%{} = ptrtoint {}* %{} to i64",
+                    sz_val, class_type, sz_ptr
+                ));
+                instrs.push(format!(
+                    "%{} = call i8* @ube_alloc(i64 %{}, i64 8)",
+                    dest.0, sz_val
+                ));
+                instrs.push(format!(
+                    "%{} = bitcast i8* %{} to {}*",
+                    bitcast_reg, dest.0, class_type
+                ));
 
                 let field_types: Vec<Type> = self
                     .class_map
@@ -613,24 +942,43 @@ impl TextualLlvmEmitter {
                     .unwrap_or_default();
 
                 for (i, arg) in args.iter().enumerate() {
-                    let field_ty = field_types.get(i).cloned().unwrap_or_else(|| arg.get_type());
+                    let field_ty = field_types
+                        .get(i)
+                        .cloned()
+                        .unwrap_or_else(|| arg.get_type());
                     let field_ty_str = self.type_to_llvm(&field_ty);
                     let gep_reg = format!("gep_inst_{}_{}", dest.0, i);
                     let val_str = self.emit_operand(arg);
 
-                    instrs.push(format!("%{} = getelementptr inbounds {}, {}* %{}, i32 0, i32 {}", gep_reg, class_type, class_type, bitcast_reg, i));
+                    instrs.push(format!(
+                        "%{} = getelementptr inbounds {}, {}* %{}, i32 0, i32 {}",
+                        gep_reg, class_type, class_type, bitcast_reg, i
+                    ));
 
                     if field_ty == Type::Long && arg.get_type() == Type::Int {
                         let ext_reg = format!("ext_inst_{}_{}", dest.0, i);
                         instrs.push(format!("%{} = sext i32 {} to i64", ext_reg, val_str));
-                        instrs.push(format!("store i64 %{}, i64* %{}, align 8", ext_reg, gep_reg));
+                        instrs.push(format!(
+                            "store i64 %{}, i64* %{}, align 8",
+                            ext_reg, gep_reg
+                        ));
                     } else {
-                        instrs.push(format!("store {} {}, {}* %{}, align 8", field_ty_str, val_str, field_ty_str, gep_reg));
+                        instrs.push(format!(
+                            "store {} {}, {}* %{}, align 8",
+                            field_ty_str, val_str, field_ty_str, gep_reg
+                        ));
                     }
                 }
                 instrs.join("\n  ")
             }
-            IrInstruction::CallMethod { dest, class_name, method_name, receiver, args, ret_ty } => {
+            IrInstruction::CallMethod {
+                dest,
+                class_name,
+                method_name,
+                receiver,
+                args,
+                ret_ty,
+            } => {
                 let fn_symbol = format!("{}_{}", class_name, method_name);
                 let ret_ty_str = self.type_to_llvm(ret_ty);
                 let rx_str = self.emit_operand(receiver);
@@ -638,7 +986,13 @@ impl TextualLlvmEmitter {
 
                 let formatted_args = args
                     .iter()
-                    .map(|a| format!("{} {}", self.type_to_llvm(&a.get_type()), self.emit_operand(a)))
+                    .map(|a| {
+                        format!(
+                            "{} {}",
+                            self.type_to_llvm(&a.get_type()),
+                            self.emit_operand(a)
+                        )
+                    })
                     .collect::<Vec<_>>();
 
                 let all_args = if formatted_args.is_empty() {
@@ -650,22 +1004,37 @@ impl TextualLlvmEmitter {
                 if ret_ty == &Type::Void || ret_ty_str == "void" {
                     format!("call void @{}({})", fn_symbol, all_args)
                 } else if let Some(r) = dest {
-                    format!("%{} = call {} @{}({})", r.0, ret_ty_str, fn_symbol, all_args)
+                    format!(
+                        "%{} = call {} @{}({})",
+                        r.0, ret_ty_str, fn_symbol, all_args
+                    )
                 } else {
                     format!("call {} @{}({})", ret_ty_str, fn_symbol, all_args)
                 }
             }
-            IrInstruction::CallRuntime { dest, symbol, args, ret_ty } => {
+            IrInstruction::CallRuntime {
+                dest,
+                symbol,
+                args,
+                ret_ty,
+            } => {
                 let ret_ty_str = self.type_to_llvm(ret_ty);
                 let mut instrs = Vec::new();
                 let mut formatted_args = Vec::new();
                 if symbol == "ube_channel_recv" {
-                    let channel = args.first().map(|arg| self.emit_operand(arg)).unwrap_or_else(|| "null".into());
+                    let channel = args
+                        .first()
+                        .map(|arg| self.emit_operand(arg))
+                        .unwrap_or_else(|| "null".into());
                     let raw = format!("channel_value_{}", self.string_counter);
                     self.string_counter += 1;
-                    instrs.push(format!("%{} = call i64 @ube_channel_recv(i8* {})", raw, channel));
+                    instrs.push(format!(
+                        "%{} = call i64 @ube_channel_recv(i8* {})",
+                        raw, channel
+                    ));
                     if let Some(register) = dest {
-                        let decoded = self.decode_i64(ret_ty, &format!("%{}", raw), &register.0.to_string());
+                        let decoded =
+                            self.decode_i64(ret_ty, &format!("%{}", raw), &register.0.to_string());
                         instrs.extend(decoded.0);
                     }
                     return instrs.join("\n  ");
@@ -674,21 +1043,33 @@ impl TextualLlvmEmitter {
                     let arg_ty = a.get_type();
                     if symbol == "ube_task_create"
                         || (symbol == "ube_list_add" && index == 1)
-                        || (matches!(symbol.as_str(), "ube_channel_send" | "ube_channel_send_async") && index == 1)
+                        || (matches!(
+                            symbol.as_str(),
+                            "ube_channel_send" | "ube_channel_send_async"
+                        ) && index == 1)
                     {
                         let value = self.emit_operand(a);
-                        let encoded = self.encode_i64(&arg_ty, &value, &format!("task_value_{}", self.string_counter));
+                        let encoded = self.encode_i64(
+                            &arg_ty,
+                            &value,
+                            &format!("task_value_{}", self.string_counter),
+                        );
                         self.string_counter += 1;
                         instrs.extend(encoded.0);
                         formatted_args.push(format!("i64 {}", encoded.1));
                         continue;
                     }
-                    if (symbol == "ube_channel_create_capacity" || (symbol == "ube_task_timeout" && index == 1))
+                    if (symbol == "ube_channel_create_capacity"
+                        || (symbol == "ube_task_timeout" && index == 1))
                         && arg_ty == Type::Int
                     {
                         let ext_reg = format!("channel_capacity_{}", self.string_counter);
                         self.string_counter += 1;
-                        instrs.push(format!("%{} = sext i32 {} to i64", ext_reg, self.emit_operand(a)));
+                        instrs.push(format!(
+                            "%{} = sext i32 {} to i64",
+                            ext_reg,
+                            self.emit_operand(a)
+                        ));
                         formatted_args.push(format!("i64 %{}", ext_reg));
                         continue;
                     }
@@ -699,7 +1080,11 @@ impl TextualLlvmEmitter {
                         instrs.push(format!("%{} = sext i32 {} to i64", ext_reg, val_str));
                         formatted_args.push(format!("i64 %{}", ext_reg));
                     } else {
-                        formatted_args.push(format!("{} {}", self.type_to_llvm(&arg_ty), self.emit_operand(a)));
+                        formatted_args.push(format!(
+                            "{} {}",
+                            self.type_to_llvm(&arg_ty),
+                            self.emit_operand(a)
+                        ));
                     }
                 }
                 let args_str = formatted_args.join(", ");
@@ -717,18 +1102,97 @@ impl TextualLlvmEmitter {
                     instrs.join("\n  ")
                 }
             }
-            IrInstruction::SpawnAsyncCall { dest, callback, class_name, method_name, receiver, args, result_ty } => {
-                self.emit_async_call(*dest, callback, class_name, method_name, receiver, args, result_ty)
+            IrInstruction::ServerRoute {
+                server,
+                path,
+                method,
+                context,
+                handler_symbol,
+            } => {
+                let context_ty = self.type_to_llvm(&context.get_type());
+                let route_index = self.string_counter;
+                self.string_counter += 1;
+                let context_value = self.emit_operand(context);
+                let server_ty = self.type_to_llvm(&server.get_type());
+                let server_value = self.emit_operand(server);
+                let path_value = self.emit_operand(path);
+                let method = self.emit_operand(&IrOperand::ConstantString(method.clone()));
+                let handler_type = format!(
+                    "{} ({}*, %Request*)*",
+                    self.type_to_llvm(&Type::Class {
+                        name: "Response".into()
+                    }),
+                    context_ty.trim_end_matches('*')
+                );
+                let function_pointer = format!("route_handler_{}", route_index);
+                let context_name = if context_ty == "i8*" {
+                    context_value.clone()
+                } else {
+                    format!("%route_context_{}", route_index)
+                };
+                let mut instructions = Vec::new();
+                if context_ty != "i8*" {
+                    instructions.push(format!(
+                        "%route_context_{} = bitcast {} {} to i8*",
+                        route_index, context_ty, context_value
+                    ));
+                }
+                instructions.push(format!(
+                    "%{} = ptrtoint {} @{} to i64",
+                    function_pointer, handler_type, handler_symbol
+                ));
+                instructions.push(format!(
+                    "call void @ube_server_route({} {}, i8* {}, i8* {}, i8* {}, i64 %{})",
+                    server_ty, server_value, path_value, method, context_name, function_pointer
+                ));
+                instructions.join("\n  ")
             }
-            IrInstruction::SpawnAsyncExpression { dest, callback, class_name, method_name, captures, result_ty } => {
-                self.emit_async_expression(*dest, callback, class_name, method_name, captures, result_ty)
-            }
-            IrInstruction::AwaitTask { dest, error_dest, task, result_ty } => {
+            IrInstruction::SpawnAsyncCall {
+                dest,
+                callback,
+                class_name,
+                method_name,
+                receiver,
+                args,
+                result_ty,
+            } => self.emit_async_call(
+                *dest,
+                callback,
+                class_name,
+                method_name,
+                receiver,
+                args,
+                result_ty,
+            ),
+            IrInstruction::SpawnAsyncExpression {
+                dest,
+                callback,
+                class_name,
+                method_name,
+                captures,
+                result_ty,
+            } => self.emit_async_expression(
+                *dest,
+                callback,
+                class_name,
+                method_name,
+                captures,
+                result_ty,
+            ),
+            IrInstruction::AwaitTask {
+                dest,
+                error_dest,
+                task,
+                result_ty,
+            } => {
                 let task_value = self.emit_operand(task);
                 let raw = format!("task_raw_{}", self.string_counter);
                 self.string_counter += 1;
                 let mut instructions = Vec::new();
-                instructions.push(format!("%{} = call i64 @ube_task_await(i8* {})", raw, task_value));
+                instructions.push(format!(
+                    "%{} = call i64 @ube_task_await(i8* {})",
+                    raw, task_value
+                ));
                 let decoded = self.decode_i64(result_ty, &format!("%{}", raw), &dest.0.to_string());
                 instructions.extend(decoded.0);
                 instructions.push(format!(
@@ -737,9 +1201,16 @@ impl TextualLlvmEmitter {
                 ));
                 instructions.join("\n  ")
             }
-            IrInstruction::Branch { cond, then_block, else_block } => {
+            IrInstruction::Branch {
+                cond,
+                then_block,
+                else_block,
+            } => {
                 let cond_str = self.emit_operand(cond);
-                format!("br i1 {}, label %{}, label %{}", cond_str, then_block, else_block)
+                format!(
+                    "br i1 {}, label %{}, label %{}",
+                    cond_str, then_block, else_block
+                )
             }
             IrInstruction::Jump { target } => {
                 format!("br label %{}", target)
@@ -776,7 +1247,12 @@ impl TextualLlvmEmitter {
                 let label = format!("str_{}", self.string_counter);
                 self.string_counter += 1;
                 self.string_constants.insert(label.clone(), v.clone());
-                format!("getelementptr inbounds ([{} x i8], [{} x i8]* @{}, i32 0, i32 0)", v.as_bytes().len() + 1, v.as_bytes().len() + 1, label)
+                format!(
+                    "getelementptr inbounds ([{} x i8], [{} x i8]* @{}, i32 0, i32 0)",
+                    v.as_bytes().len() + 1,
+                    v.as_bytes().len() + 1,
+                    label
+                )
             }
             IrOperand::ConstantBool(v) => (if *v { "true" } else { "false" }).to_string(),
             IrOperand::Null | IrOperand::NullOf(_) => "null".to_string(),
@@ -797,7 +1273,11 @@ impl TextualLlvmEmitter {
             Type::Void => "void".to_string(),
             Type::Task(_) => "i8*".to_string(),
             Type::Channel(_) => "i8*".to_string(),
-            Type::Class { name } if matches!(name.as_str(), "Task" | "Channel" | "List" | "Map") => "i8*".to_string(),
+            Type::Class { name }
+                if matches!(name.as_str(), "Task" | "Channel" | "List" | "Map") =>
+            {
+                "i8*".to_string()
+            }
             Type::Class { name } => format!("%{}*", name),
             Type::Nullable(inner) => {
                 let inner_str = self.type_to_llvm(inner);
@@ -814,46 +1294,131 @@ impl TextualLlvmEmitter {
 
     fn encode_i64(&self, ty: &Type, value: &str, name: &str) -> (Vec<String>, String) {
         match ty {
-            Type::Int => (vec![format!("%{} = sext i32 {} to i64", name, value)], format!("%{}", name)),
-            Type::Byte => (vec![format!("%{} = zext i8 {} to i64", name, value)], format!("%{}", name)),
-            Type::Bool => (vec![format!("%{} = zext i1 {} to i64", name, value)], format!("%{}", name)),
-            Type::Decimal => (vec![format!("%{} = bitcast double {} to i64", name, value)], format!("%{}", name)),
+            Type::Int => (
+                vec![format!("%{} = sext i32 {} to i64", name, value)],
+                format!("%{}", name),
+            ),
+            Type::Byte => (
+                vec![format!("%{} = zext i8 {} to i64", name, value)],
+                format!("%{}", name),
+            ),
+            Type::Bool => (
+                vec![format!("%{} = zext i1 {} to i64", name, value)],
+                format!("%{}", name),
+            ),
+            Type::Decimal => (
+                vec![format!("%{} = bitcast double {} to i64", name, value)],
+                format!("%{}", name),
+            ),
             Type::Void => (Vec::new(), "0".to_string()),
             Type::Long => (Vec::new(), value.to_string()),
-            Type::Channel(_) => (vec![format!("%{} = ptrtoint i8* {} to i64", name, value)], format!("%{}", name)),
-            _ => (vec![format!("%{} = ptrtoint {} {} to i64", name, self.type_to_llvm(ty), value)], format!("%{}", name)),
+            Type::Channel(_) => (
+                vec![format!("%{} = ptrtoint i8* {} to i64", name, value)],
+                format!("%{}", name),
+            ),
+            _ => (
+                vec![format!(
+                    "%{} = ptrtoint {} {} to i64",
+                    name,
+                    self.type_to_llvm(ty),
+                    value
+                )],
+                format!("%{}", name),
+            ),
         }
     }
 
     fn decode_i64(&self, ty: &Type, value: &str, name: &str) -> (Vec<String>, String) {
         match ty {
-            Type::Int => (vec![format!("%{} = trunc i64 {} to i32", name, value)], format!("%{}", name)),
-            Type::Byte => (vec![format!("%{} = trunc i64 {} to i8", name, value)], format!("%{}", name)),
-            Type::Bool => (vec![format!("%{} = trunc i64 {} to i1", name, value)], format!("%{}", name)),
-            Type::Decimal => (vec![format!("%{} = bitcast i64 {} to double", name, value)], format!("%{}", name)),
+            Type::Int => (
+                vec![format!("%{} = trunc i64 {} to i32", name, value)],
+                format!("%{}", name),
+            ),
+            Type::Byte => (
+                vec![format!("%{} = trunc i64 {} to i8", name, value)],
+                format!("%{}", name),
+            ),
+            Type::Bool => (
+                vec![format!("%{} = trunc i64 {} to i1", name, value)],
+                format!("%{}", name),
+            ),
+            Type::Decimal => (
+                vec![format!("%{} = bitcast i64 {} to double", name, value)],
+                format!("%{}", name),
+            ),
             Type::Void => (Vec::new(), "0".to_string()),
             Type::Long => (Vec::new(), value.to_string()),
-            Type::Channel(_) => (vec![format!("%{} = inttoptr i64 {} to i8*", name, value)], format!("%{}", name)),
-            _ => (vec![format!("%{} = inttoptr i64 {} to {}", name, value, self.type_to_llvm(ty))], format!("%{}", name)),
+            Type::Channel(_) => (
+                vec![format!("%{} = inttoptr i64 {} to i8*", name, value)],
+                format!("%{}", name),
+            ),
+            _ => (
+                vec![format!(
+                    "%{} = inttoptr i64 {} to {}",
+                    name,
+                    value,
+                    self.type_to_llvm(ty)
+                )],
+                format!("%{}", name),
+            ),
         }
     }
 
-    fn emit_async_call(&mut self, dest: Register, callback: &str, class_name: &str, method_name: &str, receiver: &IrOperand, args: &[IrOperand], result_ty: &Type) -> String {
-        let mut instructions = vec![format!("%task_ctx_{} = call i8* @ube_task_context_create(i64 {})", dest.0, args.len() + 1)];
+    fn emit_async_call(
+        &mut self,
+        dest: Register,
+        callback: &str,
+        class_name: &str,
+        method_name: &str,
+        receiver: &IrOperand,
+        args: &[IrOperand],
+        result_ty: &Type,
+    ) -> String {
+        let mut instructions = vec![format!(
+            "%task_ctx_{} = call i8* @ube_task_context_create(i64 {})",
+            dest.0,
+            args.len() + 1
+        )];
         let mut captures = vec![(receiver.get_type(), self.emit_operand(receiver))];
-        captures.extend(args.iter().map(|arg| (arg.get_type(), self.emit_operand(arg))));
+        captures.extend(
+            args.iter()
+                .map(|arg| (arg.get_type(), self.emit_operand(arg))),
+        );
         for (index, (ty, value)) in captures.iter().enumerate() {
             let encoded = self.encode_i64(ty, value, &format!("task_capture_{}_{}", dest.0, index));
             instructions.extend(encoded.0);
-            instructions.push(format!("call void @ube_task_context_set(i8* %task_ctx_{}, i64 {}, i64 {})", dest.0, index, encoded.1));
+            instructions.push(format!(
+                "call void @ube_task_context_set(i8* %task_ctx_{}, i64 {}, i64 {})",
+                dest.0, index, encoded.1
+            ));
         }
-        instructions.push(format!("%task_fn_{} = ptrtoint i64 (i8*)* @{} to i64", dest.0, callback));
-        instructions.push(format!("%{} = call i8* @ube_task_spawn(i64 %task_fn_{}, i8* %task_ctx_{})", dest.0, dest.0, dest.0));
-        self.task_thunks.push(self.emit_async_thunk(callback, class_name, method_name, &captures, result_ty));
+        instructions.push(format!(
+            "%task_fn_{} = ptrtoint i64 (i8*)* @{} to i64",
+            dest.0, callback
+        ));
+        instructions.push(format!(
+            "%{} = call i8* @ube_task_spawn(i64 %task_fn_{}, i8* %task_ctx_{})",
+            dest.0, dest.0, dest.0
+        ));
+        self.task_thunks.push(self.emit_async_thunk(
+            callback,
+            class_name,
+            method_name,
+            &captures,
+            result_ty,
+        ));
         instructions.join("\n  ")
     }
 
-    fn emit_async_expression(&mut self, dest: Register, callback: &str, class_name: &str, method_name: &str, captures: &[IrOperand], result_ty: &Type) -> String {
+    fn emit_async_expression(
+        &mut self,
+        dest: Register,
+        callback: &str,
+        class_name: &str,
+        method_name: &str,
+        captures: &[IrOperand],
+        result_ty: &Type,
+    ) -> String {
         let mut instructions = vec![format!(
             "%task_ctx_{} = call i8* @ube_task_context_create(i64 {})",
             dest.0,
@@ -891,26 +1456,50 @@ impl TextualLlvmEmitter {
         instructions.join("\n  ")
     }
 
-    fn emit_async_thunk(&self, callback: &str, class_name: &str, method_name: &str, captures: &[(Type, String)], result_ty: &Type) -> String {
+    fn emit_async_thunk(
+        &self,
+        callback: &str,
+        class_name: &str,
+        method_name: &str,
+        captures: &[(Type, String)],
+        result_ty: &Type,
+    ) -> String {
         let mut body = vec!["entry:".to_string()];
         let mut arguments = Vec::new();
         for (index, (ty, _)) in captures.iter().enumerate() {
             let raw = format!("%{}_raw_{}", callback, index);
-            body.push(format!("  {} = call i64 @ube_task_context_get(i8* %ctx, i64 {})", raw, index));
+            body.push(format!(
+                "  {} = call i64 @ube_task_context_get(i8* %ctx, i64 {})",
+                raw, index
+            ));
             let decoded = self.decode_i64(ty, &raw, &format!("{}_capture_{}", callback, index));
             body.extend(decoded.0.into_iter().map(|line| format!("  {}", line)));
             arguments.push(format!("{} {}", self.type_to_llvm(ty), decoded.1));
         }
-        let call = format!("call {} @{}_{}({})", self.type_to_llvm(result_ty), class_name, method_name, arguments.join(", "));
+        let call = format!(
+            "call {} @{}_{}({})",
+            self.type_to_llvm(result_ty),
+            class_name,
+            method_name,
+            arguments.join(", ")
+        );
         if *result_ty == Type::Void {
             body.push(format!("  {}", call));
             body.push("  ret i64 0".to_string());
         } else {
             body.push(format!("  %{}_result = {}", callback, call));
-            let encoded = self.encode_i64(result_ty, &format!("%{}_result", callback), &format!("{}_encoded", callback));
+            let encoded = self.encode_i64(
+                result_ty,
+                &format!("%{}_result", callback),
+                &format!("{}_encoded", callback),
+            );
             body.extend(encoded.0.into_iter().map(|line| format!("  {}", line)));
             body.push(format!("  ret i64 {}", encoded.1));
         }
-        format!("define internal i64 @{}(i8* %ctx) {{\n{}\n}}\n", callback, body.join("\n"))
+        format!(
+            "define internal i64 @{}(i8* %ctx) {{\n{}\n}}\n",
+            callback,
+            body.join("\n")
+        )
     }
 }

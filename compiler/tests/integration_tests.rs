@@ -3108,7 +3108,7 @@ fn test_e2e_file_error_handling_guard_check() {
 }
 
 #[test]
-fn test_e2e_server_route_registration_and_response_factories() {
+fn test_server_route_registration_and_response_factories_typecheck() {
     let source_code = r#"
         class Application {
             main() {
@@ -3143,7 +3143,7 @@ fn test_e2e_server_route_registration_and_response_factories() {
 }
 
 #[test]
-fn test_e2e_server_request_path_query_headers() {
+fn test_server_request_path_query_headers_typecheck() {
     let source_code = r#"
         class Application {
             main() {
@@ -3179,7 +3179,7 @@ fn test_e2e_server_request_path_query_headers() {
 }
 
 #[test]
-fn test_e2e_server_middleware_and_error_handling() {
+fn test_server_middleware_and_guard_syntax_typecheck() {
     let source_code = r#"
         class Application {
             main() {
@@ -3192,13 +3192,14 @@ fn test_e2e_server_middleware_and_error_handling() {
                 server.get(`/api/data`) { request ->
                     guard {
                         final val = request.query(`search`)
-                        return Response.text(val)
-                    }
-                    check(err) {
-                        if (err) {
-                            return Response.internalServerError(err.message())
+                        print(val)
+                        catch(err) {
+                            if (err) {
+                                print(err.message())
+                            }
                         }
                     }
+                    Response.text(`Request processed`)
                 }
             }
         }
@@ -3223,7 +3224,7 @@ fn test_e2e_server_middleware_and_error_handling() {
 }
 
 #[test]
-fn test_e2e_server_websocket_and_tls() {
+fn test_server_websocket_and_tls_syntax_typecheck() {
     let source_code = r#"
         class Application {
             main() {
@@ -3259,7 +3260,7 @@ fn test_e2e_server_websocket_and_tls() {
 }
 
 #[test]
-fn test_e2e_server_http_protocol_versions() {
+fn test_server_http_protocol_versions_syntax_typecheck() {
     let source_code = r#"
         class Application {
             main() {

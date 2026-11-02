@@ -49,11 +49,32 @@ impl IrOperand {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum IrInstruction {
-    Alloca { dest: Register, ty: Type },
-    Load { dest: Register, ptr: Register, ty: Type },
-    Store { val: IrOperand, ptr: Register },
-    GetField { dest: Register, ptr: Register, class_name: String, field_index: usize, field_ty: Type },
-    StoreField { ptr: Register, class_name: String, field_index: usize, val: IrOperand },
+    Alloca {
+        dest: Register,
+        ty: Type,
+    },
+    Load {
+        dest: Register,
+        ptr: Register,
+        ty: Type,
+    },
+    Store {
+        val: IrOperand,
+        ptr: Register,
+    },
+    GetField {
+        dest: Register,
+        ptr: Register,
+        class_name: String,
+        field_index: usize,
+        field_ty: Type,
+    },
+    StoreField {
+        ptr: Register,
+        class_name: String,
+        field_index: usize,
+        val: IrOperand,
+    },
     Binary {
         dest: Register,
         op: BinaryOp,
@@ -62,8 +83,27 @@ pub enum IrInstruction {
         operand_ty: Type,
         result_ty: Type,
     },
-    CallMethod { dest: Option<Register>, class_name: String, method_name: String, receiver: IrOperand, args: Vec<IrOperand>, ret_ty: Type },
-    CallRuntime { dest: Option<Register>, symbol: String, args: Vec<IrOperand>, ret_ty: Type },
+    CallMethod {
+        dest: Option<Register>,
+        class_name: String,
+        method_name: String,
+        receiver: IrOperand,
+        args: Vec<IrOperand>,
+        ret_ty: Type,
+    },
+    CallRuntime {
+        dest: Option<Register>,
+        symbol: String,
+        args: Vec<IrOperand>,
+        ret_ty: Type,
+    },
+    ServerRoute {
+        server: IrOperand,
+        path: IrOperand,
+        method: String,
+        context: IrOperand,
+        handler_symbol: String,
+    },
     SpawnAsyncCall {
         dest: Register,
         callback: String,
@@ -87,10 +127,22 @@ pub enum IrInstruction {
         task: IrOperand,
         result_ty: Type,
     },
-    InstantiateClass { dest: Register, class_name: String, args: Vec<IrOperand> },
-    Jump { target: BlockId },
-    Branch { cond: IrOperand, then_block: BlockId, else_block: BlockId },
-    Return { val: Option<IrOperand> },
+    InstantiateClass {
+        dest: Register,
+        class_name: String,
+        args: Vec<IrOperand>,
+    },
+    Jump {
+        target: BlockId,
+    },
+    Branch {
+        cond: IrOperand,
+        then_block: BlockId,
+        else_block: BlockId,
+    },
+    Return {
+        val: Option<IrOperand>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]

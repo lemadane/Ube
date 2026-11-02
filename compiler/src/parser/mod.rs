@@ -34,7 +34,11 @@ mod tests {
         let mut parser = Parser::new(lexer);
         let program = parser.parse_program();
 
-        assert!(parser.diagnostics.is_empty(), "Parser errors: {:?}", parser.diagnostics);
+        assert!(
+            parser.diagnostics.is_empty(),
+            "Parser errors: {:?}",
+            parser.diagnostics
+        );
         assert_eq!(program.items.len(), 2);
 
         if let Item::Class(user_cls) = &program.items[0] {

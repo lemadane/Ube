@@ -1,17 +1,30 @@
 {
   "name": "ube-vscode",
   "displayName": "Ube Language Support",
-  "description": "Syntax highlighting, file recognition, and language support for the Ube programming language (.ube)",
-  "version": "0.5.0",
+  "description": "Syntax highlighting, formatting, and language support for the Ube programming language (.ube)",
+  "version": "0.6.0",
   "publisher": "ube-lang",
-  "icon": "icon.png",
   "categories": [
     "Programming Languages"
   ],
   "engines": {
     "vscode": "^1.75.0"
   },
+  "main": "./extension.js",
+  "activationEvents": [
+    "onLanguage:ube"
+  ],
+  "scripts": {
+    "test": "node --test"
+  },
   "contributes": {
+    "configurationDefaults": {
+      "[ube]": {
+        "editor.tabSize": 4,
+        "editor.insertSpaces": true,
+        "editor.defaultFormatter": "ube-lang.ube-vscode"
+      }
+    },
     "languages": [
       {
         "id": "ube",
