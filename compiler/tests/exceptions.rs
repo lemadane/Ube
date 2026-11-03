@@ -356,3 +356,20 @@ fn native_list_bounds_errors_are_caught_and_run_cleanup() {
       print(values[0])
     } }"#, "negative index\nnegative cleanup\npast end\npast end cleanup\n42\n");
 }
+
+#[test]
+fn native_bare_return_needs_no_semicolon_and_runs_cleanup() {
+    runs(r#"class Application {
+      stop() {
+        try {
+          print('before')
+          return
+          print('unreachable')
+        } finally { print('cleanup') }
+      }
+      int value() { return (
+        42
+      ) }
+      main() { this.stop() print(this.value()) }
+    }"#, "before\ncleanup\n42\n");
+}

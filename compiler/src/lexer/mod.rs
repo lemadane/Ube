@@ -9,6 +9,21 @@ mod tests {
     use super::*;
 
     #[test]
+    fn semicolons_are_rejected_as_code_but_allowed_in_literals_and_comments() {
+        let source = ";\n';' `;` \";\" \"\n  ;\n  \" // ;\n";
+        let mut lexer = Lexer::new(source);
+        let token = lexer.next_token();
+        assert!(matches!(token.kind, TokenKind::Error(ref message)
+            if message == "Semicolons are not allowed in Ube; remove ';'"));
+        assert_eq!(token.span.start.line, 1);
+        assert_eq!(token.span.start.column, 1);
+        for expected in [";", ";", ";", ";\n"] {
+            assert_eq!(lexer.next_token().kind, TokenKind::StringLiteral(expected.into()));
+        }
+        assert_eq!(lexer.next_token().kind, TokenKind::Eof);
+    }
+
+    #[test]
     fn test_lex_ube_keywords_and_string_literals() {
         let code = r#"
             class User(long id, string name, var int age = 0) {

@@ -57,14 +57,15 @@ pub struct Parser<'a> {
 
 impl<'a> Parser<'a> {
     pub fn new(mut lexer: Lexer<'a>) -> Self {
-        let current_token = lexer.next_token();
-        let peek_token = lexer.next_token();
+        let mut diagnostics = Vec::new();
+        let current_token = Self::read_token(&mut lexer, &mut diagnostics);
+        let peek_token = Self::read_token(&mut lexer, &mut diagnostics);
         Self {
             lexer,
             in_trait: false,
             current_token,
             peek_token,
-            diagnostics: Vec::new(),
+            diagnostics,
         }
     }
 
@@ -120,8 +121,17 @@ impl<'a> Parser<'a> {
         Ok(Span::combine(start, end))
     }
 
+    fn read_token(lexer: &mut Lexer<'a>, diagnostics: &mut Vec<Diagnostic>) -> Token {
+        let token = lexer.next_token();
+        if let TokenKind::Error(message) = &token.kind {
+            diagnostics.push(Diagnostic::error(message.clone(), Some(token.span)));
+        }
+        token
+    }
+
     fn advance(&mut self) {
-        self.current_token = std::mem::replace(&mut self.peek_token, self.lexer.next_token());
+        let next = Self::read_token(&mut self.lexer, &mut self.diagnostics);
+        self.current_token = std::mem::replace(&mut self.peek_token, next);
     }
 
     fn check(&self, kind: &TokenKind) -> bool {
@@ -168,10 +178,6 @@ impl<'a> Parser<'a> {
     fn synchronize(&mut self) {
         self.advance();
         while self.current_token.kind != TokenKind::Eof {
-            if self.current_token.kind == TokenKind::Semicolon {
-                self.advance();
-                return;
-            }
             match self.current_token.kind {
                 TokenKind::Class
                 | TokenKind::Trait
@@ -448,7 +454,7 @@ impl<'a> Parser<'a> {
         self.expect(&TokenKind::CloseParen, ")")?;
 
         let mut body = Vec::new();
-        let end_span = if self.match_token(&TokenKind::Semicolon) || (self.in_trait && !self.check(&TokenKind::OpenBrace)) {
+        let end_span = if self.in_trait && !self.check(&TokenKind::OpenBrace) {
             self.current_token.span
         } else {
             self.expect(&TokenKind::OpenBrace, "{")?;
@@ -662,7 +668,6 @@ impl<'a> Parser<'a> {
             self.parse_expr(Precedence::None)?
         };
         let end_span = self.current_token.span;
-        self.match_token(&TokenKind::Semicolon);
 
         Ok(Stmt {
             kind: StmtKind::Throw(expr),
@@ -673,7 +678,7 @@ impl<'a> Parser<'a> {
     fn parse_break_stmt(&mut self) -> Result<Stmt, ()> {
         let start_span = self.current_token.span;
         self.expect(&TokenKind::Break, "break")?;
-        self.match_token(&TokenKind::Semicolon);
+
         Ok(Stmt {
             kind: StmtKind::Break,
             span: start_span,
@@ -683,7 +688,7 @@ impl<'a> Parser<'a> {
     fn parse_continue_stmt(&mut self) -> Result<Stmt, ()> {
         let start_span = self.current_token.span;
         self.expect(&TokenKind::Continue, "continue")?;
-        self.match_token(&TokenKind::Semicolon);
+
         Ok(Stmt {
             kind: StmtKind::Continue,
             span: start_span,
@@ -715,7 +720,6 @@ impl<'a> Parser<'a> {
         };
 
         let end_span = self.current_token.span;
-        self.match_token(&TokenKind::Semicolon);
 
         Ok(Stmt {
             kind: StmtKind::LocalDecl {
@@ -766,7 +770,6 @@ impl<'a> Parser<'a> {
                     None
                 };
                 let end_span = self.current_token.span;
-                self.match_token(&TokenKind::Semicolon);
 
                 return Ok(Stmt {
                     kind: StmtKind::LocalDecl {
@@ -782,7 +785,6 @@ impl<'a> Parser<'a> {
 
         let expr = self.parse_expr(Precedence::None)?;
         let end_span = self.current_token.span;
-        self.match_token(&TokenKind::Semicolon);
 
         Ok(Stmt {
             kind: StmtKind::Expr(expr),
@@ -903,12 +905,16 @@ impl<'a> Parser<'a> {
     fn parse_return_stmt(&mut self) -> Result<Stmt, ()> {
         let start_span = self.current_token.span;
         self.expect(&TokenKind::Return, "return")?;
-        let expr = if !self.check(&TokenKind::Semicolon) && !self.check(&TokenKind::CloseBrace) {
+        // A return value must start on the same line as `return`. This lets a
+        // bare return precede another statement without a semicolon.
+        let expr = if self.current_token.span.start.line == start_span.end.line
+            && !self.check(&TokenKind::CloseBrace)
+            && !self.check(&TokenKind::Eof)
+        {
             Some(self.parse_expr(Precedence::None)?)
         } else {
             None
         };
-        self.match_token(&TokenKind::Semicolon);
 
         Ok(Stmt {
             kind: StmtKind::Return(expr),
@@ -920,7 +926,6 @@ impl<'a> Parser<'a> {
         let start_span = self.current_token.span;
         self.expect(&TokenKind::Yield, "yield")?;
         let expr = self.parse_expr(Precedence::None)?;
-        self.match_token(&TokenKind::Semicolon);
 
         Ok(Stmt {
             kind: StmtKind::Yield(expr),

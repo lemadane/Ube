@@ -18,6 +18,7 @@ Ube is positioned between Go and Java:
 * Built-in `print(...)` directive for output (always appends a newline, equivalent to Java `System.out.println` or Python `print()`).
 * Implicit void return types: methods without an explicit return type default to void. The `void` keyword does not exist in Ube.
 * Immutable by default (fields, parameters, local variables).
+* No semicolons in code: statement terminators and separators using `;` are compile errors. Semicolons inside literals and comments are permitted. A return value must begin on the same line as `return`; a newline ends a bare return.
 * Garbage-collected runtime with zero manual memory management boilerplate.
 * Statically typed with structural generic constraints and flow-sensitive type narrowing.
 * Direct native compilation through LLVM (no transpilation to Java, C, Go, or Rust).

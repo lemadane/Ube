@@ -182,7 +182,7 @@ impl<'a> Lexer<'a> {
             }
             ';' => {
                 self.advance();
-                TokenKind::Semicolon
+                TokenKind::Error("Semicolons are not allowed in Ube; remove ';'".into())
             }
             ',' => {
                 self.advance();

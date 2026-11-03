@@ -136,7 +136,7 @@ fn compiled_ube_server_stays_running_and_serves_http_requests() {
                     Hello from Ube e2e!
                     This is a captured multiline string.
                     "
-                server.get("/", request -> response.ok(res));
+                server.get("/", request -> response.ok(res))
                 server.start({port})
             }}
         }}

@@ -31,7 +31,7 @@
 ### 4. Unified `class` Model & Enums via Sum Classes (No `enum` Keyword)
 - **Single Type Keyword (`class`)**: `class` is the sole user-defined type keyword (no `enum`, `struct`, `record`, or `union`).
 - **Primary Constructor Fields**: `class User(long id, string name, var int age)` automatically generates package-private backing fields (`_id`, `_name`, `_age`) and public getter methods (`id()`, `name()`, `age()`).
-- **Enums via Sum Classes**: Enumerations and algebraic variants are declared using `case` clauses inside a `class` (e.g. `class Status { case Pending; case Approved(long orderId) }`).
+- **Enums via Sum Classes**: Enumerations and algebraic variants are declared using `case` clauses inside a `class` (e.g. `class Status { case Pending case Approved(long orderId) }`).
 
 ### 5. No `void` Keyword & Implicit Void Return Types
 - **No `void` Keyword**: The `void` keyword does not exist in Ube.
@@ -120,7 +120,7 @@
 - **Directories & Paths**: `Directory.create('logs')`, `Path.join('src', 'main.Ube')`.
 
 ### 21. Web Server Standard Library (`server`, `request`, `response`)
-- **Lambda and route syntax**: Inline handler arguments are supported, for example `server.get('/', request -> response.ok('hello'));`. The original trailing-lambda form remains supported.
+- **Lambda and route syntax**: Inline handler arguments are supported, for example `server.get('/', request -> response.ok('hello'))`. The original trailing-lambda form remains supported.
 - **Lowercase built-in type aliases**: Built-in class types accept lowercase names such as `server`, `request`, and `response`; existing PascalCase names such as `Server` and `Response` remain valid.
 - **Express / Ktor Ergonomics**: Fluent routing with `server.get()`, `server.post()`, `server.put()`, `server.delete()`, `server.use()` (middleware), `server.static()`, `server.websocket()`, and `server.start(8080)`.
 - **Multi-Protocol Support**: Default `HTTP/1.1` TCP transport, `server.enableHttp2()` for TLS ALPN multiplexing, and `server.enableHttp3(443)` for native UDP QUIC 0-RTT transport.
@@ -214,6 +214,8 @@ code --install-extension ube-vscode-0.6.0.vsix
 ---
 
 ## Code Examples
+
+Ube prohibits semicolons as statement terminators or separators. Write statements without them. A bare `return` ends at a newline or `}`; start a return value on the same line as `return` (parentheses allow the value to continue across lines). Semicolons inside string, text-block, and character literals or comments are ordinary content.
 
 ### 1. Unified Classes & Methods
 
@@ -851,7 +853,7 @@ class Application {
     main() {
         final server = server()
 
-        server.get('/', request -> response.ok('Hello from Ube!'));
+        server.get('/', request -> response.ok('Hello from Ube!'))
 
         server.start(8080)
     }

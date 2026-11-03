@@ -8,8 +8,8 @@ The formatter follows the starter program's formatting needs:
 - Put every argument of a call with two or more arguments on its own line, indented two spaces inside the call.
 - Put multiline-call closing parentheses on their own lines, aligned with the beginning of the line where the call starts.
 - Apply indentation consistently to comment-only lines.
-- Preserve string literals, comments, semicolons, and source tokens.
-- Do not add or remove statement semicolons.
+- Preserve string literals, comments, and source tokens.
+- Ube prohibits statement semicolons. The formatter preserves invalid source tokens for compiler diagnostics and never inserts semicolons.
 - Formatting is deterministic and idempotent.
 
 For example:
@@ -19,11 +19,11 @@ class Application {
     main() {
         final server = server()
         server.get(
-          "/",
+          '/',
           request -> response.ok(
-            "Hello from my Ube server!"
+            'Hello from my Ube server!'
           )
-        );
+        )
         server.start(8080)
     }
 }

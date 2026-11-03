@@ -81,7 +81,7 @@ fn test_ube_sum_classes_parsing() {
 fn test_ube_trait_parsing() {
     let source = r#"
         trait Printable {
-            printDetails();
+            printDetails()
             string getHeader() {
                 return `=== PRINTABLE ===`
             }
@@ -185,7 +185,7 @@ fn test_lambda_captures_outer_variables() {
 fn test_e2e_trait_polymorphism() {
     let source_code = r#"
         trait Printable {
-            printDetails();         // Abstract method
+            printDetails()         // Abstract method
 
             string getHeader() {    // Default implementation
                 return `=== PRINTABLE ITEM ===`
@@ -635,7 +635,7 @@ fn test_e2e_unary_not_lowering() {
 fn test_e2e_trait_return_type_preservation() {
     let source_code = r#"
         trait Item {
-            string getTitle();
+            string getTitle()
         }
 
         class Book(string title) {
@@ -877,7 +877,7 @@ fn test_e2e_application_constructor_defaults_are_initialized() {
 fn test_e2e_abstract_trait_nonvoid_method_never_returns_void() {
     let source_code = r#"
         trait Item {
-            string title();
+            string title()
         }
 
         class Application {
@@ -1058,11 +1058,11 @@ fn test_e2e_unsupported_binary_never_panics_backend() {
 fn test_e2e_trait_declared_return_types_preserved_across_all_types() {
     let source_code = r#"
         trait DataSupplier {
-            int count();
-            long timestamp();
-            decimal ratio();
-            bool isValid();
-            string code();
+            int count()
+            long timestamp()
+            decimal ratio()
+            bool isValid()
+            string code()
         }
 
         class Service(
@@ -3236,7 +3236,7 @@ fn test_server_middleware_and_try_syntax_typecheck() {
             main() {
                 final server = Server()
                 server.use(`/api`) { request ->
-                    if (!request.hasBearerToken()) {
+                    if (not request.hasBearerToken()) {
                         raise(GenericError(`Unauthorized`))
                     }
                 }

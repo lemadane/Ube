@@ -10,6 +10,40 @@ mod tests {
     use crate::lexer::Lexer;
 
     #[test]
+    fn semicolons_are_rejected_in_statements_and_declarations() {
+        for source in [
+            "; class Application { main() {} }",
+            "class Application { main() { print('hello'); } }",
+            "class Application { main() { final value = 1; } }",
+            "class Application { main() { return; } }",
+            "class Application { main() { for (true) { break; } } }",
+            "class Application { main() { for (true) { continue; } } }",
+            "trait Printable { printDetails(); }",
+            "class Application { main(); }",
+            "class Application { main() { server.use('/api') { request -> print('hello'); } } }",
+            "class Application { main() {} };",
+        ] {
+            let mut parser = Parser::new(Lexer::new(source));
+            parser.parse_program();
+            assert!(parser.diagnostics.iter().any(|diagnostic|
+                diagnostic.message == "Semicolons are not allowed in Ube; remove ';'"
+            ), "Missing semicolon diagnostic for {source}: {:?}", parser.diagnostics);
+        }
+    }
+
+    #[test]
+    fn newline_ends_a_bare_return() {
+        let mut parser = Parser::new(Lexer::new(
+            "class Application { main() { return\n print('unreachable') } }"
+        ));
+        let program = parser.parse_program();
+        assert!(parser.diagnostics.is_empty(), "{:?}", parser.diagnostics);
+        let Item::Class(class) = &program.items[0] else { panic!("Expected class"); };
+        assert!(matches!(class.methods[0].body[0].kind, StmtKind::Return(None)));
+        assert_eq!(class.methods[0].body.len(), 2);
+    }
+
+    #[test]
     fn test_parse_ube_class_and_application() {
         let code = r#"
             class User(
