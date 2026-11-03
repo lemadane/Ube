@@ -199,6 +199,36 @@ fn cancellation_unblocks_await_and_runs_worker_cleanup() {
       }
     }"#, "worker cleanup\ntask was cancelled\n");
 }
+
+#[test]
+fn cancellation_allows_async_cleanup_and_preserves_original_failure() {
+    runs(r#"class Application {
+      async work(Channel<int> ready, Channel<int> blocked, Channel<int> completed) {
+        try {
+          final sent = await ready.send(1)
+          final value = await blocked.receive()
+        } finally {
+          print("cleanup started")
+          try { final value = await blocked.receive().timeout(5) }
+          catch (Error err) { print(err.message()) }
+          final sent = await completed.send(7)
+          print("cleanup completed")
+        }
+      }
+      main() {
+        final ready = Channel<int>(1)
+        final blocked = Channel<int>(1)
+        final completed = Channel<int>(1)
+        final task = this.work(ready, blocked, completed)
+        final started = await ready.receive()
+        final cancelled = task.cancel()
+        try { final value = await task }
+        catch (Error err) { print(err.message()) }
+        print(await completed.receive().timeout(1000))
+      }
+    }"#, "cleanup started\ntask timed out\ncleanup completed\ntask was cancelled\n7\n");
+}
+
 #[test]
 fn unhandled_sync_and_async_errors_exit_unsuccessfully() {
     for source in [r#"class Application { main() { throw "sync" } }"#,
@@ -297,4 +327,32 @@ fn unhandled_runtime_io_errors_exit_unsuccessfully() {
     assert_eq!(output.status.code(), Some(1));
     assert!(output.stdout.is_empty());
     assert!(String::from_utf8_lossy(&output.stderr).contains("FileNotFoundError"));
+}
+
+#[test]
+fn native_list_indexing_compiles_with_and_without_handlers() {
+    runs(r#"class Application {
+      int first() { final values = [42] return values[0] }
+      main() {
+        print(this.first())
+        final values = [10, 20]
+        try { print(values[0]) print(values[1]) }
+        catch (Error err) { print("unexpected error") }
+        finally { print("cleanup") }
+      }
+    }"#, "42\n10\n20\ncleanup\n");
+}
+
+#[test]
+fn native_list_bounds_errors_are_caught_and_run_cleanup() {
+    runs(r#"class Application { main() {
+      final values = [42]
+      try { print(values[-1]) print("unreachable") }
+      catch (Error err) { print("negative index") }
+      finally { print("negative cleanup") }
+      try { print(values[1]) print("unreachable") }
+      catch (Error err) { print("past end") }
+      finally { print("past end cleanup") }
+      print(values[0])
+    } }"#, "negative index\nnegative cleanup\npast end\npast end cleanup\n42\n");
 }

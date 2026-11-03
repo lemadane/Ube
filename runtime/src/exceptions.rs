@@ -82,6 +82,7 @@ pub fn named(type_name: &str, message: String) -> usize {
 pub fn set_pending(record: usize) { PENDING.with(|p| p.set(record)); }
 pub fn take_pending() -> usize { PENDING.with(|p| p.replace(0)) }
 pub fn mark_cancellation_reported() { CANCELLATION_REPORTED.with(|p| p.set(true)); }
+pub(crate) fn cancellation_reported() -> bool { CANCELLATION_REPORTED.with(Cell::get) }
 pub fn reset_cancellation() { CANCELLATION_REPORTED.with(|p| p.set(false)); }
 pub fn message(record: usize) -> String {
     if record == 0 { return String::new(); }

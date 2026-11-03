@@ -3486,9 +3486,9 @@ impl IrBuilder {
             ExprKind::IndexAccess { target, index } => {
                 let target_op = self.build_expr(target);
                 let index_op = self.build_expr(index);
-                let dest = self.fresh_reg();
                 if let Type::Class { ref name } = target_op.get_type() {
                     if name == "Map" {
+                        let dest = self.fresh_reg();
                         self.emit(IrInstruction::CallRuntime {
                             dest: Some(dest),
                             symbol: "ube_map_get".into(),
@@ -3564,11 +3564,16 @@ impl IrBuilder {
                     self.emit(IrInstruction::Jump {
                         target: check_target,
                     });
-                    self.finish_block(oob_block);
+                    // Creating the exception calls message(), whose exception
+                    // check can move emission to a new block.
+                    self.end_block();
 
                     self.current_block_id = Some(ok_block);
                 }
 
+                // Allocate after bounds-check instructions so LLVM's numbered
+                // register definitions remain in ascending order.
+                let dest = self.fresh_reg();
                 self.emit(IrInstruction::CallRuntime {
                     dest: Some(dest),
                     symbol: "ube_list_get".into(),

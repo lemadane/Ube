@@ -50,7 +50,7 @@
 
 ### 9. Truthy & Falsy Conditions
 - Conditions in `if (condition)` and `for (condition)` accept truthy and falsy values:
-  - **Falsy**: `false`, `null`, `0`, `0.0`, `-0.0`, `` `` (empty string).
+  - **Falsy**: `false`, `null`, `0`, `0.0`, `-0.0`, `''` (empty string).
   - **Truthy**: `true`, non-zero numbers, non-empty strings, class instances, anonymous objects.
 - **Flow-Sensitive Narrowing**: Evaluating a nullable `User?` in an `if (user)` block automatically narrows `user` to non-null `User`.
 
@@ -87,7 +87,7 @@
 - **`try` Block**: Followed by typed catches, a `finally` block, or both.
 - **Typed Catches**: `catch (Error err)` handles any error; concrete classes and structural error traits can narrow the match. Optional `if (condition)` guards select handlers in source order.
 - **`finally` Cleanup**: Runs on normal completion, errors, returns, and loop exits. If cleanup throws while another error is pending, the cleanup error replaces it and preserves the original as suppressed.
-- **`throw` Keyword**: `throw "msg"` wraps a string in `GenericError`; `throw CustomError(...)` preserves the error object. Error objects structurally provide `string message()`.
+- **`throw` Keyword**: `throw 'msg'` wraps a string in `GenericError`; `throw CustomError(...)` preserves the error object. Error objects structurally provide `string message()`.
 
 
 ### 16. First-Class `if` Expressions & `for` Comprehensions (Mandatory `{}` & `yield`)
@@ -103,7 +103,7 @@
 
 ### 18. Unified `DateTime` (`Instant` + Timezone) & `Duration` Standard Library
 - **Single `DateTime` Class**: Eliminates Java's multi-class date/time API clutter (`Date`, `Time`, `LocalDate`, `LocalTime`, `LocalDateTime`, `ZonedDateTime`, `Instant`). One unified `DateTime` represents both the exact UTC Instant and its timezone display.
-- **Instant Invariance**: `manila.in("Asia/Tokyo")` changes displayed clock time (`17:00` vs `18:00`) while preserving `manila.timestamp() == tokyo.timestamp()` (representing the exact same instant).
+- **Instant Invariance**: `manila.in('Asia/Tokyo')` changes displayed clock time (`17:00` vs `18:00`) while preserving `manila.timestamp() == tokyo.timestamp()` (representing the exact same instant).
 - **Unix Timestamps & Timezones**: `dt.timestamp()`, `dt.unix()`, `dt.unixMillis()`, `dt.unixNanos()`, `DateTime.fromUnix(sec)`, `DateTime.fromUnixMillis(ms)`.
 - **Dedicated `Duration` Class**: `Duration.seconds(n)`, `Duration.hours(n)`, `Duration.days(n)` cleanly represents time amounts (`dt.addDuration(duration)`).
 
@@ -115,30 +115,32 @@
 
 ### 20. Native Filesystem Standard Library (`File`, `FileInfo`, `Directory`, `Path`)
 - **Catchable File Errors**: File and directory failures raise typed errors such as `FileNotFoundError`, `PermissionError`, or `FileError`.
-- **Object-Oriented & Static Helpers**: `File.read("app.txt")`, `File.write("out.txt", data)`, `file = File.open(path)`, `file.read()`, `file.close()`.
+- **Object-Oriented & Static Helpers**: `File.read('app.txt')`, `File.write('out.txt', data)`, `file = File.open(path)`, `file.read()`, `file.close()`.
 - **Resource Cleanup**: Close file handles in a `finally` block.
-- **Directories & Paths**: `Directory.create("logs")`, `Path.join("src", "main.Ube")`.
+- **Directories & Paths**: `Directory.create('logs')`, `Path.join('src', 'main.Ube')`.
 
 ### 21. Web Server Standard Library (`server`, `request`, `response`)
-- **Lambda and route syntax**: Inline handler arguments are supported, for example `server.get("/", request -> response.ok("hello"));`. The original trailing-lambda form remains supported.
+- **Lambda and route syntax**: Inline handler arguments are supported, for example `server.get('/', request -> response.ok('hello'));`. The original trailing-lambda form remains supported.
 - **Lowercase built-in type aliases**: Built-in class types accept lowercase names such as `server`, `request`, and `response`; existing PascalCase names such as `Server` and `Response` remain valid.
 - **Express / Ktor Ergonomics**: Fluent routing with `server.get()`, `server.post()`, `server.put()`, `server.delete()`, `server.use()` (middleware), `server.static()`, `server.websocket()`, and `server.start(8080)`.
 - **Multi-Protocol Support**: Default `HTTP/1.1` TCP transport, `server.enableHttp2()` for TLS ALPN multiplexing, and `server.enableHttp3(443)` for native UDP QUIC 0-RTT transport.
-- **Request & Response Ergonomics**: `request.pathLong("id")`, `request.query("search")`, `request.hasBearerToken()`, `request.cookie("session")`, `request.protocol()`, `request.isHttp3()`, `Response.ok("hello")`, `Response.json(data)`.
+- **Request & Response Ergonomics**: `request.pathLong('id')`, `request.query('search')`, `request.hasBearerToken()`, `request.cookie('session')`, `request.protocol()`, `request.isHttp3()`, `Response.ok('hello')`, `Response.json(data)`.
 - **Current runtime status**: `server.start(port)` currently runs a blocking, loopback-only HTTP/1.1 server with exact method/path route matching. TLS, HTTP/2/3, request-body parsing, middleware, static-file serving, and WebSockets are not implemented yet; several advanced `Request` accessors remain placeholders.
 
 ### 22. First-Class Native JSON & XML Record Mapping (`Json`, `JsonObject`, `JsonArray`, `Xml`, `XmlDocument`, `XmlElement`)
 - **Bi-Directional Document & Class Mapping**: `Json.parse(text)`, `Json.partialParse(text, TargetClass)`, `Json.stringify(obj)`, `Json.from(obj)`, `Json.to(text, TargetClass)`.
-- **XML Document Traversal & Generation**: `Xml.parse(text)`, `Xml.create("root")`, `doc.root().child("tag").text()`, `doc.toString()`.
+- **XML Document Traversal & Generation**: `Xml.parse(text)`, `Xml.create('root')`, `doc.root().child('tag').text()`, `doc.toString()`.
 - **Reversible Character Codec (`DataNameCodec`)**: Maps XML/JSON tag/key names with hyphens (`Facility-ID`), namespaces (`rest:KitchenOrderScan`), or dots to Ube identifier conventions (`Facility$hyphen$ID`, `rest$KitchenOrderScan`).
 - **Strict vs. Partial Parsing Modes**: Strict mode enforces 1-to-1 structural completeness; Partial mode selectively maps declared components while assigning defaults (`null`, `List.of()`, `0`, `false`).
 - **Structured Format Error Handling**: Typed error handling via `try`/`catch (Error err)` with `JsonParseError`, `XmlParseError`, `MissingDataError`, `ExcessDataError`.
 
 ### 23. String Literals & Text Blocks
 
-Text blocks use a single opening double quote followed by a line break, then a closing double quote. They are useful for JSON, SQL, and HTML.
+One-line strings use single quotes (`'Hello'`). Backticks are reserved for character literals, such as `` `A` ``. A one-character string still uses single quotes (`'A'`).
 
-- Ordinary strings use `"text"`; a double quote followed only by optional spaces, tabs, or form-feed and a physical line break begins a multi-line string, closed by the next unescaped `"`.
+Text blocks open with a double quote followed by a line break and end with a closing double quote. They are useful for JSON, SQL, and HTML.
+
+- One-line strings use `'text'`; a double quote followed only by optional spaces, tabs, or form-feed and a physical line break begins a multi-line string, closed by the next unescaped `"`.
 - Multi-line strings normalize LF, CRLF, and CR to `\n`, remove common incidental indentation (including the closing delimiter's indentation), and retain the newline before a closing delimiter on its own line. Put the closing quote after the last content character to omit that final newline.
 - Escape sequences include `\n`, `\t`, `\r`, `\b`, `\f`, `\\`, `\"`, `\'`, `\s`, octal escapes, and `\u` followed by four hexadecimal digits. A backslash directly before a physical line break joins the next line without a newline.
 - Braces are literal; multi-line strings do not interpolate.
@@ -163,7 +165,7 @@ final html = "
     </article>
     "
 
-final ordinary = "Hello\nWorld"
+final ordinary = 'Hello\nWorld'
 ```
 
 The opening line break is excluded. For example, this text block has the value `Hello\nWorld\n`:
@@ -244,20 +246,20 @@ trait Printable {
 
     // Default method implementation
     string getHeader() {
-        return `=== PRINTABLE ITEM ===`
+        return '=== PRINTABLE ITEM ==='
     }
 }
 
 // Class definitions — NO 'implements' keyword needed!
 class User(long id, string name) {
     printDetails() {
-        print(`User #${this._id}: ${this._name}`)
+        print('User #${this._id}: ${this._name}')
     }
 }
 
 class Invoice(long id, decimal total) {
     printDetails() {
-        print(`Invoice #${this._id}: \$${this._total}`)
+        print('Invoice #${this._id}: \$${this._total}')
     }
 }
 
@@ -268,7 +270,7 @@ class Application {
     }
 
     main() {
-        final user = User(1000L, `Lem`)
+        final user = User(1000L, 'Lem')
         final invoice = Invoice(5001L, 199.99)
 
         // Both User and Invoice implicitly satisfy Printable
@@ -286,22 +288,22 @@ In Ube, the exclamation symbol `!` is not a valid operator. Logical negation and
 class Application {
     main() {
         final bool isConnected = false
-        final string input = `` // Empty string (falsy)
+        final string input = '' // Empty string (falsy)
         final Object data = 42
 
         // 1. Logical negation of boolean values
         if (not isConnected) {
-            print(`System is disconnected`) // Executes because not false is true
+            print('System is disconnected') // Executes because not false is true
         }
 
         // 2. Truthiness negation (falsy check)
         if (not input) {
-            print(`No input provided`) // Executes because empty string is falsy
+            print('No input provided') // Executes because empty string is falsy
         }
 
         // 3. Negated type check ('is not')
         if (data is not string) {
-            print(`Data is not a text string`) // Executes because data is an int
+            print('Data is not a text string') // Executes because data is an int
         }
     }
 }
@@ -315,21 +317,21 @@ Because Ube has **no `extends` keyword**, code reuse and polymorphism are achiev
 // Component Class 1: Engine
 class Engine(int horsepower) {
     start() {
-        print(`Engine started (${this._horsepower} HP)`)
+        print('Engine started (${this._horsepower} HP)')
     }
 }
 
 // Component Class 2: Logger
 class Logger(string prefix) {
     info(string message) {
-        print(`[${this._prefix}] ${message}`)
+        print('[${this._prefix}] ${message}')
     }
 }
 
 // Use Case 1: Component Embedding & Delegation (Replaces class Inheritance)
 class Car(string model, Engine engine, Logger logger) {
     startCar() {
-        this._logger.info(`Starting vehicle ${this._model}...`)
+        this._logger.info('Starting vehicle ${this._model}...')
         this._engine.start() // Explicit forwarding delegation
     }
 }
@@ -337,22 +339,22 @@ class Car(string model, Engine engine, Logger logger) {
 // Use Case 2: Behavior Injection via Primary Constructor (Strategy Pattern)
 class DataExporter(Logger logger) {
     exportData(string data) {
-        this._logger.info(`Exporting data: ${data}`)
+        this._logger.info('Exporting data: ${data}')
     }
 }
 
 class Application {
     main() {
         // Instantiate reusable components
-        final logger = Logger(`APP`)
+        final logger = Logger('APP')
         final v8Engine = Engine(450)
 
         // Compose components into higher-level objects
-        final mustang = Car(`Mustang GT`, v8Engine, logger)
+        final mustang = Car('Mustang GT', v8Engine, logger)
         mustang.startCar()
 
         final exporter = DataExporter(logger)
-        exporter.exportData(`User Record #1000`)
+        exporter.exportData('User Record #1000')
     }
 }
 ```
@@ -364,26 +366,26 @@ Because Ube omits global static variables, singletons are created once at applic
 ```java
 class DatabaseConnection(string connectionUrl) {
     query(string sql) {
-        print(`Executing query on ${this._connectionUrl}: ${sql}`)
+        print('Executing query on ${this._connectionUrl}: ${sql}')
     }
 }
 
 class UserService(DatabaseConnection db) {
     findUser(long id) {
-        this._db.query(`SELECT * FROM users WHERE id = ${id}`)
+        this._db.query('SELECT * FROM users WHERE id = ${id}')
     }
 }
 
 class OrderService(DatabaseConnection db) {
     findOrders(long userId) {
-        this._db.query(`SELECT * FROM orders WHERE user_id = ${userId}`)
+        this._db.query('SELECT * FROM orders WHERE user_id = ${userId}')
     }
 }
 
 class Application {
     main() {
         // Created ONCE at startup — acts as an application-level singleton
-        final dbSingleton = DatabaseConnection(`postgres://localhost:5432/main`)
+        final dbSingleton = DatabaseConnection('postgres://localhost:5432/main')
 
         // Injected into dependent service instances
         final userService = UserService(dbSingleton)
@@ -442,26 +444,26 @@ class Application {
         // 1. Simple Unit Enum Usage
         final dir = Direction.North
         final dirName = switch (dir) {
-            case North -> `Heading North`
-            case South -> `Heading South`
-            case East  -> `Heading East`
-            case West  -> `Heading West`
+            case North -> 'Heading North'
+            case South -> 'Heading South'
+            case East  -> 'Heading East'
+            case West  -> 'Heading West'
         }
         print(dirName)
 
         // 2. Destructuring Payload Variant
         final status = OrderStatus.Approved(10042L, 250.00)
         final statusText = switch (status) {
-            case Pending -> `Order Pending`
-            case Approved(id, amount) -> `Order #${id} Approved for \$${amount}`
-            case Rejected(reason) -> `Order Rejected: ${reason}`
+            case Pending -> 'Order Pending'
+            case Approved(id, amount) -> 'Order #${id} Approved for \$${amount}'
+            case Rejected(reason) -> 'Order Rejected: ${reason}'
         }
         print(statusText)
 
         // 3. Enum Method Call
         final level = LogLevel.Error
         if (level.isCritical()) {
-            print(`Critical log level detected!`)
+            print('Critical log level detected!')
         }
     }
 }
@@ -477,55 +479,55 @@ class Application {
         // Case 1: Constant Value Matching
         final statusCode = 200
         final statusText = switch (statusCode) {
-            case 200 -> `OK`
-            case 404 -> `Not Found`
-            case 500 -> `Internal Error`
-            default -> `Unknown Code`
+            case 200 -> 'OK'
+            case 404 -> 'Not Found'
+            case 500 -> 'Internal Error'
+            default -> 'Unknown Code'
         }
         print(statusText)
 
         // Case 2: Variant Matching with Payload Destructuring
         final status = OrderStatus.Approved(10042L, 99.99)
         final orderMessage = switch (status) {
-            case Pending -> `Waiting`
-            case Approved(id, amt) -> `Approved ID: ${id}`
-            case Rejected(r) -> `Rejected: ${r}`
+            case Pending -> 'Waiting'
+            case Approved(id, amt) -> 'Approved ID: ${id}'
+            case Rejected(r) -> 'Rejected: ${r}'
         }
         print(orderMessage)
 
         // Case 3: Type Pattern Matching ('is')
-        final Object val = `Hello World`
+        final Object val = 'Hello World'
         final typeDesc = switch (val) {
-            case is string -> `Text String`
-            case is int -> `32-bit Integer`
-            default -> `Other Type`
+            case is string -> 'Text String'
+            case is int -> '32-bit Integer'
+            default -> 'Other Type'
         }
         print(typeDesc)
 
         // Case 4: Guard Clauses ('if' guards)
         final score = 85
         final grade = switch (score) {
-            case s if (s >= 90) -> `Grade A`
-            case s if (s >= 80) -> `Grade B`
-            case s if (s >= 70) -> `Grade C`
-            default -> `Grade F`
+            case s if (s >= 90) -> 'Grade A'
+            case s if (s >= 80) -> 'Grade B'
+            case s if (s >= 70) -> 'Grade C'
+            default -> 'Grade F'
         }
         print(grade)
 
         // Case 5: Multiple Value Or-Patterns (Comma-separated)
-        final day = `Saturday`
+        final day = 'Saturday'
         final isWeekend = switch (day) {
-            case `Saturday`, `Sunday` -> true
+            case 'Saturday', 'Sunday' -> true
             default -> false
         }
-        print(`Is Weekend: ${isWeekend}`)
+        print('Is Weekend: ${isWeekend}')
 
         // Case 6: Anonymous Object Structural Matching
-        final userObj = { id: 1000, role: `Admin` }
+        final userObj = { id: 1000, role: 'Admin' }
         final accessLevel = switch (userObj) {
-            case { role: `Admin` } -> `Full Administrative Access`
-            case { id: uid } if (uid > 0) -> `Standard User Access`
-            default -> `Guest Access`
+            case { role: 'Admin' } -> 'Full Administrative Access'
+            case { id: uid } if (uid > 0) -> 'Standard User Access'
+            default -> 'Guest Access'
         }
         print(accessLevel)
     }
@@ -549,34 +551,34 @@ class Application {
             if (counter > 4) {
                 break // Exit loop
             }
-            print(`Infinite loop step: ${counter}`)
+            print('Infinite loop step: ${counter}')
         }
 
         // Case 2: Conditional Condition Loop (Replaces while(condition))
         var remaining = 3
         for (remaining) {
-            print(`Remaining: ${remaining}`)
+            print('Remaining: ${remaining}')
             remaining = remaining - 1
         }
 
         // Case 3: Element Iteration Over List/Array
-        final names = [`Lem`, `Rhea`, `Alex`]
+        final names = ['Lem', 'Rhea', 'Alex']
         for (name in names) {
-            if (name == `Rhea`) {
+            if (name == 'Rhea') {
                 continue
             }
-            print(`Name: ${name}`)
+            print('Name: ${name}')
         }
 
         // Case 4: Index & Item Destructuring Iteration
         for (index, name in names) {
-            print(`${index}: ${name}`)
+            print('${index}: ${name}')
         }
 
         // Case 5: Map Key-Value Destructuring Iteration
         final scores = [1000L: 95, 1001L: 88]
         for (id, score in scores) {
-            print(`ID ${id} -> Score ${score}`)
+            print('ID ${id} -> Score ${score}')
         }
 
         // Case 6: Numeric Range Iteration
@@ -584,15 +586,15 @@ class Application {
             if (i == 3) {
                 break
             }
-            print(`Range index: ${i}`)
+            print('Range index: ${i}')
         }
 
         // Case 7: for / else 0-Iteration Fallback Clause
         final List<string> emptyItems = []
         for (item in emptyItems) {
-            print(`Item: ${item}`)
+            print('Item: ${item}')
         } else {
-            print(`No items found (else executed for 0 iterations)`)
+            print('No items found (else executed for 0 iterations)')
         }
     }
 }
@@ -605,19 +607,19 @@ In Ube, conditions in `if (condition)` statements evaluate **truthiness and fals
 ```java
 class Application {
     main() {
-        final User? optionalUser = User(1000, `Lem`, 35)
+        final User? optionalUser = User(1000, 'Lem', 35)
         final int attempts = 3
-        final string input = `` // Empty string (falsy)
+        final string input = '' // Empty string (falsy)
 
         // 1. Truthy object evaluation & flow-sensitive narrowing
         if (optionalUser) {
             // Inside this block, 'optionalUser' is automatically narrowed from User? to non-null User
-            print(`User loaded: ${optionalUser.name()}`)
+            print('User loaded: ${optionalUser.name()}')
         }
 
         // 2. Non-zero number (truthy) & empty string (falsy) using word booleans
         if (attempts and not input) {
-            print(`System ready: ${attempts} attempts remaining and no pending input.`)
+            print('System ready: ${attempts} attempts remaining and no pending input.')
         }
     }
 }
@@ -635,7 +637,7 @@ class Application {
 
         // 1. NOT operator
         if (not isConnected) {
-            print(`System is currently disconnected`)
+            print('System is currently disconnected')
         }
 
         // 2. AND & NAND operators
@@ -650,9 +652,9 @@ class Application {
         final bool exclusiveOne = isReady xor isConnected   // true (exactly one is true)
         final bool bothMatch = isReady xnor isConnected     // false (they differ)
 
-        print(`bothActive: ${bothActive}`)
-        print(`eitherActive: ${eitherActive}`)
-        print(`exclusiveOne: ${exclusiveOne}`)
+        print('bothActive: ${bothActive}')
+        print('eitherActive: ${eitherActive}')
+        print('exclusiveOne: ${exclusiveOne}')
     }
 }
 ```
@@ -691,6 +693,8 @@ The compiler now schedules calls to declared `async` methods and infers the awai
 
 The compiler transports async method throws and runtime task failures to an enclosing `try`/`catch`; use `err.message()` to inspect the message. Awaiting a failure without a matching `catch` propagates it from an async method or `async` expression to its awaiter; anywhere else the program stops with `Ube error: unhandled exception ...` (exit code 1). Generated async methods poll cancellation at basic-block boundaries and raise a catchable cancellation error so cleanup runs; a currently executing indivisible operation cannot be interrupted. `async expr` captures visible locals when submitted and evaluates the expression on a worker. Language channels support explicit element types (`Channel<T>(capacity)`) and `close()`; `send(value)` returns `Task<bool>` and `receive()` returns `Task<T>`, with the channel wait performed on Tokio. `send` completes with false if the channel is closed; after buffered values are drained, `receive` fails with a catchable channel-closed error. `task.timeout(ms)` wraps any task (including a channel operation) with a deadline; `Task.race` waits on several channels at once. The language channel bridge transports non-null primitive values and pointer-sized values through the existing 64-bit ABI; nullable scalar payloads are rejected.
 
+Cancellation is delivered once per worker callback, either at a cancellation poll or while awaiting. After delivery, subsequent awaits, including those in `finally`, wait normally so async cleanup can finish. Errors and timeouts from cleanup operations still propagate; the original cancellation remains pending unless handled or replaced by a cleanup failure.
+
 ### 12. Built-in Collections (`List<T>`, `Map<K, V>`, Indexing & Bounds Protection)
 
 ```java
@@ -699,17 +703,17 @@ class Application {
         // 1. List literal, indexing, and methods
         final numbers = [10, 20, 30]
         numbers.add(40)
-        print(`List len: ${numbers.len()}, first element: ${numbers[0]}`)
+        print('List len: ${numbers.len()}, first element: ${numbers[0]}')
 
         // 2. Map literal, key lookup, and methods
         final scores = [1000L: 95, 1001L: 88]
-        print(`Map len: ${scores.len()}, score for 1000L: ${scores[1000L]}`)
+        print('Map len: ${scores.len()}, score for 1000L: ${scores[1000L]}')
 
         // 3. Out-of-bounds error handling
         try {
             print(numbers[10]) // Out of bounds!
         } catch (Error err) {
-            print(`Caught error: ${err.message()}`)
+            print('Caught error: ${err.message()}')
         }
     }
 }
@@ -725,14 +729,14 @@ class RequestError(string message, int code) {}
 class Application {
     main() {
         try {
-            throw RequestError("Invalid user request", 400)
+            throw RequestError('Invalid user request', 400)
         } catch (RequestError err) if (err.code() == 400) {
             print(err.message())
             print(err.code())
         } catch (Error err) {
             print(err.message())
         } finally {
-            print("Cleanup executed")
+            print('Cleanup executed')
         }
     }
 }
@@ -749,11 +753,11 @@ File and directory failures are catchable, including `FileNotFoundError`, `Permi
 ```ube
 class Application {
     main() {
-        final file = File.open("data.csv")
+        final file = File.open('data.csv')
         try {
             print(file.read())
         } catch (FileNotFoundError err) {
-            print("File does not exist")
+            print('File does not exist')
         } catch (Error err) {
             print(err.message())
         } finally {
@@ -769,22 +773,22 @@ class Application {
 class Application {
     main() {
         // 1. Instant + Timezone Creation
-        final manila = DateTime.of(2026, 8, 31, 17, 0, `Asia/Manila`)
-        final tokyo = manila.in(`Asia/Tokyo`)
+        final manila = DateTime.of(2026, 8, 31, 17, 0, 'Asia/Manila')
+        final tokyo = manila.in('Asia/Tokyo')
 
         // 2. Instant Invariance (Timestamps match 100%, displayed clock hours differ)
-        print(`Timestamps equal: ${manila.timestamp() == tokyo.timestamp()}`) // true!
-        print(`Manila hour: ${manila.hour()}, Tokyo hour: ${tokyo.hour()}`)     // 17 vs 18
+        print('Timestamps equal: ${manila.timestamp() == tokyo.timestamp()}') // true!
+        print('Manila hour: ${manila.hour()}, Tokyo hour: ${tokyo.hour()}')     // 17 vs 18
 
         // 3. Unix Timestamps & Formatting
         final dt = DateTime.fromUnix(1788159600)
-        print(`Formatted: ${dt.format(`yyyy-MM-dd HH:mm:ss`)}`)
+        print('Formatted: ${dt.format('yyyy-MM-dd HH:mm:ss')}')
 
         // 4. Time Amounts with Duration
         final start = DateTime.now()
         final timeout = Duration.seconds(30)
         final expires = start.addDuration(timeout)
-        print(`Expires in: ${expires.diffSeconds(start)} seconds`)
+        print('Expires in: ${expires.diffSeconds(start)} seconds')
     }
 }
 ```
@@ -797,21 +801,21 @@ class Application {
         // 1. Immutable Financial Money Creation
         final price = Money.php(1250.75)
         final dollar = Money.usd(100.00)
-        print(`Price amount: ${price.amount()}, Currency: ${price.currency().code()}`)
+        print('Price amount: ${price.amount()}, Currency: ${price.currency().code()}')
 
         // 2. Currency-Safe Arithmetic
         final shipping = Money.php(100.00)
         final total = price.add(shipping)
-        print(`Total PHP amount: ${total.amount()}`)
+        print('Total PHP amount: ${total.amount()}')
 
         // 3. Explicit Currency Conversion via Exchange
         final converted = Exchange.convert(dollar, Currency.PHP, 58.50)
-        print(`100 USD converted to PHP: ${converted.amount()}`)
+        print('100 USD converted to PHP: ${converted.amount()}')
 
         // 4. Financial Percentages & Taxes
         final vat = Percent(12)
         final tax = total.multiply(vat)
-        print(`VAT Tax amount: ${tax.amount()}`)
+        print('VAT Tax amount: ${tax.amount()}')
     }
 }
 ```
@@ -822,17 +826,17 @@ class Application {
 class Application {
     main() {
         // 1. One-shot static conveniences
-        File.write(`logs/app.txt`, `Server initialized\n`)
-        final content = File.read(`logs/app.txt`)
-        print(`Log content: ${content}`)
+        File.write('logs/app.txt', 'Server initialized\n')
+        final content = File.read('logs/app.txt')
+        print('Log content: ${content}')
 
         // 2. Object-oriented handle with cleanup
-        final file = File.open(`data.csv`)
+        final file = File.open('data.csv')
         try {
             final data = file.read()
-            print(`Read ${data.len()} bytes`)
+            print('Read ${data.len()} bytes')
         } catch (Error err) {
-            print(`File error: ${err.message()}`)
+            print('File error: ${err.message()}')
         } finally {
             file.close()
         }
@@ -847,7 +851,7 @@ class Application {
     main() {
         final server = server()
 
-        server.get("/", request -> response.ok("Hello from Ube!"));
+        server.get('/', request -> response.ok('Hello from Ube!'));
 
         server.start(8080)
     }
@@ -865,20 +869,21 @@ class KitchenOrderScan(
 class Application {
     main() {
         // 1. JSON Document Parsing & Getters
-        final jsonText = `{"restaurantID": "0603", "orderType": "DineIn"}`
+        final jsonText = '{"restaurantID": "0603", "orderType": "DineIn"}'
         final json = Json.parse(jsonText)
-        print(`Restaurant ID: ${json.getString(\`restaurantID\`)}`)
+        final restaurantId = json.getString('restaurantID')
+        print('Restaurant ID: ${restaurantId}')
 
         // 2. Strongly-Typed Record Mapping & Stringification
         final scan = Json.partialParse(jsonText, KitchenOrderScan)
         final formattedJson = Json.stringify(scan)
-        print(`JSON Stringified: ${formattedJson}`)
+        print('JSON Stringified: ${formattedJson}')
 
         // 3. XML Traversal & Generation
-        final doc = Xml.create(`user`)
-        doc.root().element(`name`).text(`Lem`)
-        doc.root().element(`age`).text(`40`)
-        print(`Generated XML:\n${doc.toString()}`)
+        final doc = Xml.create('user')
+        doc.root().element('name').text('Lem')
+        doc.root().element('age').text('40')
+        print('Generated XML:\n${doc.toString()}')
     }
 }
 ```
@@ -886,7 +891,7 @@ class Application {
 ### 19. Compile-Time Null Safety & Variable Initializers
 
 ```java
-class User(string name = `Guest`)
+class User(string name = 'Guest')
 
 class Application {
     main() {
@@ -899,8 +904,8 @@ class Application {
         User? u4 = null // Explicitly assigned null
 
         // 3. Optional chaining & null coalescing
-        final displayName = u3?.name() ?? `Anonymous`
-        print(`Display Name: ${displayName}`)
+        final displayName = u3?.name() ?? 'Anonymous'
+        print('Display Name: ${displayName}')
     }
 }
 ```

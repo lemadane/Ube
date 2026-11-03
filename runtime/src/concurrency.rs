@@ -540,7 +540,11 @@ pub extern "C" fn ube_task_await(ptr: *mut c_void) -> i64 {
         return 0;
     }
     let task = unsafe { &*(ptr as *const Task<i64>) };
-    let cancellation = CURRENT_CANCELLATION.with(|current| current.borrow().clone());
+    // Polling and awaiting share one cancellation delivery per callback. Once
+    // delivered, cleanup awaits must not re-deliver the parent's cancellation;
+    // errors from the awaited task itself still propagate normally.
+    let cancellation = CURRENT_CANCELLATION.with(|current| current.borrow().clone())
+        .filter(|_| !crate::exceptions::cancellation_reported());
     let result = if let Some(flag) = cancellation {
         block_on(async {
             tokio::select! {
@@ -948,6 +952,34 @@ pub fn ube_concurrency_cleanup() {
 mod tests {
     use super::*;
     use std::sync::atomic::{AtomicUsize, Ordering};
+
+    #[test]
+    fn cancellation_delivered_by_poll_does_not_interrupt_later_awaits() {
+        // Isolate the worker-local cancellation state from other runtime tests.
+        std::thread::spawn(|| {
+            CURRENT_CANCELLATION.with(|current| {
+                *current.borrow_mut() = Some(Arc::new(AtomicBool::new(true)));
+            });
+            crate::exceptions::reset_cancellation();
+            assert!(!crate::exceptions::ube_exception_poll_cancel().is_null());
+            assert!(crate::exceptions::ube_exception_poll_cancel().is_null());
+
+            let task = spawn_task(|_| async {
+                tokio::time::sleep(Duration::from_millis(5)).await;
+                Ok(42_i64)
+            });
+            let handle = (&task as *const Task<i64>) as *mut c_void;
+            assert_eq!(ube_task_await(handle), 42);
+            assert_eq!(crate::exceptions::take_pending(), 0);
+
+            let failed = spawn_task::<i64, _, _>(|_| async { Err(TaskError::Cancelled) });
+            let handle = (&failed as *const Task<i64>) as *mut c_void;
+            assert_eq!(ube_task_await(handle), 0);
+            let record = crate::exceptions::take_pending();
+            assert_ne!(record, 0);
+            assert_eq!(crate::exceptions::message(record), "task was cancelled");
+        }).join().unwrap();
+    }
 
     extern "C" fn failing_ube_callback(_: *mut c_void) -> i64 {
         ube_task_set_error(b"task failed\0".as_ptr().cast());

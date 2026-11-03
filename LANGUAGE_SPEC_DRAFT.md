@@ -206,6 +206,8 @@ try {
 
 **Failures.** An awaited failure (a `throw` inside an async method, a timeout, a closed-channel receive) is routed to the enclosing `try`/`catch`. Without a matching `catch`, inside an `async` method or `async` expression the failure propagates to whoever awaits that task; anywhere else the program stops with `Ube error: unhandled exception ...` and exit code 1. Failures are never silently turned into zero values.
 
+A worker receives its cancellation request once, whether at a cancellation poll or during `await`. After delivery, subsequent awaits, including `finally` cleanup, wait normally. This does not suppress failures or timeouts from the awaited operations.
+
 **Limits.** Cancellation is cooperative: generated async code checks for cancellation at basic-block boundaries, so an indivisible operation already in progress (for example a blocking native call) runs to completion. Task and channel payloads are carried through a 64-bit slot; non-null primitive and pointer-sized channel payloads are supported and nullable scalar payloads are rejected. Arithmetic directly on a `Task` or `Channel` is a type error.
 
 ---
@@ -462,7 +464,7 @@ class Application {
 
 ## 15. String Literals
 
-Ordinary strings use double quotes with the existing single-line form (`"Hello\nWorld"`). A double quote followed by optional spaces, tabs, or form-feed and a physical line terminator starts a multi-line string. The next unescaped double quote closes it. Braces remain literal; multi-line strings do not perform interpolation.
+One-line strings use single quotes (`'Hello\nWorld'`). Backticks are reserved for character literals. A double quote followed by optional spaces, tabs, or form-feed and a physical line terminator starts a multi-line string. The next unescaped double quote closes it. Braces remain literal; multi-line strings do not perform interpolation.
 
 ```ube
 final message = "
