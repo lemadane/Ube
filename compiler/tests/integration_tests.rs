@@ -44,7 +44,7 @@ fn test_ube_end_to_end_pipeline() {
     // 3. IR Lowering to SSA CFG
     let mut builder = IrBuilder::new();
     let ir_program = builder.build_program(&program);
-    assert_eq!(ir_program.classes.len(), 3);
+    assert_eq!(ir_program.classes.iter().filter(|c| program.items.iter().any(|i| matches!(i, ube_compiler::parser::Item::Class(decl) if decl.name == c.name))).count(), 3);
 
     // 4. LLVM IR Generation
     let mut emitter = TextualLlvmEmitter::new();
@@ -141,7 +141,7 @@ fn test_e2e_person_birthday() {
     // 3. IR Lowering to SSA CFG
     let mut builder = IrBuilder::new();
     let ir_program = builder.build_program(&program);
-    assert_eq!(ir_program.classes.len(), 2);
+    assert_eq!(ir_program.classes.iter().filter(|c| program.items.iter().any(|i| matches!(i, ube_compiler::parser::Item::Class(decl) if decl.name == c.name))).count(), 2);
 
     // 4. LLVM IR Generation
     let mut emitter = TextualLlvmEmitter::new();
@@ -234,7 +234,7 @@ fn test_e2e_trait_polymorphism() {
     // 3. IR Lowering to SSA CFG
     let mut builder = IrBuilder::new();
     let ir_program = builder.build_program(&program);
-    assert_eq!(ir_program.classes.len(), 3);
+    assert_eq!(ir_program.classes.iter().filter(|c| program.items.iter().any(|i| matches!(i, ube_compiler::parser::Item::Class(decl) if decl.name == c.name))).count(), 3);
 
     // 4. LLVM IR Generation
     let mut emitter = TextualLlvmEmitter::new();
@@ -1375,20 +1375,21 @@ fn test_e2e_invalid_unary_operands_emit_diagnostic() {
 }
 
 #[test]
-fn test_e2e_guard_check_no_error_flow() {
+fn test_e2e_try_check_no_error_flow() {
     let source_code = r#"
+        
         class Application {
             main() {
-                guard {
+                try {
                     print(`Step 1`)
-
-                    catch(err) {
-                        print(`Error occurred`)
-                    }
-
-                    exit {
-                        print(`Cleanup`)
-                    }
+        
+                }
+                catch (Error err) {
+                    print(`Error occurred`)
+                }
+        
+                finally {
+                    print(`Cleanup`)
                 }
             }
         }
@@ -1425,32 +1426,33 @@ fn test_e2e_guard_check_no_error_flow() {
 
     assert!(
         llvm_ir.contains("define i32 @main"),
-        "LLVM emission failed for guard check no-error flow"
+        "LLVM emission failed for try/catch no-error flow"
     );
 }
 
 #[test]
-fn test_e2e_guard_raise_check_error_flow() {
+fn test_e2e_try_raise_check_error_flow() {
     let source_code = r#"
+        
         class CustomError(string _message) {
             string message() {
                 return this._message
             }
         }
-
+        
         class Application {
             main() {
-                guard {
+                try {
                     print(`Before throw`)
                     throw(CustomError(`Something went wrong`))
-
-                    catch(err) {
-                        print(`Handled error`)
-                    }
-
-                    exit {
-                        print(`Cleanup always runs`)
-                    }
+        
+                }
+                catch (Error err) {
+                    print(`Handled error`)
+                }
+        
+                finally {
+                    print(`Cleanup always runs`)
                 }
             }
         }
@@ -1487,16 +1489,16 @@ fn test_e2e_guard_raise_check_error_flow() {
 
     assert!(
         llvm_ir.contains("define i32 @main"),
-        "LLVM emission failed for guard raise check error flow"
+        "LLVM emission failed for try/throw/catch error flow"
     );
 }
 
 #[test]
-fn test_e2e_raise_outside_guard_emits_diagnostic() {
+fn test_e2e_throw_outside_try_is_valid() {
     let source_code = r#"
         class Application {
             main() {
-                throw(`Error outside guard`)
+                throw(`Error outside try`)
             }
         }
     "#;
@@ -1509,22 +1511,23 @@ fn test_e2e_raise_outside_guard_emits_diagnostic() {
     checker.check_program(&program);
 
     assert!(
-        !checker.diagnostics.is_empty(),
-        "Expected 'throw' outside guard block to produce diagnostic error"
+        checker.diagnostics.is_empty(),
+        "Throw outside try must propagate: {:?}", checker.diagnostics
     );
 }
 
 #[test]
-fn test_e2e_guard_raise_string_interpolation_flow() {
+fn test_e2e_try_raise_string_interpolation_flow() {
     let source_code = r#"
+        
         class App {
             main() {
-                guard {
+                try {
                     throw(`an error occurred`)
-
-                    catch(error) {
-                        print(`${error}`)
-                    }
+        
+                }
+                catch (Error error) {
+                    print(`${error}`)
                 }
             }
         }
@@ -1561,21 +1564,22 @@ fn test_e2e_guard_raise_string_interpolation_flow() {
 
     assert!(
         llvm_ir.contains("define i32 @main"),
-        "LLVM emission failed for guard raise string interpolation flow"
+        "LLVM emission failed for try/throw string interpolation flow"
     );
 }
 
 #[test]
 fn test_e2e_raise_primitive_emits_diagnostic() {
     let source_code = r#"
+        
         class Application {
             main() {
-                guard {
+                try {
                     throw(123)
-
-                    exit {
-                        print(`Cleanup`)
-                    }
+        
+                }
+                finally {
+                    print(`Cleanup`)
                 }
             }
         }
@@ -1603,20 +1607,29 @@ fn test_e2e_raise_primitive_emits_diagnostic() {
 #[test]
 fn test_e2e_raise_custom_class_error_trait() {
     let source_code = r#"
-        class CustomError(int code, string rawMsg) {
+        
+        class CustomError(
+          int code,
+          string rawMsg
+        ) {
             string message() {
                 return `Error ${this._code}: ${this._rawMsg}`
             }
         }
-
+        
         class Application {
             main() {
-                guard {
-                    throw(CustomError(404, `Not Found`))
-
-                    catch(err) {
-                        print(err.message())
-                    }
+                try {
+                    throw(
+                      CustomError(
+                        404,
+                        `Not Found`
+                      )
+                    )
+        
+                }
+                catch (Error err) {
+                    print(err.message())
                 }
             }
         }
@@ -1713,15 +1726,16 @@ fn test_e2e_map_literal_indexing_and_len() {
 #[test]
 fn test_e2e_list_index_out_of_bounds_raises_error() {
     let source_code = r#"
+        
         class Application {
             main() {
-                guard {
+                try {
                     final list = [1, 2]
                     print(list[10])
-
-                    catch(err) {
-                        print(err.message())
-                    }
+        
+                }
+                catch (Error err) {
+                    print(err.message())
                 }
             }
         }
@@ -1782,19 +1796,20 @@ fn test_e2e_async_spawn_and_await() {
 #[test]
 fn test_e2e_async_task_raise_rethrown_on_await() {
     let source_code = r#"
+        
         class Application {
             async riskyTask() {
                 throw(`async task error`)
             }
-
+        
             main() {
-                guard {
+                try {
                     final task = this.riskyTask()
                     await task
-
-                    catch(err) {
-                        print(err.message())
-                    }
+        
+                }
+                catch (Error err) {
+                    print(err.message())
                 }
             }
         }
@@ -1923,21 +1938,22 @@ fn test_e2e_typed_closable_channel() {
 }
 
 #[test]
-fn test_async_task_errors_route_to_guard_catch() {
+fn test_async_task_errors_route_to_try_catch() {
     let source = r#"
+        
         class Application {
             async fail() {
                 throw(`task failed`)
             }
-
+        
             main() {
-                guard {
+                try {
                     final result = await this.fail()
                     print(result)
-
-                    catch(err) {
-                        print(err.message())
-                    }
+        
+                }
+                catch (Error err) {
+                    print(err.message())
                 }
             }
         }
@@ -1955,10 +1971,10 @@ fn test_async_task_errors_route_to_guard_catch() {
 
     let mut emitter = TextualLlvmEmitter::new();
     let llvm = emitter.emit_program(&ir);
-    assert!(llvm.contains("call void @ube_task_set_error"));
-    assert!(llvm.contains("call %Error* @ube_task_last_error"));
-    assert!(llvm.contains("call i1 @ube_task_is_cancelled"));
-    assert!(llvm.contains("call i8* @ube_error_message"));
+    assert!(llvm.contains("call void @ube_exception_set"));
+    assert!(llvm.contains("call i8* @ube_exception_take"));
+    assert!(llvm.contains("call i8* @ube_exception_poll_cancel"));
+    assert!(llvm.contains("call i8* @ube_object_method"));
 }
 
 #[test]
@@ -1998,21 +2014,22 @@ fn test_e2e_multiple_async_tasks_concurrent_await() {
 }
 
 #[test]
-fn test_e2e_guard_check_inside_async_method_body() {
+fn test_e2e_try_check_inside_async_method_body() {
     let source_code = r#"
+        
         class Application {
             async safeTask() {
                 var res = 0
-                guard {
+                try {
                     throw(`inner async error`)
-
-                    catch(err) {
-                        res = 42
-                    }
+        
+                }
+                catch (Error err) {
+                    res = 42
                 }
                 return res
             }
-
+        
             main() {
                 final task = this.safeTask()
                 final res = await task
@@ -2027,14 +2044,14 @@ fn test_e2e_guard_check_inside_async_method_body() {
 
     assert!(
         parser.diagnostics.is_empty(),
-        "Parsing guard/check inside async method failed: {:?}",
+        "Parsing try/catch inside async method failed: {:?}",
         parser.diagnostics
     );
 
     let mut checker = TypeChecker::new();
     assert!(
         checker.check_program(&program),
-        "Type checking guard/check inside async method failed: {:?}",
+        "Type checking try/catch inside async method failed: {:?}",
         checker.diagnostics
     );
 }
@@ -2072,19 +2089,20 @@ fn test_e2e_task_all_combinator_success() {
 #[test]
 fn test_e2e_task_all_combinator_fail_fast() {
     let source_code = r#"
+        
         class Application {
             async failingTask() {
                 throw(`task 2 failed`)
             }
-
+        
             main() {
-                guard {
+                try {
                     final tasks = [async 10, this.failingTask()]
                     await Task.all(tasks)
-
-                    catch(err) {
-                        print(err.message())
-                    }
+        
+                }
+                catch (Error err) {
+                    print(err.message())
                 }
             }
         }
@@ -2172,18 +2190,19 @@ fn test_e2e_task_all_settled_combinator() {
 #[test]
 fn test_e2e_task_timeout_wraps_any_task() {
     let source_code = r#"
+        
         class Application {
             main() {
                 Channel<int> inbox = Channel<int>(1)
-                guard {
+                try {
                     final quick = await (async 500).timeout(2000)
                     print(quick)
                     final message = await inbox.receive().timeout(50)
                     print(message)
-
-                    catch(err) {
-                        print(err.message())
-                    }
+        
+                }
+                catch (Error err) {
+                    print(err.message())
                 }
             }
         }
@@ -2277,8 +2296,8 @@ fn test_unguarded_await_failure_stops_or_propagates() {
     let ir = builder.build_program(&program);
     assert!(builder.diagnostics.is_empty(), "IR lowering failed: {:?}", builder.diagnostics);
     let llvm = TextualLlvmEmitter::new().emit_program(&ir);
-    assert!(llvm.contains("call i1 @ube_task_propagate_error()"));
-    assert!(llvm.contains("call void @ube_task_fail_unhandled()"));
+    assert!(llvm.contains("call void @ube_exception_set("));
+    assert!(llvm.contains("call void @ube_exception_fail_unhandled()"));
 }
 
 #[test]
@@ -2698,15 +2717,16 @@ fn test_e2e_geo_bounds_contains() {
 #[test]
 fn test_e2e_geolocation_current_and_error() {
     let source_code = r#"
+        
         class Application {
             main() {
-                guard {
+                try {
                     final pos = Geolocation.current()
                     print(pos.latitude())
-
-                    catch(err) {
-                        print(err.message())
-                    }
+        
+                }
+                catch (Error err) {
+                    print(err.message())
                 }
             }
         }
@@ -2990,20 +3010,24 @@ fn test_e2e_file_write_read_exists_delete() {
 #[test]
 fn test_e2e_file_open_object_read_after_close() {
     let source_code = r#"
+        
         class Application {
             main() {
                 final path = `test_obj_file.txt`
-                File.write(path, `File Object Line`)
-                guard {
-                    final file = File.open(path)
-                    after file.close()
+                File.write(
+                  path,
+                  `File Object Line`
+                )
+                final file = File.open(path)
+                try {
                     final text = file.read()
                     print(text)
-
-                    catch(err) {
-                        print(err.message())
-                    }
+        
                 }
+                catch (Error err) {
+                    print(err.message())
+                }
+                finally { file.close() }
                 File.delete(path)
             }
         }
@@ -3096,18 +3120,19 @@ fn test_e2e_directory_and_path_operations() {
 }
 
 #[test]
-fn test_e2e_file_error_handling_guard_check() {
+fn test_e2e_file_error_handling_try_check() {
     let source_code = r#"
+        
         class Application {
             main() {
-                guard {
+                try {
                     final content = File.read(`non_existent_file_999.txt`)
                     print(content)
-
-                    catch(err) {
-                        if (err is FileNotFoundError) {
-                            print(`File does not exist`)
-                        }
+        
+                }
+                catch (Error err) {
+                    if (err is FileNotFoundError) {
+                        print(`File does not exist`)
                     }
                 }
             }
@@ -3204,8 +3229,9 @@ fn test_server_request_path_query_headers_typecheck() {
 }
 
 #[test]
-fn test_server_middleware_and_guard_syntax_typecheck() {
+fn test_server_middleware_and_try_syntax_typecheck() {
     let source_code = r#"
+        
         class Application {
             main() {
                 final server = Server()
@@ -3215,13 +3241,13 @@ fn test_server_middleware_and_guard_syntax_typecheck() {
                     }
                 }
                 server.get(`/api/data`) { request ->
-                    guard {
+                    try {
                         final val = request.query(`search`)
                         print(val)
-                        catch(err) {
-                            if (err) {
-                                print(err.message())
-                            }
+                    }
+                    catch (Error err) {
+                        if (err) {
+                            print(err.message())
                         }
                     }
                     Response.text(`Request processed`)
@@ -3355,15 +3381,16 @@ fn test_e2e_json_parse_getters_stringify() {
 #[test]
 fn test_e2e_json_parse_error_handling() {
     let source_code = r#"
+        
         class Application {
             main() {
-                guard {
+                try {
                     final data = Json.parse(`{invalid_json}`)
-
-                    catch(err) {
-                        if (err is JsonParseError) {
-                            print(err.message())
-                        }
+        
+                }
+                catch (Error err) {
+                    if (err is JsonParseError) {
+                        print(err.message())
                     }
                 }
             }
@@ -3603,20 +3630,21 @@ fn test_e2e_non_nullable_declaration_null_assignment_invalid() {
 }
 
 #[test]
-fn test_e2e_return_inside_guard_emits_diagnostic() {
+fn test_e2e_return_inside_try_is_valid() {
     let source_code = r#"
+        
         class Application {
             int getValue() {
-                guard {
+                try {
                     return 42
-
-                    catch(err) {
-                        print(err.message())
-                    }
+        
+                }
+                catch (Error err) {
+                    print(err.message())
                 }
                 return 0
             }
-
+        
             main() {
                 this.getValue()
             }
@@ -3630,33 +3658,27 @@ fn test_e2e_return_inside_guard_emits_diagnostic() {
     let mut checker = TypeChecker::new();
     let is_valid = checker.check_program(&program);
 
-    assert!(
-        !is_valid || !checker.diagnostics.is_empty(),
-        "Expected return inside guard to produce diagnostic error"
-    );
-
-    assert!(
-        checker.diagnostics.iter().any(|d| d.message.contains("'return' is not allowed inside a guard block")),
-        "Expected return inside guard diagnostic, got: {:?}",
-        checker.diagnostics
-    );
+    assert!(is_valid, "Return inside try must be valid: {:?}", checker.diagnostics);
 }
 
 #[test]
-fn test_e2e_break_inside_guard_early_exit() {
+fn test_e2e_break_inside_try_cleans_up_loop_exit() {
     let source_code = r#"
+        
         class Application {
             main() {
-                guard {
-                    print(`Before break`)
-                    break
-                    print(`Unreachable after break`)
-
-                    exit {
+                for (x in [1]) {
+                    try {
+                        print(`Before break`)
+                        break
+                        print(`Unreachable after break`)
+        
+                    }
+                    finally {
                         print(`Exit cleanup runs on break`)
                     }
                 }
-                print(`After guard block`)
+                print(`After try block`)
             }
         }
     "#;
@@ -3667,14 +3689,14 @@ fn test_e2e_break_inside_guard_early_exit() {
 
     assert!(
         parser.diagnostics.is_empty(),
-        "Parsing break inside guard failed: {:?}",
+        "Parsing break inside try failed: {:?}",
         parser.diagnostics
     );
 
     let mut checker = TypeChecker::new();
     assert!(
         checker.check_program(&program),
-        "Type checking break inside guard failed: {:?}",
+        "Type checking break inside try failed: {:?}",
         checker.diagnostics
     );
 
@@ -3683,7 +3705,7 @@ fn test_e2e_break_inside_guard_early_exit() {
 
     assert!(
         builder.diagnostics.is_empty(),
-        "IR building break inside guard failed: {:?}",
+        "IR building break inside try failed: {:?}",
         builder.diagnostics
     );
 }

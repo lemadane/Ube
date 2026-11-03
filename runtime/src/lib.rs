@@ -3,6 +3,7 @@ pub mod concurrency;
 pub mod datetime;
 pub mod financial;
 pub mod gc;
+pub mod exceptions;
 pub mod geo;
 pub mod io;
 pub mod math;
@@ -20,6 +21,8 @@ pub extern "C" fn ube_runtime_init() {
 #[no_mangle]
 pub extern "C" fn ube_runtime_cleanup() {
     concurrency::ube_concurrency_cleanup();
+    exceptions::cleanup();
+    memory::cleanup();
     // Perform final garbage collection sweep on exit
     gc::ube_gc_collect();
 }

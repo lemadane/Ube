@@ -19,6 +19,7 @@ pub struct ClassInfo {
 pub struct TraitInfo {
     pub name: String,
     pub methods: HashMap<String, (Vec<Type>, Type)>,
+    pub defaults: std::collections::HashSet<String>,
 }
 
 pub struct TypeChecker {
@@ -28,8 +29,6 @@ pub struct TypeChecker {
     current_class: Option<String>,
     current_return_type: Option<Type>,
     loop_depth: usize,
-    guard_depth: usize,
-    current_method_is_async: bool,
     pub diagnostics: Vec<Diagnostic>,
 }
 
@@ -42,8 +41,6 @@ impl TypeChecker {
             current_class: None,
             current_return_type: None,
             loop_depth: 0,
-            guard_depth: 0,
-            current_method_is_async: false,
             diagnostics: Vec::new(),
         };
         checker.register_builtins();
@@ -68,12 +65,12 @@ impl TypeChecker {
 
         let mut error_trait_methods = HashMap::new();
         error_trait_methods.insert("message".into(), (Vec::new(), Type::String));
-        error_trait_methods.insert("stacktrace".into(), (Vec::new(), Type::String));
         self.traits.insert(
             "Error".into(),
             TraitInfo {
                 name: "Error".into(),
                 methods: error_trait_methods,
+                defaults: Default::default(),
             },
         );
 
@@ -1800,6 +1797,7 @@ impl TypeChecker {
                         TraitInfo {
                             name: tr.name.clone(),
                             methods,
+                            defaults: tr.methods.iter().filter(|m| !m.body.is_empty()).map(|m| m.name.clone()).collect(),
                         },
                     );
                 }
@@ -1903,7 +1901,11 @@ impl TypeChecker {
 
     fn stmt_definitely_returns(&self, stmt: &Stmt) -> bool {
         match &stmt.kind {
-            StmtKind::Return(_) | StmtKind::Yield(_) => true,
+            StmtKind::Return(_) | StmtKind::Yield(_) | StmtKind::Throw(_) => true,
+            StmtKind::Try { body, catches, finally_body } => {
+                finally_body.as_ref().is_some_and(|b| b.iter().any(|s| self.stmt_definitely_returns(s))) ||
+                (body.iter().any(|s| self.stmt_definitely_returns(s)) && catches.iter().all(|c| c.body.iter().any(|s| self.stmt_definitely_returns(s))))
+            }
             StmtKind::If {
                 then_branch,
                 else_branch,
@@ -1920,7 +1922,6 @@ impl TypeChecker {
     }
 
     fn check_method(&mut self, cls: &ClassDecl, method: &MethodDecl) {
-        self.current_method_is_async = method.is_async;
         let mut return_type = method
             .return_type
             .as_ref()
@@ -2088,9 +2089,9 @@ impl TypeChecker {
                 }
             }
             StmtKind::Break => {
-                if self.loop_depth == 0 && self.guard_depth == 0 {
+                if self.loop_depth == 0 {
                     self.diagnostics.push(Diagnostic::error(
-                        "'break' can only be used inside a loop or guard block".to_string(),
+                        "'break' can only be used inside a loop".to_string(),
                         Some(stmt.span),
                     ));
                 }
@@ -2104,12 +2105,6 @@ impl TypeChecker {
                 }
             }
             StmtKind::Return(expr_opt) => {
-                if self.guard_depth > 0 {
-                    self.diagnostics.push(Diagnostic::error(
-                        "'return' is not allowed inside a guard block".to_string(),
-                        Some(stmt.span),
-                    ));
-                }
                 if let Some(expected_ret) = self.current_return_type.clone() {
                     if expected_ret == Type::Void {
                         if expr_opt.is_some() {
@@ -2147,51 +2142,44 @@ impl TypeChecker {
             StmtKind::Yield(expr) => {
                 self.check_expr(cls, expr);
             }
-            StmtKind::Guard {
-                body,
-                catch_clause,
-                exit_body,
-            } => {
-                self.guard_depth += 1;
-                for s in body {
-                    self.check_stmt(cls, s);
-                }
-                if let Some((error_var, c_body)) = catch_clause {
-                    self.symbol_table.push_scope();
-                    self.symbol_table.insert(Symbol {
-                        name: error_var.clone(),
-                        ty: Type::Nullable(Box::new(Type::Class {
-                            name: "Error".to_string(),
-                        })),
-                        is_mutable: false,
-                    });
-                    for s in c_body {
-                        self.check_stmt(cls, s);
+            StmtKind::Try { body, catches, finally_body } => {
+                self.symbol_table.push_scope();
+                for s in body { self.check_stmt(cls, s); }
+                self.symbol_table.pop_scope();
+                let mut prior: Vec<String> = Vec::new();
+                for handler in catches {
+                    let valid = self.satisfies_trait(&handler.type_name, "Error");
+                    if !valid {
+                        self.diagnostics.push(Diagnostic::error(
+                            format!("catch type '{}' must be a class or trait satisfying Error (string message())", handler.type_name), Some(handler.span)));
                     }
+                    if prior.iter().any(|earlier| earlier == &handler.type_name || self.satisfies_trait(&handler.type_name, earlier)) {
+                        self.diagnostics.push(Diagnostic::error("Unreachable catch: an earlier handler already covers this type", Some(handler.span)));
+                    }
+                    if handler.condition.is_none() { prior.push(handler.type_name.clone()); }
+                    self.symbol_table.push_scope();
+                    self.symbol_table.insert(Symbol { name: handler.variable.clone(), ty: Type::Class { name: handler.type_name.clone() }, is_mutable: false });
+                    if let Some(condition) = &handler.condition {
+                        if self.check_expr(cls, condition) != Some(Type::Bool) {
+                            self.diagnostics.push(Diagnostic::error("catch condition must have type bool", Some(condition.span)));
+                        }
+                    }
+                    for s in &handler.body { self.check_stmt(cls, s); }
                     self.symbol_table.pop_scope();
                 }
-                if let Some(e_body) = exit_body {
-                    for s in e_body {
-                        self.check_stmt(cls, s);
-                    }
+                if let Some(body) = finally_body {
+                    self.symbol_table.push_scope();
+                    for s in body { self.check_stmt(cls, s); }
+                    self.symbol_table.pop_scope();
                 }
-                self.guard_depth -= 1;
             }
             StmtKind::Throw(expr) => {
-                if self.guard_depth == 0 && !self.current_method_is_async {
-                    self.diagnostics.push(Diagnostic::error(
-                        "'throw' can only be used inside a guard block".to_string(),
-                        Some(stmt.span),
-                    ));
-                }
                 let throw_ty = self.check_expr(cls, expr);
                 if let Some(rty) = throw_ty {
                     let is_valid = match &rty {
                         Type::String => true,
                         Type::Class { name } => {
-                            name == "GenericError"
-                                || name == "Error"
-                                || self.traits.contains_key("Error")
+                            self.satisfies_trait(name, "Error")
                         }
                         _ => false,
                     };
@@ -2359,6 +2347,15 @@ impl TypeChecker {
                                     ));
                                     return None;
                                 }
+                                if let Some(info) = self.traits.get(name).cloned() {
+                                    if let Some((params, result)) = info.methods.get(member) {
+                                        if params.len() != args.len() || !arg_types.iter().zip(params).all(|(a,p)| self.is_assignable_to(a,p)) {
+                                            self.diagnostics.push(Diagnostic::error("Invalid trait method arguments", Some(expr.span)));
+                                        }
+                                        return Some(result.clone());
+                                    }
+                                    self.diagnostics.push(Diagnostic::error(format!("Member '{}' not found on trait '{}'", member, name), Some(expr.span)));
+                                }
                                 if let Some(info) = self.classes.get(name).cloned() {
                                     if let Some((param_types, ret_ty)) =
                                         info.methods.get(member).cloned()
@@ -2375,6 +2372,7 @@ impl TypeChecker {
                                         }
                                         return Some(ret_ty);
                                     }
+                                    self.diagnostics.push(Diagnostic::error(format!("Member '{}' not found on class '{}'", member, name), Some(expr.span)));
                                 }
                             }
                         }
@@ -2546,6 +2544,16 @@ impl TypeChecker {
                 let l_ty = self.check_expr(cls, left);
                 let r_ty = self.check_expr(cls, right);
                 match op {
+                    BinaryOp::NullCoalescing => {
+                        if let Some(Type::Nullable(inner)) = l_ty {
+                            if let Some(right) = r_ty {
+                                if !self.is_assignable_to(&right, &inner) {
+                                    self.diagnostics.push(Diagnostic::error("Incompatible fallback for nullable value", Some(expr.span)));
+                                }
+                            }
+                            Some(*inner)
+                        } else { l_ty }
+                    }
                     BinaryOp::And
                     | BinaryOp::Nand
                     | BinaryOp::Or
@@ -2797,6 +2805,13 @@ impl TypeChecker {
         }
     }
 
+    pub fn satisfies_trait(&self, source: &str, target: &str) -> bool {
+        let Some(required) = self.traits.get(target) else { return false; };
+        let methods = self.classes.get(source).map(|c| &c.methods)
+            .or_else(|| self.traits.get(source).map(|t| &t.methods));
+        methods.is_some_and(|methods| required.methods.iter().all(|(name, signature)| methods.get(name).map_or_else(|| required.defaults.contains(name), |actual| actual == signature)))
+    }
+
     fn is_valid_condition_type(&self, ty: &Type) -> bool {
         matches!(
             ty,
@@ -2813,7 +2828,7 @@ impl TypeChecker {
             (Type::Int, Type::Decimal) | (Type::Long, Type::Decimal) => true,
             (Type::Int, Type::Class { name }) if name == "Function" => true,
             (Type::Class { name: from_name }, Type::Class { name: to_name }) => {
-                from_name == to_name || self.traits.contains_key(to_name)
+                from_name == to_name || self.satisfies_trait(from_name, to_name)
             }
             (Type::Channel(from), Type::Channel(to)) => self.is_assignable_to(from, to),
             (from_ty, Type::Nullable(inner)) => {

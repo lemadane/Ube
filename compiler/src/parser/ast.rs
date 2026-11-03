@@ -238,10 +238,10 @@ pub enum StmtKind {
     Continue,
     Return(Option<Expr>),
     Yield(Expr),
-    Guard {
+    Try {
         body: Vec<Stmt>,
-        catch_clause: Option<(String, Vec<Stmt>)>,
-        exit_body: Option<Vec<Stmt>>,
+        catches: Vec<CatchClause>,
+        finally_body: Option<Vec<Stmt>>,
     },
     Throw(Expr),
 }
@@ -249,5 +249,14 @@ pub enum StmtKind {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Stmt {
     pub kind: StmtKind,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct CatchClause {
+    pub type_name: String,
+    pub variable: String,
+    pub condition: Option<Expr>,
+    pub body: Vec<Stmt>,
     pub span: Span,
 }

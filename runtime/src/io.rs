@@ -11,6 +11,56 @@ use std::time::Duration;
 use crate::collections::{ube_list_add, ube_list_create, UbeList};
 use crate::datetime::{ube_datetime_from_unix, UbeDateTime};
 
+// Runtime failures use the same pending exception channel as generated methods.
+fn fail(message: impl Into<String>) {
+    crate::exceptions::set_pending(crate::exceptions::generic(message.into()));
+}
+
+fn io_failure(operation: &str, path: &str, error: std::io::Error) {
+    let name = match error.kind() {
+        std::io::ErrorKind::NotFound => "FileNotFoundError",
+        std::io::ErrorKind::PermissionDenied => "PermissionError",
+        std::io::ErrorKind::AlreadyExists => "AlreadyExistsError",
+        std::io::ErrorKind::InvalidInput => "InvalidPathError",
+        _ => "FileError",
+    };
+    crate::exceptions::set_pending(crate::exceptions::named(
+        name,
+        format!("Cannot {operation} '{path}': {error}"),
+    ));
+}
+
+fn text_arg(ptr: *const c_char) -> Option<String> {
+    if ptr.is_null() {
+        fail("I/O argument must not be null");
+        return None;
+    }
+    match unsafe { CStr::from_ptr(ptr) }.to_str() {
+        Ok(value) => Some(value.to_owned()),
+        Err(error) => {
+            fail(format!("Invalid UTF-8 I/O argument: {error}"));
+            None
+        }
+    }
+}
+
+fn file_handles() -> &'static std::sync::Mutex<std::collections::HashMap<usize, Option<String>>> {
+    static HANDLES: std::sync::OnceLock<
+        std::sync::Mutex<std::collections::HashMap<usize, Option<String>>>,
+    > = std::sync::OnceLock::new();
+    HANDLES.get_or_init(Default::default)
+}
+
+fn file_path(ptr: *const c_char) -> Option<String> {
+    if let Some(path) = file_handles().lock().unwrap().get(&(ptr as usize)) {
+        if path.is_none() {
+            fail("File is closed");
+        }
+        return path.clone();
+    }
+    text_arg(ptr)
+}
+
 #[repr(C)]
 pub struct UbeFile {
     pub path: *mut c_char,
@@ -56,73 +106,95 @@ pub extern "C" fn ube_print_str(c_str_ptr: *const c_char) {
 
 #[no_mangle]
 pub extern "C" fn ube_file_open(path_ptr: *const c_char) -> *mut UbeFile {
-    if path_ptr.is_null() {
+    let Some(path) = text_arg(path_ptr) else {
         return std::ptr::null_mut();
-    }
-    let cstr = unsafe { CStr::from_ptr(path_ptr) };
-    let path_str = cstr.to_str().unwrap_or("");
-    let handle = Box::new(UbeFile {
-        path: CString::new(path_str).unwrap().into_raw(),
+    };
+    let handle = Box::into_raw(Box::new(UbeFile {
+        path: CString::new(path.clone()).unwrap().into_raw(),
         is_closed: false,
-    });
-    Box::into_raw(handle)
+    }));
+    file_handles()
+        .lock()
+        .unwrap()
+        .insert(handle as usize, Some(path));
+    handle
 }
 
 #[no_mangle]
 pub extern "C" fn ube_file_read(file_or_path: *const c_char) -> *mut c_char {
-    if file_or_path.is_null() {
-        return CString::new("").unwrap().into_raw();
-    }
-    let cstr = unsafe { CStr::from_ptr(file_or_path) };
-    let path_str = cstr.to_str().unwrap_or("");
-    match fs::read_to_string(path_str) {
-        Ok(content) => CString::new(content).unwrap().into_raw(),
-        Err(_) => CString::new("").unwrap().into_raw(),
+    let Some(path) = file_path(file_or_path) else {
+        return std::ptr::null_mut();
+    };
+    match fs::read_to_string(&path) {
+        Ok(content) => match CString::new(content) {
+            Ok(content) => content.into_raw(),
+            Err(_) => {
+                fail(format!(
+                    "Cannot read '{path}' as a string: embedded NUL byte"
+                ));
+                std::ptr::null_mut()
+            }
+        },
+        Err(error) => {
+            io_failure("read", &path, error);
+            std::ptr::null_mut()
+        }
     }
 }
 
 #[no_mangle]
 pub extern "C" fn ube_file_write(path_ptr: *const c_char, content_ptr: *const c_char) {
-    if path_ptr.is_null() || content_ptr.is_null() {
+    let Some(path) = file_path(path_ptr) else {
         return;
+    };
+    let Some(content) = text_arg(content_ptr) else {
+        return;
+    };
+    if let Err(error) = fs::write(&path, content) {
+        io_failure("write", &path, error);
     }
-    let path_str = unsafe { CStr::from_ptr(path_ptr) }.to_str().unwrap_or("");
-    let content_str = unsafe { CStr::from_ptr(content_ptr) }
-        .to_str()
-        .unwrap_or("");
-    let _ = fs::write(path_str, content_str);
 }
 
 #[no_mangle]
 pub extern "C" fn ube_file_append(path_ptr: *const c_char, content_ptr: *const c_char) {
-    if path_ptr.is_null() || content_ptr.is_null() {
+    let Some(path) = file_path(path_ptr) else {
         return;
-    }
-    let path_str = unsafe { CStr::from_ptr(path_ptr) }.to_str().unwrap_or("");
-    let content_str = unsafe { CStr::from_ptr(content_ptr) }
-        .to_str()
-        .unwrap_or("");
-    if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(path_str) {
-        let _ = file.write_all(content_str.as_bytes());
+    };
+    let Some(content) = text_arg(content_ptr) else {
+        return;
+    };
+    if let Err(error) = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&path)
+        .and_then(|mut file| file.write_all(content.as_bytes()))
+    {
+        io_failure("append", &path, error);
     }
 }
 
 #[no_mangle]
 pub extern "C" fn ube_file_delete(path_ptr: *const c_char) {
-    if path_ptr.is_null() {
+    let Some(path) = file_path(path_ptr) else {
         return;
+    };
+    if let Err(error) = fs::remove_file(&path) {
+        io_failure("file_delete", &path, error);
     }
-    let path_str = unsafe { CStr::from_ptr(path_ptr) }.to_str().unwrap_or("");
-    let _ = fs::remove_file(path_str);
 }
 
 #[no_mangle]
 pub extern "C" fn ube_file_exists(path_ptr: *const c_char) -> bool {
-    if path_ptr.is_null() {
+    let Some(path) = file_path(path_ptr) else {
         return false;
+    };
+    match StdPath::new(&path).try_exists() {
+        Ok(exists) => exists,
+        Err(error) => {
+            io_failure("inspect", &path, error);
+            false
+        }
     }
-    let path_str = unsafe { CStr::from_ptr(path_ptr) }.to_str().unwrap_or("");
-    StdPath::new(path_str).exists()
 }
 
 #[no_mangle]
@@ -130,41 +202,48 @@ pub extern "C" fn ube_file_close(file_ptr: *mut UbeFile) {
     if !file_ptr.is_null() {
         unsafe {
             (*file_ptr).is_closed = true;
+            file_handles()
+                .lock()
+                .unwrap()
+                .insert(file_ptr as usize, None);
         }
     }
 }
 
 #[no_mangle]
 pub extern "C" fn ube_file_info(path_ptr: *const c_char) -> *mut UbeFileInfo {
-    if path_ptr.is_null() {
+    let Some(path_str) = file_path(path_ptr) else {
         return std::ptr::null_mut();
-    }
-    let path_str = unsafe { CStr::from_ptr(path_ptr) }.to_str().unwrap_or("");
-    if let Ok(meta) = fs::metadata(path_str) {
-        let size = meta.len() as i64;
-        let created_sec = meta
-            .created()
-            .ok()
-            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-            .map(|d| d.as_secs() as i64)
-            .unwrap_or(0);
-        let mod_sec = meta
-            .modified()
-            .ok()
-            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-            .map(|d| d.as_secs() as i64)
-            .unwrap_or(0);
-        let created_at = ube_datetime_from_unix(created_sec);
-        let modified_at = ube_datetime_from_unix(mod_sec);
-        let info = Box::new(UbeFileInfo {
-            size,
-            created_at,
-            modified_at,
-            is_directory: meta.is_dir(),
-        });
-        Box::into_raw(info)
-    } else {
-        std::ptr::null_mut()
+    };
+    match fs::metadata(&path_str) {
+        Ok(meta) => {
+            let size = meta.len() as i64;
+            let created_sec = meta
+                .created()
+                .ok()
+                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                .map(|d| d.as_secs() as i64)
+                .unwrap_or(0);
+            let mod_sec = meta
+                .modified()
+                .ok()
+                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                .map(|d| d.as_secs() as i64)
+                .unwrap_or(0);
+            let created_at = ube_datetime_from_unix(created_sec);
+            let modified_at = ube_datetime_from_unix(mod_sec);
+            let info = Box::new(UbeFileInfo {
+                size,
+                created_at,
+                modified_at,
+                is_directory: meta.is_dir(),
+            });
+            Box::into_raw(info)
+        }
+        Err(error) => {
+            io_failure("inspect", &path_str, error);
+            std::ptr::null_mut()
+        }
     }
 }
 
@@ -206,36 +285,50 @@ pub extern "C" fn ube_fileinfo_is_directory(ptr: *mut UbeFileInfo) -> bool {
 
 #[no_mangle]
 pub extern "C" fn ube_directory_create(path_ptr: *const c_char) {
-    if path_ptr.is_null() {
+    let Some(path) = file_path(path_ptr) else {
         return;
+    };
+    if let Err(error) = fs::create_dir_all(&path) {
+        io_failure("directory_create", &path, error);
     }
-    let path_str = unsafe { CStr::from_ptr(path_ptr) }.to_str().unwrap_or("");
-    let _ = fs::create_dir_all(path_str);
 }
 
 #[no_mangle]
 pub extern "C" fn ube_directory_delete(path_ptr: *const c_char) {
-    if path_ptr.is_null() {
+    let Some(path) = file_path(path_ptr) else {
         return;
+    };
+    if let Err(error) = fs::remove_dir_all(&path) {
+        io_failure("directory_delete", &path, error);
     }
-    let path_str = unsafe { CStr::from_ptr(path_ptr) }.to_str().unwrap_or("");
-    let _ = fs::remove_dir_all(path_str);
 }
 
 #[no_mangle]
 pub extern "C" fn ube_directory_list(path_ptr: *const c_char) -> *mut UbeList {
     let list = ube_list_create();
-    if path_ptr.is_null() {
+    let Some(path) = text_arg(path_ptr) else {
         return list;
-    }
-    let path_str = unsafe { CStr::from_ptr(path_ptr) }.to_str().unwrap_or("");
-    if let Ok(entries) = fs::read_dir(path_str) {
-        for entry in entries.flatten() {
-            if let Ok(name) = entry.file_name().into_string() {
-                let name_ptr = CString::new(name).unwrap().into_raw() as i64;
-                ube_list_add(list, name_ptr);
-            }
+    };
+    let entries = match fs::read_dir(&path) {
+        Ok(entries) => entries,
+        Err(error) => {
+            io_failure("list", &path, error);
+            return list;
         }
+    };
+    for entry in entries {
+        let entry = match entry {
+            Ok(entry) => entry,
+            Err(error) => {
+                io_failure("list", &path, error);
+                return list;
+            }
+        };
+        let Ok(name) = entry.file_name().into_string() else {
+            fail(format!("Invalid UTF-8 filename in '{path}'"));
+            return list;
+        };
+        ube_list_add(list, CString::new(name).unwrap().into_raw() as i64);
     }
     list
 }
@@ -332,31 +425,39 @@ pub extern "C" fn ube_server_create() -> *mut UbeServer {
 #[no_mangle]
 pub extern "C" fn ube_server_start(ptr: *mut UbeServer, port: i32) {
     if ptr.is_null() {
-        eprintln!("Ube server error: received a null server");
-        std::process::exit(1);
+        fail(format!("Ube server error: received a null server"));
+        return;
     }
     let Ok(port) = u16::try_from(port) else {
-        eprintln!("Ube server error: port must be between 0 and 65535");
-        std::process::exit(1);
+        fail(format!(
+            "Ube server error: port must be between 0 and 65535"
+        ));
+        return;
     };
 
     let server = unsafe { &mut *ptr };
     let listener = match TcpListener::bind(("127.0.0.1", port)) {
         Ok(listener) => listener,
         Err(error) => {
-            eprintln!("Ube server error: could not bind to 127.0.0.1:{port}: {error}");
-            std::process::exit(1);
+            fail(format!(
+                "Ube server error: could not bind to 127.0.0.1:{port}: {error}"
+            ));
+            return;
         }
     };
     if let Err(error) = listener.set_nonblocking(true) {
-        eprintln!("Ube server error: could not configure listener: {error}");
-        std::process::exit(1);
+        fail(format!(
+            "Ube server error: could not configure listener: {error}"
+        ));
+        return;
     }
     let bound_port = match listener.local_addr() {
         Ok(address) => address.port(),
         Err(error) => {
-            eprintln!("Ube server error: could not inspect listener address: {error}");
-            std::process::exit(1);
+            fail(format!(
+                "Ube server error: could not inspect listener address: {error}"
+            ));
+            return;
         }
     };
     server.port = i32::from(bound_port);
@@ -376,7 +477,7 @@ pub extern "C" fn ube_server_start(ptr: *mut UbeServer, port: i32) {
             }
             Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
             Err(error) => {
-                eprintln!("Ube server accept error: {error}");
+                fail(format!("Ube server accept error: {error}"));
                 server.is_running.store(false, Ordering::Release);
             }
         }
@@ -410,21 +511,19 @@ pub extern "C" fn ube_server_route(
     handler: i64,
 ) {
     if ptr.is_null() {
-        eprintln!("Ube server error: route registration received a null server");
+        fail("Ube server error: route registration received a null server");
         return;
     }
     if path.is_null() || method.is_null() || context.is_null() || handler == 0 {
-        eprintln!(
-            "Ube server error: route registration received invalid arguments (path={}, method={}, context={}, handler={})",
-            !path.is_null(),
-            !method.is_null(),
-            !context.is_null(),
-            handler != 0
-        );
+        fail("Ube server error: route registration received invalid arguments");
         return;
     }
-    let path = unsafe { CStr::from_ptr(path) }.to_string_lossy().into_owned();
-    let method = unsafe { CStr::from_ptr(method) }.to_string_lossy().into_owned();
+    let path = unsafe { CStr::from_ptr(path) }
+        .to_string_lossy()
+        .into_owned();
+    let method = unsafe { CStr::from_ptr(method) }
+        .to_string_lossy()
+        .into_owned();
     unsafe {
         (*ptr).routes.push(UbeServerRoute {
             method,
@@ -675,36 +774,40 @@ pub extern "C" fn ube_bytes_free(ptr: *mut UbeBytes) {
 
 #[no_mangle]
 pub extern "C" fn ube_file_open_read(path_ptr: *const c_char) -> *mut UbeInputStream {
-    if path_ptr.is_null() {
+    let Some(path_str) = file_path(path_ptr) else {
         return std::ptr::null_mut();
-    }
-    let path_str = unsafe { CStr::from_ptr(path_ptr) }.to_str().unwrap_or("");
-    match fs::File::open(path_str) {
+    };
+    match fs::File::open(&path_str) {
         Ok(file) => Box::into_raw(Box::new(UbeInputStream {
             file_handle: Box::into_raw(Box::new(file)),
             is_closed: false,
         })),
-        Err(_) => std::ptr::null_mut(),
+        Err(error) => {
+            io_failure("open", &path_str, error);
+            std::ptr::null_mut()
+        }
     }
 }
 
 #[no_mangle]
 pub extern "C" fn ube_file_open_write(path_ptr: *const c_char) -> *mut UbeOutputStream {
-    if path_ptr.is_null() {
+    let Some(path_str) = file_path(path_ptr) else {
         return std::ptr::null_mut();
-    }
-    let path_str = unsafe { CStr::from_ptr(path_ptr) }.to_str().unwrap_or("");
+    };
     match OpenOptions::new()
         .create(true)
         .write(true)
         .truncate(true)
-        .open(path_str)
+        .open(&path_str)
     {
         Ok(file) => Box::into_raw(Box::new(UbeOutputStream {
             file_handle: Box::into_raw(Box::new(file)),
             is_closed: false,
         })),
-        Err(_) => std::ptr::null_mut(),
+        Err(error) => {
+            io_failure("open", &path_str, error);
+            std::ptr::null_mut()
+        }
     }
 }
 
@@ -717,22 +820,28 @@ pub extern "C" fn ube_stream_read(
 ) -> i64 {
     use std::io::Read;
     if stream_ptr.is_null() || bytes_ptr.is_null() {
+        fail("Invalid or closed stream, buffer, or offset");
         return 0;
     }
     unsafe {
         if (*stream_ptr).is_closed || (*stream_ptr).file_handle.is_null() {
+            fail("Invalid or closed stream, buffer, or offset");
             return 0;
         }
         let file = &mut *(*stream_ptr).file_handle;
         let buf = &mut *bytes_ptr;
-        if offset >= buf.capacity {
+        if offset > buf.capacity {
+            fail("Invalid or closed stream, buffer, or offset");
             return 0;
         }
         let max_read = (buf.capacity - offset).min(count);
         let slice = std::slice::from_raw_parts_mut(buf.data.add(offset), max_read);
         match file.read(slice) {
             Ok(n) => n as i64,
-            Err(_) => 0,
+            Err(error) => {
+                fail(format!("Stream I/O failed: {error}"));
+                0
+            }
         }
     }
 }
@@ -745,22 +854,28 @@ pub extern "C" fn ube_stream_write(
     count: usize,
 ) -> i64 {
     if stream_ptr.is_null() || bytes_ptr.is_null() {
+        fail("Invalid or closed stream, buffer, or offset");
         return 0;
     }
     unsafe {
         if (*stream_ptr).is_closed || (*stream_ptr).file_handle.is_null() {
+            fail("Invalid or closed stream, buffer, or offset");
             return 0;
         }
         let file = &mut *(*stream_ptr).file_handle;
         let buf = &*bytes_ptr;
-        if offset >= buf.len {
+        if offset > buf.len {
+            fail("Invalid or closed stream, buffer, or offset");
             return 0;
         }
         let max_write = (buf.len - offset).min(count);
         let slice = std::slice::from_raw_parts(buf.data.add(offset), max_write);
         match file.write(slice) {
             Ok(n) => n as i64,
-            Err(_) => 0,
+            Err(error) => {
+                fail(format!("Stream I/O failed: {error}"));
+                0
+            }
         }
     }
 }
@@ -771,33 +886,41 @@ pub extern "C" fn ube_stream_pipe_to(
     dst_ptr: *mut UbeOutputStream,
 ) -> i64 {
     if src_ptr.is_null() || dst_ptr.is_null() {
+        fail("Invalid or closed stream, buffer, or offset");
         return 0;
     }
     unsafe {
         if (*src_ptr).is_closed || (*src_ptr).file_handle.is_null() {
+            fail("Invalid or closed stream, buffer, or offset");
             return 0;
         }
         if (*dst_ptr).is_closed || (*dst_ptr).file_handle.is_null() {
+            fail("Invalid or closed stream, buffer, or offset");
             return 0;
         }
         let src_file = &mut *(*src_ptr).file_handle;
         let dst_file = &mut *(*dst_ptr).file_handle;
         match std::io::copy(src_file, dst_file) {
             Ok(bytes_copied) => bytes_copied as i64,
-            Err(_) => 0,
+            Err(error) => {
+                fail(format!("Stream I/O failed: {error}"));
+                0
+            }
         }
     }
 }
 
 #[no_mangle]
 pub extern "C" fn ube_file_sha256(path_ptr: *const c_char) -> *mut c_char {
-    if path_ptr.is_null() {
-        return CString::new("").unwrap().into_raw();
-    }
-    let path_str = unsafe { CStr::from_ptr(path_ptr) }.to_str().unwrap_or("");
-    match crate::net::compute_file_sha256(path_str) {
+    let Some(path_str) = file_path(path_ptr) else {
+        return std::ptr::null_mut();
+    };
+    match crate::net::compute_file_sha256(&path_str) {
         Ok(hex_str) => CString::new(hex_str).unwrap().into_raw(),
-        Err(_) => CString::new("").unwrap().into_raw(),
+        Err(error) => {
+            fail(format!("Cannot hash '{path_str}': {error}"));
+            std::ptr::null_mut()
+        }
     }
 }
 
@@ -921,4 +1044,49 @@ pub extern "C" fn ube_xmlement_text(
 #[no_mangle]
 pub extern "C" fn ube_xmlement_get_text(_elem: *mut UbeXmlElement) -> *mut c_char {
     CString::new("Lem").unwrap().into_raw()
+}
+
+#[cfg(test)]
+mod error_tests {
+    use super::*;
+
+    #[test]
+    fn stream_eof_is_success_but_closed_stream_and_invalid_buffer_raise() {
+        let path = std::env::temp_dir().join(format!("ube-stream-errors-{}", std::process::id()));
+        fs::write(&path, b"data").unwrap();
+        let path_arg = CString::new(path.to_str().unwrap()).unwrap();
+        let stream = ube_file_open_read(path_arg.as_ptr());
+        let bytes = ube_bytes_create(4);
+        assert_eq!(ube_stream_read(stream, bytes, 0, 4), 4);
+        assert_eq!(crate::exceptions::take_pending(), 0);
+        assert_eq!(ube_stream_read(stream, bytes, 0, 4), 0);
+        assert_eq!(crate::exceptions::take_pending(), 0, "EOF is not an error");
+        assert_eq!(ube_stream_read(stream, bytes, 5, 1), 0);
+        assert_ne!(crate::exceptions::take_pending(), 0);
+        unsafe {
+            (*stream).is_closed = true;
+        }
+        assert_eq!(ube_stream_read(stream, bytes, 0, 4), 0);
+        assert_ne!(crate::exceptions::take_pending(), 0);
+        unsafe {
+            let stream = Box::from_raw(stream);
+            drop(Box::from_raw(stream.file_handle));
+        }
+        ube_bytes_free(bytes);
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn stream_open_and_directory_creation_failures_set_pending_errors() {
+        let path = std::env::temp_dir().join(format!("ube-io-errors-{}", std::process::id()));
+        fs::write(&path, b"not a directory").unwrap();
+        let nested = CString::new(path.join("child").to_str().unwrap()).unwrap();
+        assert!(ube_file_open_read(nested.as_ptr()).is_null());
+        assert_ne!(crate::exceptions::take_pending(), 0);
+        assert!(ube_file_open_write(nested.as_ptr()).is_null());
+        assert_ne!(crate::exceptions::take_pending(), 0);
+        ube_directory_create(nested.as_ptr());
+        assert_ne!(crate::exceptions::take_pending(), 0);
+        fs::remove_file(path).unwrap();
+    }
 }

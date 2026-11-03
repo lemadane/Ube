@@ -30,7 +30,7 @@
       "patterns": [
         {
           "name": "keyword.control.ube",
-          "match": "\\b(class|trait|final|var|if|else|for|break|continue|switch|case|default|yield|return|import|as|is|with|in|async|await)\\b"
+          "match": "\\b(class|trait|try|catch|finally|throw|final|var|if|else|for|break|continue|switch|case|default|yield|return|import|as|is|with|in|async|await)\\b"
         },
         {
           "name": "keyword.operator.word.ube",

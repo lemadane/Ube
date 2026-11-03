@@ -49,6 +49,7 @@ impl IrOperand {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum IrInstruction {
+    Cast { dest: Register, value: IrOperand, ty: Type },
     Alloca {
         dest: Register,
         ty: Type,
@@ -82,6 +83,13 @@ pub enum IrInstruction {
         right: IrOperand,
         operand_ty: Type,
         result_ty: Type,
+    },
+    CallTrait {
+        dest: Option<Register>,
+        signature: String,
+        receiver: IrOperand,
+        args: Vec<IrOperand>,
+        ret_ty: Type,
     },
     CallMethod {
         dest: Option<Register>,
@@ -172,4 +180,9 @@ pub struct IrFunction {
 pub struct IrProgram {
     pub classes: Vec<IrClass>,
     pub functions: Vec<IrFunction>,
+}
+
+/// Stable structural ABI key shared by metadata producers and catch sites.
+pub fn method_signature(name: &str, params: &[Type], result: &Type) -> String {
+    format!("{}({})->{}", name, params.iter().map(ToString::to_string).collect::<Vec<_>>().join(","), result)
 }

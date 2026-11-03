@@ -49,6 +49,7 @@ impl Precedence {
 
 pub struct Parser<'a> {
     lexer: Lexer<'a>,
+    in_trait: bool,
     current_token: Token,
     peek_token: Token,
     pub diagnostics: Vec<Diagnostic>,
@@ -60,6 +61,7 @@ impl<'a> Parser<'a> {
         let peek_token = lexer.next_token();
         Self {
             lexer,
+            in_trait: false,
             current_token,
             peek_token,
             diagnostics: Vec::new(),
@@ -220,9 +222,13 @@ impl<'a> Parser<'a> {
 
         self.expect(&TokenKind::OpenBrace, "{")?;
         let mut methods = Vec::new();
+        self.in_trait = true;
         while !self.check(&TokenKind::CloseBrace) && !self.check(&TokenKind::Eof) {
-            methods.push(self.parse_method_decl()?);
+            let method = self.parse_method_decl();
+            if method.is_err() { self.in_trait = false; }
+            methods.push(method?);
         }
+        self.in_trait = false;
         let end_tok = self.expect(&TokenKind::CloseBrace, "}")?;
 
         Ok(TraitDecl {
@@ -442,7 +448,7 @@ impl<'a> Parser<'a> {
         self.expect(&TokenKind::CloseParen, ")")?;
 
         let mut body = Vec::new();
-        let end_span = if self.match_token(&TokenKind::Semicolon) {
+        let end_span = if self.match_token(&TokenKind::Semicolon) || (self.in_trait && !self.check(&TokenKind::OpenBrace)) {
             self.current_token.span
         } else {
             self.expect(&TokenKind::OpenBrace, "{")?;
@@ -589,78 +595,60 @@ impl<'a> Parser<'a> {
             TokenKind::Continue => self.parse_continue_stmt(),
             TokenKind::Return => self.parse_return_stmt(),
             TokenKind::Yield => self.parse_yield_stmt(),
-            TokenKind::Guard => self.parse_guard_stmt(),
+            TokenKind::Try => self.parse_try_stmt(),
             TokenKind::Throw => self.parse_throw_stmt(),
-            TokenKind::After => self.parse_after_stmt(),
             _ => self.parse_expr_or_typed_decl_stmt(),
         }
     }
 
-    fn parse_after_stmt(&mut self) -> Result<Stmt, ()> {
-        let start_span = self.current_token.span;
-        self.expect(&TokenKind::After, "after")?;
-        let expr = self.parse_expr(Precedence::None)?;
-        Ok(Stmt {
-            kind: StmtKind::Expr(expr),
-            span: start_span,
-        })
+    fn parse_exception_body(&mut self) -> Result<Vec<Stmt>, ()> {
+        self.expect(&TokenKind::OpenBrace, "{")?;
+        let mut body = Vec::new();
+        while !self.check(&TokenKind::CloseBrace) && !self.check(&TokenKind::Eof) {
+            body.push(self.parse_stmt()?);
+        }
+        self.expect(&TokenKind::CloseBrace, "}")?;
+        Ok(body)
     }
 
-    fn parse_guard_stmt(&mut self) -> Result<Stmt, ()> {
-        let start_span = self.current_token.span;
-        self.expect(&TokenKind::Guard, "guard")?;
-        self.expect(&TokenKind::OpenBrace, "{")?;
-
-        let mut body = Vec::new();
-        let mut catch_clause = None;
-        let mut exit_body = None;
-
-        while !self.check(&TokenKind::CloseBrace) && !self.check(&TokenKind::Eof) {
-            if self.match_token(&TokenKind::Catch) {
+    fn parse_try_stmt(&mut self) -> Result<Stmt, ()> {
+        let start = self.current_token.span;
+        self.expect(&TokenKind::Try, "try")?;
+        let body = self.parse_exception_body()?;
+        let mut catches = Vec::new();
+        while self.match_token(&TokenKind::Catch) {
+            let span = self.current_token.span;
+            self.expect(&TokenKind::OpenParen, "(")?;
+            let type_name = self.parse_exception_identifier()?;
+            let variable = self.parse_exception_identifier()?;
+            self.expect(&TokenKind::CloseParen, ")")?;
+            let condition = if self.match_token(&TokenKind::If) {
                 self.expect(&TokenKind::OpenParen, "(")?;
-                let error_var = match self.current_token.kind.clone() {
-                    TokenKind::Identifier(name) => {
-                        self.advance();
-                        name
-                    }
-                    _ => {
-                        self.diagnostics.push(Diagnostic::error(
-                            "Expected error variable name in catch(err)",
-                            Some(self.current_token.span),
-                        ));
-                        return Err(());
-                    }
-                };
+                let expr = self.parse_expr(Precedence::None)?;
                 self.expect(&TokenKind::CloseParen, ")")?;
-                self.expect(&TokenKind::OpenBrace, "{")?;
-                let mut c_body = Vec::new();
-                while !self.check(&TokenKind::CloseBrace) && !self.check(&TokenKind::Eof) {
-                    c_body.push(self.parse_stmt()?);
-                }
-                self.expect(&TokenKind::CloseBrace, "}")?;
-                catch_clause = Some((error_var, c_body));
-            } else if self.match_token(&TokenKind::Exit) {
-                self.expect(&TokenKind::OpenBrace, "{")?;
-                let mut e_body = Vec::new();
-                while !self.check(&TokenKind::CloseBrace) && !self.check(&TokenKind::Eof) {
-                    e_body.push(self.parse_stmt()?);
-                }
-                self.expect(&TokenKind::CloseBrace, "}")?;
-                exit_body = Some(e_body);
-            } else {
-                body.push(self.parse_stmt()?);
-            }
+                Some(expr)
+            } else { None };
+            let handler_body = self.parse_exception_body()?;
+            catches.push(CatchClause { type_name, variable, condition, body: handler_body, span });
         }
-        let end_span = self.expect(&TokenKind::CloseBrace, "}")?.span;
+        let finally_body = if self.match_token(&TokenKind::Finally) {
+            Some(self.parse_exception_body()?)
+        } else { None };
+        if catches.is_empty() && finally_body.is_none() {
+            self.diagnostics.push(Diagnostic::error("try requires catch or finally", Some(start)));
+            return Err(());
+        }
+        Ok(Stmt { kind: StmtKind::Try { body, catches, finally_body }, span: Span::combine(start, self.current_token.span) })
+    }
 
-        Ok(Stmt {
-            kind: StmtKind::Guard {
-                body,
-                catch_clause,
-                exit_body,
-            },
-            span: Span::combine(start_span, end_span),
-        })
+    fn parse_exception_identifier(&mut self) -> Result<String, ()> {
+        if let TokenKind::Identifier(name) = self.current_token.kind.clone() {
+            self.advance();
+            Ok(name)
+        } else {
+            self.diagnostics.push(Diagnostic::error("Expected a catch type and variable: catch (Error err)", Some(self.current_token.span)));
+            Err(())
+        }
     }
 
     fn parse_throw_stmt(&mut self) -> Result<Stmt, ()> {
@@ -1384,10 +1372,6 @@ impl<'a> Parser<'a> {
                     TokenKind::ByteType => {
                         self.advance();
                         "byte".to_string()
-                    }
-                    TokenKind::After => {
-                        self.advance();
-                        "after".to_string()
                     }
                     _ => {
                         self.diagnostics.push(Diagnostic::error(

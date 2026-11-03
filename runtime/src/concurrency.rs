@@ -49,11 +49,17 @@ fn track_abi_task(task: Task<i64>) -> *mut c_void {
 fn legacy_task_value(result: Result<i64, TaskError>) -> i64 {
     match result {
         Ok(value) => {
+            crate::exceptions::set_pending(0);
             LAST_TASK_ERROR.with(|last_error| *last_error.borrow_mut() = None);
             value
         }
         Err(error) => {
             set_last_task_error(error.to_string());
+            let record = match error {
+                TaskError::Exception(record) => record,
+                other => crate::exceptions::generic(other.to_string()),
+            };
+            crate::exceptions::set_pending(record);
             0
         }
     }
@@ -70,6 +76,7 @@ pub enum TaskError {
     Panicked(String),
     WorkerStopped,
     Failed(String),
+    Exception(usize),
 }
 
 impl fmt::Display for TaskError {
@@ -95,6 +102,7 @@ impl fmt::Display for TaskError {
             Self::Panicked(message) => write!(formatter, "task panicked: {message}"),
             Self::WorkerStopped => write!(formatter, "task worker stopped without a result"),
             Self::Failed(message) => write!(formatter, "{message}"),
+            Self::Exception(record) => write!(formatter, "{}", crate::exceptions::message(*record)),
         }
     }
 }
@@ -183,6 +191,13 @@ where
     F: FnOnce(CancellationToken) -> Fut + Send + 'static,
     Fut: Future<Output = Result<T, TaskError>> + Send + 'static,
 {
+    spawn_task_impl(work, false)
+}
+
+fn spawn_task_impl<T, F, Fut>(work: F, cooperative: bool) -> Task<T>
+where T: Clone + Send + Sync + 'static,
+F: FnOnce(CancellationToken) -> Fut + Send + 'static,
+Fut: Future<Output=Result<T,TaskError>> + Send + 'static {
     let (result_tx, result) = watch::channel(None);
     let (cancellation, cancellation_rx) = watch::channel(false);
     let cancellation_requested = Arc::new(AtomicBool::new(false));
@@ -196,12 +211,13 @@ where
 
     runtime().spawn(async move {
         let work = async move { work(token).await };
-        let outcome = tokio::select! {
+        let outcome = if cooperative { AssertUnwindSafe(work).catch_unwind().await.unwrap_or_else(|p| Err(TaskError::Panicked(panic_message(p)))) } else { tokio::select! {
             biased;
             _ = wait_for_cancellation(cancellation_rx) => Err(TaskError::Cancelled),
             result = AssertUnwindSafe(work).catch_unwind() => {
                 result.unwrap_or_else(|payload| Err(TaskError::Panicked(panic_message(payload))))
             }
+        }
         };
         if matches!(outcome, Err(TaskError::Cancelled)) {
             cancellation_requested_by_worker.store(true, Ordering::Release);
@@ -491,20 +507,24 @@ pub extern "C" fn ube_task_spawn(
     } else {
         unsafe { Box::from_raw(context as *mut UbeTaskContext) }
     };
-    let task = spawn_task(move |token| async move {
+    let task = spawn_task_impl(move |token| async move {
         let flag = token.flag();
         let value = tokio::task::spawn_blocking(move || {
             CURRENT_TASK_ERROR.with(|error| *error.borrow_mut() = None);
+            crate::exceptions::set_pending(0);
+            crate::exceptions::reset_cancellation();
             CURRENT_CANCELLATION.with(|current| *current.borrow_mut() = Some(flag));
             let value = callback((&*context as *const UbeTaskContext) as *mut c_void);
             let error = CURRENT_TASK_ERROR.with(|error| error.borrow_mut().take());
             CURRENT_CANCELLATION.with(|current| *current.borrow_mut() = None);
-            error.map_or(Ok(value), Err)
+            let pending = crate::exceptions::take_pending();
+            if pending != 0 { Err(TaskError::Exception(pending)) }
+            else { error.map_or(Ok(value), |message| Err(TaskError::Failed(message))) }
         })
         .await
         .map_err(|error| TaskError::Panicked(error.to_string()))?;
-        value.map_err(TaskError::Failed)
-    });
+        value
+    }, true);
     track_abi_task(task)
 }
 
@@ -520,7 +540,20 @@ pub extern "C" fn ube_task_await(ptr: *mut c_void) -> i64 {
         return 0;
     }
     let task = unsafe { &*(ptr as *const Task<i64>) };
-    legacy_task_value(task.await_result())
+    let cancellation = CURRENT_CANCELLATION.with(|current| current.borrow().clone());
+    let result = if let Some(flag) = cancellation {
+        block_on(async {
+            tokio::select! {
+                result = task.wait_result() => result,
+                _ = async { while !flag.load(Ordering::Acquire) { tokio::time::sleep(Duration::from_millis(2)).await; } } => {
+                    task.cancel();
+                    crate::exceptions::mark_cancellation_reported();
+                    Err(TaskError::Cancelled)
+                }
+            }
+        })
+    } else { task.await_result() };
+    legacy_task_value(result)
 }
 
 #[no_mangle]
@@ -557,11 +590,6 @@ pub extern "C" fn ube_task_is_cancelled() -> bool {
 #[no_mangle]
 pub extern "C" fn ube_task_set_cancelled() {
     CURRENT_TASK_ERROR.with(|error| *error.borrow_mut() = Some("task was cancelled".into()));
-}
-
-#[no_mangle]
-pub extern "C" fn ube_error_message(message: *const std::ffi::c_char) -> *const std::ffi::c_char {
-    message
 }
 
 #[no_mangle]

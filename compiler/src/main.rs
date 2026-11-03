@@ -21,6 +21,15 @@ fn print_usage() {
 }
 
 fn configure_runtime_linkage(cmd: &mut Command) {
+    if let Ok(executable) = env::current_exe() {
+        if let Some(executable_dir) = executable.parent() {
+            if executable_dir.join("libube_runtime.a").exists()
+                || executable_dir.join("ube_runtime.lib").exists()
+            {
+                cmd.arg("-L").arg(executable_dir);
+            }
+        }
+    }
     let search_paths = vec![
         "/usr/local/lib",
         "target/release",
@@ -36,15 +45,6 @@ fn configure_runtime_linkage(cmd: &mut Command) {
         let p = Path::new(path);
         if p.join("libube_runtime.a").exists() || p.join("ube_runtime.lib").exists() {
             cmd.arg("-L").arg(path);
-        }
-    }
-    if let Ok(executable) = env::current_exe() {
-        if let Some(executable_dir) = executable.parent() {
-            if executable_dir.join("libube_runtime.a").exists()
-                || executable_dir.join("ube_runtime.lib").exists()
-            {
-                cmd.arg("-L").arg(executable_dir);
-            }
         }
     }
     cmd.arg("-L").arg("/usr/local/lib");

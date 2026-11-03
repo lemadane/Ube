@@ -94,7 +94,7 @@ mod tests {
         let mut builder = IrBuilder::new();
         let ir_program = builder.build_program(&program);
 
-        assert_eq!(ir_program.classes.len(), 2);
+        assert_eq!(ir_program.classes.iter().filter(|c| program.items.iter().any(|i| matches!(i, crate::parser::Item::Class(decl) if decl.name == c.name))).count(), 2);
         assert!(!ir_program.functions.is_empty());
     }
 
@@ -255,16 +255,17 @@ mod tests {
     fn guarded_list_index_checks_negative_indices() {
         let ir = build_ir(
             r#"
-            class Application {
-                void main() {
-                    guard {
-                        final value = [1][-1]
-                        catch (err) {
-                        }
-                    }
+        
+        class Application {
+            void main() {
+                try {
+                    final value = [1][-1]
+                }
+                catch (Error err) {
                 }
             }
-            "#,
+        }
+    "#,
         );
         let function = application_main(&ir);
         let instructions: Vec<_> = function

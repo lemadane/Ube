@@ -194,19 +194,17 @@ events.close()
 **Timeouts.** `task.timeout(ms)` returns a new task that fails with `task timed out` (and cancels the original) if it does not finish in time. It works on any task, so channel timeouts need no extra API:
 
 ```java
-guard {
+try {
     final message = await inbox.receive().timeout(1000)
     print(message)
-
-    catch(err) {
-        print(err.message())   // "task timed out"
-    }
+} catch (Error err) {
+    print(err.message())   // "task timed out"
 }
 ```
 
 **Waiting on several sources.** There is no `select` statement; `await Task.race([a.receive(), b.receive()])` returns whichever completes first.
 
-**Failures.** An awaited failure (a `throw` inside an async method, a timeout, a closed-channel receive) is routed to the enclosing `guard`/`catch`. Without a `guard`, inside an `async` method or `async` expression the failure propagates to whoever awaits that task; anywhere else the program stops with `Ube error: unhandled task failure: ...` and exit code 1. Failures are never silently turned into zero values.
+**Failures.** An awaited failure (a `throw` inside an async method, a timeout, a closed-channel receive) is routed to the enclosing `try`/`catch`. Without a matching `catch`, inside an `async` method or `async` expression the failure propagates to whoever awaits that task; anywhere else the program stops with `Ube error: unhandled exception ...` and exit code 1. Failures are never silently turned into zero values.
 
 **Limits.** Cancellation is cooperative: generated async code checks for cancellation at basic-block boundaries, so an indivisible operation already in progress (for example a blocking native call) runs to completion. Task and channel payloads are carried through a 64-bit slot; non-null primitive and pointer-sized channel payloads are supported and nullable scalar payloads are rejected. Arithmetic directly on a `Task` or `Channel` is a type error.
 

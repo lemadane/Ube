@@ -10,6 +10,8 @@ pub struct TextualLlvmEmitter {
     class_map: HashMap<String, IrClass>,
     current_return_type: Type,
     task_thunks: Vec<String>,
+    slots: HashMap<Register, Type>,
+    signatures: HashMap<(String,String), Vec<Type>>,
 }
 
 impl TextualLlvmEmitter {
@@ -21,11 +23,14 @@ impl TextualLlvmEmitter {
             class_map: HashMap::new(),
             current_return_type: Type::Void,
             task_thunks: Vec::new(),
+            slots: HashMap::new(),
+            signatures: HashMap::new(),
         }
     }
 
     pub fn emit_program(&mut self, ir_program: &IrProgram) -> String {
         self.output.clear();
+        self.signatures = ir_program.functions.iter().map(|f| ((f.class_name.clone(), f.name.clone()), f.params.iter().map(|(_,t)| t.clone()).collect())).collect();
         self.class_map = ir_program
             .classes
             .iter()
@@ -38,6 +43,7 @@ impl TextualLlvmEmitter {
             .push_str("; Target Data Layout for Ube Native Binary\n");
         self.output.push_str("target datalayout = \"e-m:e-p270:32:32-p271:32:32-p272:64:64-i64:64-f80:128-n8:16:32:64-S128\"\n\n");
 
+        self.output.push_str("declare void @ube_type_method(i8*, i8*, i8*)\ndeclare i1 @ube_object_satisfies(i8*, i8*)\ndeclare i8* @ube_object_method(i8*, i8*)\ndeclare void @ube_object_register(i8*, i8*)\ndeclare i1 @ube_object_is(i8*, i8*)\ndeclare i8* @ube_exception_create(i8*, i8*, i8*, i8*)\ndeclare i8* @ube_exception_object(i8*)\ndeclare i8* @ube_exception_take()\ndeclare void @ube_exception_set(i8*)\ndeclare void @ube_exception_suppress(i8*, i8*)\ndeclare i8* @ube_exception_poll_cancel()\ndeclare void @ube_exception_fail_unhandled()\n");
         // External runtime declarations
         self.output.push_str("declare void @ube_runtime_init()\n");
         self.output
@@ -79,8 +85,6 @@ impl TextualLlvmEmitter {
             .push_str("declare i1 @ube_task_is_cancelled()\n");
         self.output
             .push_str("declare void @ube_task_set_cancelled()\n");
-        self.output
-            .push_str("declare i8* @ube_error_message(%Error*)\n");
         self.output.push_str("declare void @ube_task_yield()\n");
         self.output.push_str("declare i8* @ube_task_all(i8*)\n");
         self.output.push_str("declare i64 @ube_task_any(i8*)\n");
@@ -521,7 +525,7 @@ impl TextualLlvmEmitter {
 
         // Object layouts for abstract trait types referenced in parameters/receivers
         for func in &ir_program.functions {
-            for (_, ty) in &func.params {
+            for (_, ty) in std::iter::once(&func.receiver).chain(func.params.iter()) {
                 if let Type::Class { name } = ty {
                     if !declared_types.contains(name) {
                         self.output.push_str(&format!("%{} = type {{ }}\n", name));
@@ -531,6 +535,20 @@ impl TextualLlvmEmitter {
             }
         }
         self.output.push('\n');
+
+        // A module initializer registers structural signatures and C-ABI method addresses.
+        // Identity uses names/signatures, never module-local pointer addresses.
+        self.output.push_str("@llvm.global_ctors = appending global [1 x { i32, void ()*, i8* }] [{ i32, void ()*, i8* } { i32 65535, void ()* @ube_register_types, i8* null }]\n");
+        self.output.push_str("define private void @ube_register_types() {\nentry:\n");
+        for function in &ir_program.functions {
+            if !self.class_map.contains_key(&function.class_name) || function.is_async { continue; }
+            let name = self.emit_operand(&IrOperand::ConstantString(function.class_name.clone()));
+            let params: Vec<_> = function.params.iter().map(|(_,t)| t.clone()).collect();
+            let signature = self.emit_operand(&IrOperand::ConstantString(method_signature(&function.name, &params, &function.return_type)));
+            let arguments = std::iter::once(self.type_to_llvm(&function.receiver.1)).chain(params.iter().map(|t| self.type_to_llvm(t))).collect::<Vec<_>>().join(", ");
+            self.output.push_str(&format!("  call void @ube_type_method(i8* {}, i8* {}, i8* bitcast ({} ({})* @{}_{} to i8*))\n", name, signature, self.type_to_llvm(&function.return_type), arguments, function.class_name, function.name));
+        }
+        self.output.push_str("  ret void\n}\n\n");
 
         // Emit functions
         for func in &ir_program.functions {
@@ -606,10 +624,13 @@ impl TextualLlvmEmitter {
                 }
             }
 
+            let application_type = self.emit_operand(&IrOperand::ConstantString(m_fn.class_name.clone()));
+            self.output.push_str(&format!("  call void @ube_object_register(i8* %raw_mem, i8* {})\n", application_type));
             self.output.push_str(&format!(
                 "  call void @{}({}* %app)\n",
                 target_symbol, class_type
             ));
+            self.output.push_str("  call void @ube_exception_fail_unhandled()\n");
             self.output.push_str("  call void @ube_runtime_cleanup()\n");
             self.output.push_str("  ret i32 0\n");
             self.output.push_str("}\n\n");
@@ -648,6 +669,7 @@ impl TextualLlvmEmitter {
 
     fn emit_function(&mut self, func: &IrFunction) -> String {
         self.current_return_type = func.return_type.clone();
+        self.slots.clear();
         let mut buf = String::new();
         let ret_ty_str = self.type_to_llvm(&func.return_type);
         let fn_name = format!("{}_{}", func.class_name, func.name);
@@ -669,42 +691,12 @@ impl TextualLlvmEmitter {
             format!("{}, {}", receiver_str, other_params.join(", "))
         };
 
-        buf.push_str(&format!(
-            "define {} @{}({}) {{\n",
-            ret_ty_str, fn_name, all_params
-        ));
+        if func.blocks.is_empty() { return format!("declare {} @{}({})\n", ret_ty_str, fn_name, all_params); }
+        let linkage = if ["GenericError", "OutOfBoundsError", "FileError", "FileNotFoundError", "PermissionError", "AlreadyExistsError", "InvalidPathError", "DiskFullError", "LocationPermissionError", "LocationUnavailableError", "JsonError", "JsonParseError", "MissingFieldError", "InvalidTypeError", "XmlError", "XmlParseError"].contains(&func.class_name.as_str()) { "linkonce_odr " } else { "" };
+        buf.push_str(&format!("define {}{} @{}({}) {{\n", linkage, ret_ty_str, fn_name, all_params));
 
         for block in &func.blocks {
             buf.push_str(&format!("{}:\n", block.id));
-            if func.is_async {
-                let block_id = block.id.0;
-                buf.push_str(&format!(
-                    "  %cancel_check_{} = call i1 @ube_task_is_cancelled()\n  br i1 %cancel_check_{}, label %cancel_exit_{}, label %block_body_{}\n",
-                    block_id, block_id, block_id, block_id
-                ));
-                buf.push_str(&format!("cancel_exit_{}:\n", block_id));
-                buf.push_str("  call void @ube_task_set_cancelled()\n");
-                if func.return_type == Type::Void {
-                    buf.push_str("  ret void\n");
-                } else {
-                    let default = match &func.return_type {
-                        Type::Decimal => "0.0",
-                        Type::Class { .. }
-                        | Type::Nullable(_)
-                        | Type::String
-                        | Type::Task(_)
-                        | Type::Channel(_) => "null",
-                        Type::Bool => "false",
-                        _ => "0",
-                    };
-                    buf.push_str(&format!(
-                        "  ret {} {}\n",
-                        self.type_to_llvm(&func.return_type),
-                        default
-                    ));
-                }
-                buf.push_str(&format!("block_body_{}:\n", block_id));
-            }
             for instr in &block.instructions {
                 buf.push_str(&format!("  {}\n", self.emit_instruction(instr)));
             }
@@ -716,7 +708,14 @@ impl TextualLlvmEmitter {
 
     fn emit_instruction(&mut self, instr: &IrInstruction) -> String {
         match instr {
+            IrInstruction::Cast { dest, value, ty } => {
+                let (mut instructions, value) = self.coerce(value, ty);
+                // A same-type pointer cast is legal LLVM and gives this value its own SSA name.
+                instructions.push(format!("%{} = bitcast {} {} to {}", dest.0, self.type_to_llvm(ty), value, self.type_to_llvm(ty)));
+                instructions.join("\n  ")
+            }
             IrInstruction::Alloca { dest, ty } => {
+                self.slots.insert(*dest, ty.clone());
                 let mut ty_str = self.type_to_llvm(ty);
                 if ty_str == "void" {
                     ty_str = "i8*".to_string();
@@ -731,13 +730,11 @@ impl TextualLlvmEmitter {
                 )
             }
             IrInstruction::Store { val, ptr } => {
-                let val_ty = val.get_type();
-                let ty_str = self.type_to_llvm(&val_ty);
-                let val_str = self.emit_operand(val);
-                format!(
-                    "store {} {}, {}* %{}, align 8",
-                    ty_str, val_str, ty_str, ptr.0
-                )
+                let ty = self.slots.get(ptr).cloned().unwrap_or_else(|| val.get_type());
+                let ty_str = self.type_to_llvm(&ty);
+                let (mut instructions, value) = self.coerce(val, &ty);
+                instructions.push(format!("store {} {}, {}* %{}, align 8", ty_str, value, ty_str, ptr.0));
+                instructions.join("\n  ")
             }
             IrInstruction::GetField {
                 dest,
@@ -948,28 +945,32 @@ impl TextualLlvmEmitter {
                         .unwrap_or_else(|| arg.get_type());
                     let field_ty_str = self.type_to_llvm(&field_ty);
                     let gep_reg = format!("gep_inst_{}_{}", dest.0, i);
-                    let val_str = self.emit_operand(arg);
+                    let (casts, val_str) = self.coerce(arg, &field_ty);
+                    instrs.extend(casts);
 
                     instrs.push(format!(
                         "%{} = getelementptr inbounds {}, {}* %{}, i32 0, i32 {}",
                         gep_reg, class_type, class_type, bitcast_reg, i
                     ));
 
-                    if field_ty == Type::Long && arg.get_type() == Type::Int {
-                        let ext_reg = format!("ext_inst_{}_{}", dest.0, i);
-                        instrs.push(format!("%{} = sext i32 {} to i64", ext_reg, val_str));
-                        instrs.push(format!(
-                            "store i64 %{}, i64* %{}, align 8",
-                            ext_reg, gep_reg
-                        ));
-                    } else {
-                        instrs.push(format!(
-                            "store {} {}, {}* %{}, align 8",
-                            field_ty_str, val_str, field_ty_str, gep_reg
-                        ));
-                    }
+                    instrs.push(format!("store {} {}, {}* %{}, align 8", field_ty_str, val_str, field_ty_str, gep_reg));
                 }
+                let type_name = self.emit_operand(&IrOperand::ConstantString(class_name.clone()));
+                instrs.push(format!("call void @ube_object_register(i8* %{}, i8* {})", dest.0, type_name));
                 instrs.join("\n  ")
+            }
+            IrInstruction::CallTrait { dest, signature, receiver, args, ret_ty } => {
+                let index = self.string_counter;
+                self.string_counter += 1;
+                let key = self.emit_operand(&IrOperand::ConstantString(signature.clone()));
+                let object = self.emit_operand(receiver);
+                let mut instructions = vec![format!("%trait_method_{} = call i8* @ube_object_method(i8* {}, i8* {})", index, object, key)];
+                let params = std::iter::once("i8*".to_string()).chain(args.iter().map(|a| self.type_to_llvm(&a.get_type()))).collect::<Vec<_>>().join(", ");
+                instructions.push(format!("%trait_fn_{} = bitcast i8* %trait_method_{} to {} ({})*", index, index, self.type_to_llvm(ret_ty), params));
+                let values = std::iter::once(format!("i8* {}", object)).chain(args.iter().map(|a| format!("{} {}", self.type_to_llvm(&a.get_type()), self.emit_operand(a)))).collect::<Vec<_>>().join(", ");
+                let prefix = dest.map_or(String::new(), |r| format!("%{} = ", r.0));
+                instructions.push(format!("{}call {} %trait_fn_{}({})", prefix, self.type_to_llvm(ret_ty), index, values));
+                instructions.join("\n  ")
             }
             IrInstruction::CallMethod {
                 dest,
@@ -984,33 +985,22 @@ impl TextualLlvmEmitter {
                 let rx_str = self.emit_operand(receiver);
                 let rx_ty_str = self.type_to_llvm(&receiver.get_type());
 
-                let formatted_args = args
-                    .iter()
-                    .map(|a| {
-                        format!(
-                            "{} {}",
-                            self.type_to_llvm(&a.get_type()),
-                            self.emit_operand(a)
-                        )
-                    })
-                    .collect::<Vec<_>>();
-
-                let all_args = if formatted_args.is_empty() {
-                    format!("{} {}", rx_ty_str, rx_str)
-                } else {
-                    format!("{} {}, {}", rx_ty_str, rx_str, formatted_args.join(", "))
-                };
-
-                if ret_ty == &Type::Void || ret_ty_str == "void" {
-                    format!("call void @{}({})", fn_symbol, all_args)
-                } else if let Some(r) = dest {
-                    format!(
-                        "%{} = call {} @{}({})",
-                        r.0, ret_ty_str, fn_symbol, all_args
-                    )
-                } else {
-                    format!("call {} @{}({})", ret_ty_str, fn_symbol, all_args)
+                let params = self.signatures.get(&(class_name.clone(), method_name.clone())).cloned().unwrap_or_default();
+                let mut instructions = Vec::new();
+                let mut formatted_args = Vec::new();
+                for (i, arg) in args.iter().enumerate() {
+                    let ty = params.get(i).cloned().unwrap_or_else(|| arg.get_type());
+                    let (casts, value) = self.coerce(arg, &ty);
+                    instructions.extend(casts);
+                    formatted_args.push(format!("{} {}", self.type_to_llvm(&ty), value));
                 }
+                let all_args = if formatted_args.is_empty() { format!("{} {}", rx_ty_str, rx_str) }
+                    else { format!("{} {}, {}", rx_ty_str, rx_str, formatted_args.join(", ")) };
+                let call = if ret_ty == &Type::Void { format!("call void @{}({})", fn_symbol, all_args) }
+                    else if let Some(r) = dest { format!("%{} = call {} @{}({})", r.0, ret_ty_str, fn_symbol, all_args) }
+                    else { format!("call {} @{}({})", ret_ty_str, fn_symbol, all_args) };
+                instructions.push(call);
+                instructions.join("\n  ")
             }
             IrInstruction::CallRuntime {
                 dest,
@@ -1196,7 +1186,7 @@ impl TextualLlvmEmitter {
                 let decoded = self.decode_i64(result_ty, &format!("%{}", raw), &dest.0.to_string());
                 instructions.extend(decoded.0);
                 instructions.push(format!(
-                    "%{} = call %Error* @ube_task_last_error()",
+                    "%{} = call i8* @ube_exception_take()",
                     error_dest.0
                 ));
                 instructions.join("\n  ")
@@ -1235,6 +1225,21 @@ impl TextualLlvmEmitter {
                 }
             }
         }
+    }
+
+    fn coerce(&mut self, value: &IrOperand, target: &Type) -> (Vec<String>, String) {
+        let from = self.type_to_llvm(&value.get_type());
+        let to = self.type_to_llvm(target);
+        let operand = self.emit_operand(value);
+        if matches!(value, IrOperand::Null | IrOperand::NullOf(_)) || from == to { return (vec![], operand); }
+        let name = format!("coerce_{}", self.string_counter);
+        self.string_counter += 1;
+        let op = if from.ends_with('*') && to.ends_with('*') { "bitcast" }
+            else if from == "i32" && to == "i64" { "sext" }
+            else if from == "i64" && to == "i32" { "trunc" }
+            else if (from == "i32" || from == "i64") && to == "double" { "sitofp" }
+            else { "bitcast" };
+        (vec![format!("%{} = {} {} {} to {}", name, op, from, operand, to)], format!("%{}", name))
     }
 
     fn emit_operand(&mut self, op: &IrOperand) -> String {

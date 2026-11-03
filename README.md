@@ -64,7 +64,7 @@
 ### 12. Collections Policy & Unified `for` Loops (No `while` Keyword)
 - **`for` is the Sole Loop Keyword**: There is no `while` or `do-while` keyword in Ube.
 - **`for` / `else` (0-Iteration Fallback)**: `for (item in items) { ... } else { ... }`. The `else` block executes **ONLY if the loop body executed 0 times** (e.g. collection is empty `[]`, `null`, or condition is initially `false`).
-- **`break` & `continue`**: `break` exits the nearest loop or guard block; `continue` skips to the next iteration.
+- **`break` & `continue`**: `break` exits the nearest loop; `continue` skips to the next iteration.
 - **`Array<T>`**: Fixed-size contiguous buffer (`Array<int>(10)`).
 - **`List<T>`**: Dynamic growable sequence (`[1, 2, 3]` literal syntax, `.add()`, `.remove()`).
 - **`Map<K, V>`**: Key-value hash map (`[1000L: `Lem`]` literal syntax, bracket lookup returns `V?`, key-value `for (k, v in map)` iteration).
@@ -77,18 +77,18 @@
 ### 14. Concurrency Runtime (Tokio)
 - Async method calls are submitted to a shared multithreaded Tokio runtime. Receivers and arguments are captured before the call returns, and `await` blocks the calling Ube thread until completion.
 - The Rust runtime provides typed `Task<T>` results/errors, completion-based combinators, timeouts, cancellation, and bounded closable channels.
-- The compiler ABI transports task and channel values through a 64-bit slot, encoding primitive values and pointers. Ube await infers `Task<T>` from async method declarations; failures propagate into a surrounding `guard`/`catch`.
+- The compiler ABI transports task and channel values through a 64-bit slot, encoding primitive values and pointers. Ube await infers `Task<T>` from async method declarations; failures propagate into a surrounding `try`/`catch`.
 - One rule: **if it waits, you `await` it.** `async expr` (or an `async` method call) starts work; `await` gets the result.
 - `Channel<T>(capacity)` is a typed bounded channel: `await ch.send(v)` (false once closed), `await ch.receive()`, and `ch.close()`. A closed-channel receive after queued values are drained is catchable.
 - `await task.timeout(ms)` fails with a catchable `task timed out` and cancels the task; it works on any task, including `ch.receive()`.
-- Unguarded failures propagate out of async code and otherwise stop the program with a clear error.
+- Unhandled failures propagate out of async code and otherwise stop the program with a clear error.
 
-### 15. Exception Model (`guard { ... catch(err) { ... } exit { ... } }` & `throw`)
-- **Unified Guard Scope**: `guard { ... catch(err) { ... } exit { ... } }` handles errors and resource cleanup in one single unified block.
-- **`catch(err)` Clause**: Executes exclusively when an error is thrown inside `guard`.
-- **`exit` Cleanup Clause**: Acts as the `finally`/cleanup block under `guard {}`, executing reliably on both success and error exit paths.
-- **`return` Disallowance**: `return` inside a `guard` block is prohibited to guarantee predictable cleanup execution.
-- **`throw` Keyword**: `throw("msg")` or `throw CustomError(...)` throws error objects or strings (auto-boxed to `GenericError`).
+### 15. Exception Model (`try` / `catch` / `finally` & `throw`)
+- **`try` Block**: Followed by typed catches, a `finally` block, or both.
+- **Typed Catches**: `catch (Error err)` handles any error; concrete classes and structural error traits can narrow the match. Optional `if (condition)` guards select handlers in source order.
+- **`finally` Cleanup**: Runs on normal completion, errors, returns, and loop exits. If cleanup throws while another error is pending, the cleanup error replaces it and preserves the original as suppressed.
+- **`throw` Keyword**: `throw "msg"` wraps a string in `GenericError`; `throw CustomError(...)` preserves the error object. Error objects structurally provide `string message()`.
+
 
 ### 16. First-Class `if` Expressions & `for` Comprehensions (Mandatory `{}` & `yield`)
 - **Expression Evaluation**: Both `if` and `for` can be evaluated directly as expressions (`final x = if (...) { ... }`).
@@ -113,10 +113,10 @@
 - **Standard Currencies**: `Currency.PHP`, `Currency.USD`, `Currency.EUR`, `Currency.JPY`, `Currency.GBP`.
 - **Financial Percentages & Rates**: `Percent(12)` and `Rate.percent(5.5)` for tax, interest, and discount calculations (`price.multiply(vat)`).
 
-### 20. Native Filesystem Standard Library (`File`, `FileInfo`, `Directory`, `Path`, `after`)
-- **Exception-Free File Operations**: High-performance IO without exceptions (`FileError`, `FileNotFoundError`, `PermissionError`, `AlreadyExistsError`, `InvalidPathError`, `DiskFullError`).
+### 20. Native Filesystem Standard Library (`File`, `FileInfo`, `Directory`, `Path`)
+- **Catchable File Errors**: File and directory failures raise typed errors such as `FileNotFoundError`, `PermissionError`, or `FileError`.
 - **Object-Oriented & Static Helpers**: `File.read("app.txt")`, `File.write("out.txt", data)`, `file = File.open(path)`, `file.read()`, `file.close()`.
-- **Deferred Cleanup**: Native deferred cleanup using `after file.close()` syntax.
+- **Resource Cleanup**: Close file handles in a `finally` block.
 - **Directories & Paths**: `Directory.create("logs")`, `Path.join("src", "main.Ube")`.
 
 ### 21. Web Server Standard Library (`server`, `request`, `response`)
@@ -132,10 +132,13 @@
 - **XML Document Traversal & Generation**: `Xml.parse(text)`, `Xml.create("root")`, `doc.root().child("tag").text()`, `doc.toString()`.
 - **Reversible Character Codec (`DataNameCodec`)**: Maps XML/JSON tag/key names with hyphens (`Facility-ID`), namespaces (`rest:KitchenOrderScan`), or dots to Ube identifier conventions (`Facility$hyphen$ID`, `rest$KitchenOrderScan`).
 - **Strict vs. Partial Parsing Modes**: Strict mode enforces 1-to-1 structural completeness; Partial mode selectively maps declared components while assigning defaults (`null`, `List.of()`, `0`, `false`).
-- **Structured Format Error Handling**: Exception-free error handling via `guard`/`catch(err)` with `JsonParseError`, `XmlParseError`, `MissingDataError`, `ExcessDataError`.
+- **Structured Format Error Handling**: Typed error handling via `try`/`catch (Error err)` with `JsonParseError`, `XmlParseError`, `MissingDataError`, `ExcessDataError`.
 
-### 23. String Literals
-- Ordinary strings use `"text"`; a double quote followed only by optional spaces/tabs and a physical line break begins a multi-line string, closed by the next unescaped `"`.
+### 23. String Literals & Text Blocks
+
+Text blocks use a single opening double quote followed by a line break, then a closing double quote. They are useful for JSON, SQL, and HTML.
+
+- Ordinary strings use `"text"`; a double quote followed only by optional spaces, tabs, or form-feed and a physical line break begins a multi-line string, closed by the next unescaped `"`.
 - Multi-line strings normalize LF, CRLF, and CR to `\n`, remove common incidental indentation (including the closing delimiter's indentation), and retain the newline before a closing delimiter on its own line. Put the closing quote after the last content character to omit that final newline.
 - Escape sequences include `\n`, `\t`, `\r`, `\b`, `\f`, `\\`, `\"`, `\'`, `\s`, octal escapes, and `\u` followed by four hexadecimal digits. A backslash directly before a physical line break joins the next line without a newline.
 - Braces are literal; multi-line strings do not interpolate.
@@ -162,6 +165,25 @@ final html = "
 
 final ordinary = "Hello\nWorld"
 ```
+
+The opening line break is excluded. For example, this text block has the value `Hello\nWorld\n`:
+
+```ube
+final message = "
+    Hello
+    World
+    "
+```
+
+Move the closing quote onto the last content line to omit the trailing newline:
+
+```ube
+final message = "
+    Hello
+    World"
+```
+
+Embedded double quotes must be escaped as `\"`, as in the JSON example above. Unknown escapes and unterminated text blocks are compile errors.
 
 ---
 
@@ -667,7 +689,7 @@ assert_eq!(channel.receive().await?, None);
 
 The compiler now schedules calls to declared `async` methods and infers the awaited result type. Async method results are transported through a 64-bit ABI slot (integer/boolean/decimal bit representation or pointer); compiler-generated callbacks own their capture context, and task handles are cleaned up with the runtime. `Task.all`, `Task.any`, `Task.race`, and `Task.allSettled` also return tasks and observe completion order.
 
-The compiler transports async method throws and runtime task failures to an enclosing `guard`/`catch`; use `err.message()` to inspect the message. Awaiting a failure without a surrounding `guard` propagates it from an async method or `async` expression to its awaiter; anywhere else the program stops with `Ube error: unhandled task failure: ...` (exit code 1). Generated async methods poll cancellation at basic-block boundaries and return early when cancelled; a currently executing indivisible operation cannot be interrupted. `async expr` captures visible locals when submitted and evaluates the expression on a worker. Language channels support explicit element types (`Channel<T>(capacity)`) and `close()`; `send(value)` returns `Task<bool>` and `receive()` returns `Task<T>`, with the channel wait performed on Tokio. `send` completes with false if the channel is closed; after buffered values are drained, `receive` fails with a catchable channel-closed error. `task.timeout(ms)` wraps any task (including a channel operation) with a deadline; `Task.race` waits on several channels at once. The language channel bridge transports non-null primitive values and pointer-sized values through the existing 64-bit ABI; nullable scalar payloads are rejected.
+The compiler transports async method throws and runtime task failures to an enclosing `try`/`catch`; use `err.message()` to inspect the message. Awaiting a failure without a matching `catch` propagates it from an async method or `async` expression to its awaiter; anywhere else the program stops with `Ube error: unhandled exception ...` (exit code 1). Generated async methods poll cancellation at basic-block boundaries and raise a catchable cancellation error so cleanup runs; a currently executing indivisible operation cannot be interrupted. `async expr` captures visible locals when submitted and evaluates the expression on a worker. Language channels support explicit element types (`Channel<T>(capacity)`) and `close()`; `send(value)` returns `Task<bool>` and `receive()` returns `Task<T>`, with the channel wait performed on Tokio. `send` completes with false if the channel is closed; after buffered values are drained, `receive` fails with a catchable channel-closed error. `task.timeout(ms)` wraps any task (including a channel operation) with a deadline; `Task.race` waits on several channels at once. The language channel bridge transports non-null primitive values and pointer-sized values through the existing 64-bit ABI; nullable scalar payloads are rejected.
 
 ### 12. Built-in Collections (`List<T>`, `Map<K, V>`, Indexing & Bounds Protection)
 
@@ -684,33 +706,58 @@ class Application {
         print(`Map len: ${scores.len()}, score for 1000L: ${scores[1000L]}`)
 
         // 3. Out-of-bounds error handling
-        guard {
+        try {
             print(numbers[10]) // Out of bounds!
-
-            catch(err) {
-                print(`Caught error: ${err.message()}`)
-            }
+        } catch (Error err) {
+            print(`Caught error: ${err.message()}`)
         }
     }
 }
 ```
 
-### 13. Structured Exception Model (`guard { ... catch(err) { ... } exit { ... } }` & `throw`)
+### 13. Structured Exception Model (`try` / `catch` / `finally` & `throw`)
 
-```java
+Throw a string for a `GenericError`, or throw an object that provides `string message()`. Error classes use structural typing and require no inheritance. Concrete catches match the original class; trait catches match the methods that the object provides. Handlers run in source order, and `catch (Error err)` is the general fallback.
+
+```ube
+class RequestError(string message, int code) {}
+
 class Application {
     main() {
-        guard {
-            // Auto-boxed string throw into GenericError
-            throw(`Invalid user request`)
+        try {
+            throw RequestError("Invalid user request", 400)
+        } catch (RequestError err) if (err.code() == 400) {
+            print(err.message())
+            print(err.code())
+        } catch (Error err) {
+            print(err.message())
+        } finally {
+            print("Cleanup executed")
+        }
+    }
+}
+```
 
-            catch(err) {
-                print(`Caught error message: ${err.message()}`)
-            }
+A catch condition is evaluated after the error has been matched and narrowed to the catch type. If the condition is false, matching continues with the next handler. Put general handlers last; the compiler rejects handlers already covered by an earlier unconditioned catch.
 
-            exit {
-                print(`Guard exit cleanup executed`)
-            }
+`try` requires at least one `catch` or a `finally` block. Cleanup runs on success, propagated errors, `return`, `break`, and `continue`. If cleanup throws while an error is pending, its error becomes active and the original is retained as suppressed. A return from `finally` overrides a pending return.
+
+Failures propagate through method calls and `await`; async errors retain their original class and fields. Unhandled errors print their type, message, and recorded location, then exit with status 1.
+
+File and directory failures are catchable, including `FileNotFoundError`, `PermissionError`, and a fallback `FileError`. Empty file content and stream EOF remain successful results. Invalid or closed streams raise errors. Server startup failures, including invalid ports and bind failures, raise catchable `GenericError` values.
+
+```ube
+class Application {
+    main() {
+        final file = File.open("data.csv")
+        try {
+            print(file.read())
+        } catch (FileNotFoundError err) {
+            print("File does not exist")
+        } catch (Error err) {
+            print(err.message())
+        } finally {
+            file.close()
         }
     }
 }
@@ -769,7 +816,7 @@ class Application {
 }
 ```
 
-### 16. Native Filesystem & Deferred `after` Cleanup
+### 16. Native Filesystem & `finally` Cleanup
 
 ```java
 class Application {
@@ -779,17 +826,15 @@ class Application {
         final content = File.read(`logs/app.txt`)
         print(`Log content: ${content}`)
 
-        // 2. Object-oriented handle & deferred cleanup
-        guard {
-            final file = File.open(`data.csv`)
-            after file.close() // Native deferred cleanup execution
-
+        // 2. Object-oriented handle with cleanup
+        final file = File.open(`data.csv`)
+        try {
             final data = file.read()
             print(`Read ${data.len()} bytes`)
-
-            catch(err) {
-                print(`File error: ${err.message()}`)
-            }
+        } catch (Error err) {
+            print(`File error: ${err.message()}`)
+        } finally {
+            file.close()
         }
     }
 }

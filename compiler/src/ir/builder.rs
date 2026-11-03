@@ -7,6 +7,15 @@ use crate::types::Type;
 use std::collections::HashMap;
 
 #[derive(Clone)]
+struct Cleanup {
+    body: Vec<Stmt>,
+    scopes: Vec<HashMap<String, (Register, Type)>>,
+    handlers: Vec<(Register, BlockId)>,
+    loops: Vec<(BlockId, BlockId)>,
+    loop_depths: Vec<usize>,
+}
+
+#[derive(Clone)]
 pub struct IrBuilder {
     next_reg: usize,
     next_block: usize,
@@ -19,8 +28,13 @@ pub struct IrBuilder {
     class_decls: HashMap<String, ClassDecl>,
     next_async_thunk: usize,
     loop_stack: Vec<(BlockId, BlockId)>,
-    guard_stack: Vec<(Register, BlockId)>,
-    guard_exit_stack: Vec<BlockId>,
+    exception_handlers: Vec<(Register, BlockId)>,
+    cleanups: Vec<Cleanup>,
+    cleanup_pending: Vec<IrOperand>,
+    trait_members: HashMap<String, Vec<String>>,
+    trait_signatures: HashMap<(String, String), (Vec<Type>, Type)>,
+    loop_cleanup_depths: Vec<usize>,
+    in_cleanup: bool,
     yield_target_stack: Vec<(Option<Register>, Option<Register>)>,
     current_block_id: Option<BlockId>,
     current_method_async: bool,
@@ -45,8 +59,13 @@ impl IrBuilder {
             class_decls: HashMap::new(),
             next_async_thunk: 0,
             loop_stack: Vec::new(),
-            guard_stack: Vec::new(),
-            guard_exit_stack: Vec::new(),
+            exception_handlers: Vec::new(),
+            cleanups: Vec::new(),
+            cleanup_pending: Vec::new(),
+            trait_members: HashMap::new(),
+            trait_signatures: HashMap::new(),
+            loop_cleanup_depths: Vec::new(),
+            in_cleanup: false,
             yield_target_stack: Vec::new(),
             current_block_id: None,
             current_method_async: false,
@@ -126,8 +145,10 @@ impl IrBuilder {
         handler_builder.current_instructions.clear();
         handler_builder.var_pointers.clear();
         handler_builder.loop_stack.clear();
-        handler_builder.guard_stack.clear();
-        handler_builder.guard_exit_stack.clear();
+        handler_builder.exception_handlers.clear();
+        handler_builder.cleanups.clear();
+        handler_builder.cleanup_pending.clear();
+        handler_builder.loop_cleanup_depths.clear();
         handler_builder.yield_target_stack.clear();
         handler_builder.generated_functions.clear();
         handler_builder.current_method_async = false;
@@ -294,7 +315,15 @@ impl IrBuilder {
     }
 
     fn emit(&mut self, instr: IrInstruction) {
+        let check = matches!(instr, IrInstruction::CallMethod { .. } | IrInstruction::CallTrait { .. })
+            || matches!(&instr, IrInstruction::CallRuntime { symbol, .. }
+                if symbol.starts_with("ube_file_") || symbol.starts_with("ube_directory_")
+                    || symbol.starts_with("ube_stream_") || symbol.starts_with("ube_server_"));
         self.current_instructions.push(instr);
+        if check {
+            let error = self.runtime("ube_exception_take", vec![], Type::Bytes);
+            self.check_exception(error);
+        }
     }
 
     fn finish_block(&mut self, id: BlockId) {
@@ -316,82 +345,200 @@ impl IrBuilder {
         })
     }
 
-    fn route_await_error(&mut self, error_dest: Register) {
-        let Some((err_ptr, catch_target)) = self.guard_stack.last().cloned() else {
-            self.route_unguarded_await_error();
-            return;
-        };
-        let error_ty = Type::Nullable(Box::new(Type::Class {
-            name: "Error".into(),
-        }));
-        let condition = self.fresh_reg();
-        self.emit(IrInstruction::Binary {
-            dest: condition,
-            op: BinaryOp::NotEqual,
-            left: IrOperand::Register(error_dest, error_ty.clone()),
-            right: IrOperand::NullOf(error_ty.clone()),
-            operand_ty: error_ty.clone(),
-            result_ty: Type::Bool,
-        });
-        let error_block = self.fresh_block();
-        let success_block = self.fresh_block();
-        self.emit(IrInstruction::Branch {
-            cond: IrOperand::Register(condition, Type::Bool),
-            then_block: error_block,
-            else_block: success_block,
-        });
-        if let Some(current) = self.current_block_id {
-            self.finish_block(current);
-        }
-
-        self.current_block_id = Some(error_block);
-        self.emit(IrInstruction::Store {
-            val: IrOperand::Register(error_dest, error_ty),
-            ptr: err_ptr,
-        });
-        self.emit(IrInstruction::Jump {
-            target: catch_target,
-        });
-        self.finish_block(error_block);
-        self.current_block_id = Some(success_block);
+    fn runtime(&mut self, symbol: &str, args: Vec<IrOperand>, ty: Type) -> IrOperand {
+        let dest = (ty != Type::Void).then(|| self.fresh_reg());
+        self.emit(IrInstruction::CallRuntime { dest, symbol: symbol.into(), args, ret_ty: ty.clone() });
+        dest.map_or(IrOperand::Null, |d| IrOperand::Register(d, ty))
     }
 
-    /// An unguarded failure propagates out of an async function, and stops
-    /// the program everywhere else.
-    fn route_unguarded_await_error(&mut self) {
-        if !self.current_method_async {
-            self.emit(IrInstruction::CallRuntime {
-                dest: None,
-                symbol: "ube_task_fail_unhandled".into(),
-                args: Vec::new(),
-                ret_ty: Type::Void,
-            });
-            return;
+    fn cast(&mut self, value: IrOperand, ty: Type) -> IrOperand {
+        if value.get_type() == ty { return value; }
+        if matches!(value, IrOperand::Null | IrOperand::NullOf(_)) { return IrOperand::NullOf(ty); }
+        let dest = self.fresh_reg();
+        self.emit(IrInstruction::Cast { dest, value, ty: ty.clone() });
+        IrOperand::Register(dest, ty)
+    }
+
+    fn end_block(&mut self) {
+        if let Some(block) = self.current_block_id { self.finish_block(block); }
+    }
+
+    fn check_exception(&mut self, record: IrOperand) {
+        let condition = self.fresh_reg();
+        self.emit(IrInstruction::Binary { dest: condition, op: BinaryOp::NotEqual,
+            left: record.clone(), right: IrOperand::NullOf(Type::Bytes), operand_ty: Type::Bytes, result_ty: Type::Bool });
+        let failed = self.fresh_block();
+        let success = self.fresh_block();
+        self.emit(IrInstruction::Branch { cond: IrOperand::Register(condition, Type::Bool), then_block: failed, else_block: success });
+        self.end_block();
+        self.current_block_id = Some(failed);
+        self.route_exception(record);
+        self.end_block();
+        self.current_block_id = Some(success);
+    }
+
+    fn route_exception(&mut self, record: IrOperand) {
+        for original in self.cleanup_pending.clone() {
+            self.runtime("ube_exception_suppress", vec![record.clone(), original], Type::Void);
         }
-        let failed = self.fresh_reg();
-        self.emit(IrInstruction::CallRuntime {
-            dest: Some(failed),
-            symbol: "ube_task_propagate_error".into(),
-            args: Vec::new(),
-            ret_ty: Type::Bool,
-        });
-        let error_block = self.fresh_block();
-        let success_block = self.fresh_block();
-        self.emit(IrInstruction::Branch {
-            cond: IrOperand::Register(failed, Type::Bool),
-            then_block: error_block,
-            else_block: success_block,
-        });
-        if let Some(current) = self.current_block_id {
-            self.finish_block(current);
+        if let Some((slot, target)) = self.exception_handlers.last().copied() {
+            self.emit(IrInstruction::Store { val: record, ptr: slot });
+            self.emit(IrInstruction::Jump { target });
+        } else {
+            self.runtime("ube_exception_set", vec![record], Type::Void);
+            self.emit(IrInstruction::Return { val: (self.current_method_return_type != Type::Void)
+                .then(|| Self::default_operand_for_type(&self.current_method_return_type)) });
         }
-        self.current_block_id = Some(error_block);
-        self.emit(IrInstruction::Return {
-            val: (self.current_method_return_type != Type::Void)
-                .then(|| Self::default_operand_for_type(&self.current_method_return_type)),
-        });
-        self.finish_block(error_block);
-        self.current_block_id = Some(success_block);
+    }
+
+    fn object_matches(&mut self, object: IrOperand, type_name: &str) -> IrOperand {
+        let raw = self.cast(object, Type::Bytes);
+        if self.trait_members.contains_key(type_name) {
+            let mut signatures: Vec<_> = self.trait_signatures.iter().filter(|((name,_),_)| name == type_name)
+                .map(|((_,method),(params,result))| method_signature(method, params, result)).collect();
+            signatures.sort();
+            self.runtime("ube_object_satisfies", vec![raw, IrOperand::ConstantString(signatures.join("\n"))], Type::Bool)
+        } else {
+            self.runtime("ube_object_is", vec![raw, IrOperand::ConstantString(type_name.into())], Type::Bool)
+        }
+    }
+
+    fn build_trait_call(&mut self, trait_name: &str, member: &str, object: IrOperand, args: Vec<IrOperand>) -> IrOperand {
+        let (params, result_ty) = self.trait_signatures.get(&(trait_name.into(), member.into())).cloned().unwrap_or((vec![], Type::Void));
+        let signature = method_signature(member, &params, &result_ty);
+        let args = args.into_iter().enumerate().map(|(i,a)| self.cast(a.clone(), params.get(i).cloned().unwrap_or(a.get_type()))).collect();
+        let receiver = self.cast(object, Type::Bytes);
+        let dest = (result_ty != Type::Void).then(|| self.fresh_reg());
+        self.emit(IrInstruction::CallTrait { dest, signature, receiver, args, ret_ty: result_ty.clone() });
+        dest.map_or(IrOperand::Null, |d| IrOperand::Register(d, result_ty))
+    }
+
+    fn make_exception(&mut self, value: IrOperand, span: crate::diagnostics::Span) -> IrOperand {
+        let value = if value.get_type() == Type::String {
+            let dest = self.fresh_reg();
+            self.emit(IrInstruction::InstantiateClass { dest, class_name: "GenericError".into(), args: vec![value] });
+            IrOperand::Register(dest, Type::Class { name: "GenericError".into() })
+        } else { value };
+        let Type::Class { name } = value.get_type() else { return IrOperand::NullOf(Type::Bytes); };
+        let message = if self.trait_members.contains_key(&name) {
+            self.build_trait_call(&name, "message", value.clone(), vec![])
+        } else {
+            let dest = self.fresh_reg();
+            self.emit(IrInstruction::CallMethod { dest: Some(dest), class_name: name.clone(), method_name: "message".into(), receiver: value.clone(), args: vec![], ret_ty: Type::String });
+            IrOperand::Register(dest, Type::String)
+        };
+        let raw = self.cast(value, Type::Bytes);
+        self.runtime("ube_exception_create", vec![raw, IrOperand::NullOf(Type::String), message,
+            IrOperand::ConstantString(format!("{}:{}", span.start.line, span.start.column))], Type::Bytes)
+    }
+
+    fn run_cleanup(&mut self, index: usize, pending: Option<IrOperand>) {
+        let frame = self.cleanups[index].clone();
+        let saved_cleanups = self.cleanups.clone();
+        let saved_scopes = self.var_pointers.clone();
+        let saved_handlers = self.exception_handlers.clone();
+        let saved_loops = self.loop_stack.clone();
+        let saved_depths = self.loop_cleanup_depths.clone();
+        let saved_in_cleanup = self.in_cleanup;
+        self.cleanups.truncate(index);
+        self.var_pointers = frame.scopes;
+        self.exception_handlers = frame.handlers;
+        self.loop_stack = frame.loops;
+        self.loop_cleanup_depths = frame.loop_depths;
+        self.in_cleanup = true;
+        if let Some(pending) = &pending { self.cleanup_pending.push(pending.clone()); }
+        self.push_var_scope();
+        for stmt in &frame.body {
+            self.build_stmt(stmt);
+            if self.is_current_terminated() { break; }
+        }
+        self.pop_var_scope();
+        if pending.is_some() { self.cleanup_pending.pop(); }
+        self.in_cleanup = saved_in_cleanup;
+        self.cleanups = saved_cleanups;
+        self.var_pointers = saved_scopes;
+        self.exception_handlers = saved_handlers;
+        self.loop_stack = saved_loops;
+        self.loop_cleanup_depths = saved_depths;
+    }
+
+    fn emit_cleanups(&mut self, depth: usize) {
+        for index in (depth..self.cleanups.len()).rev() {
+            self.run_cleanup(index, None);
+            if self.is_current_terminated() { break; }
+        }
+    }
+
+    fn build_try(&mut self, body: &[Stmt], catches: &[CatchClause], finally: &Option<Vec<Stmt>>) {
+        let slot = self.fresh_reg();
+        self.emit(IrInstruction::Alloca { dest: slot, ty: Type::Bytes });
+        let dispatch = self.fresh_block();
+        let propagate = self.fresh_block();
+        let merge = self.fresh_block();
+        let cleanup_index = self.cleanups.len();
+        self.cleanups.push(Cleanup { body: finally.clone().unwrap_or_default(), scopes: self.var_pointers.clone(), handlers: self.exception_handlers.clone(), loops: self.loop_stack.clone(), loop_depths: self.loop_cleanup_depths.clone() });
+        self.exception_handlers.push((slot, dispatch));
+        self.push_var_scope();
+        for stmt in body { self.build_stmt(stmt); if self.is_current_terminated() { break; } }
+        self.pop_var_scope();
+        self.exception_handlers.pop();
+        if !self.is_current_terminated() {
+            self.run_cleanup(cleanup_index, None);
+            if !self.is_current_terminated() { self.emit(IrInstruction::Jump { target: merge }); }
+        }
+        self.end_block();
+        self.current_block_id = Some(dispatch);
+        let record_reg = self.fresh_reg();
+        self.emit(IrInstruction::Load { dest: record_reg, ptr: slot, ty: Type::Bytes });
+        let record = IrOperand::Register(record_reg, Type::Bytes);
+        let object = self.runtime("ube_exception_object", vec![record], Type::Bytes);
+        for handler in catches {
+            let matched = self.object_matches(object.clone(), &handler.type_name);
+            let handler_block = self.fresh_block();
+            let next = self.fresh_block();
+            self.emit(IrInstruction::Branch { cond: matched, then_block: handler_block, else_block: next });
+            self.end_block();
+            self.current_block_id = Some(handler_block);
+            self.push_var_scope();
+            let ty = Type::Class { name: handler.type_name.clone() };
+            let variable_slot = self.fresh_reg();
+            self.emit(IrInstruction::Alloca { dest: variable_slot, ty: ty.clone() });
+            let variable = self.cast(object.clone(), ty.clone());
+            self.emit(IrInstruction::Store { val: variable, ptr: variable_slot });
+            self.insert_var(handler.variable.clone(), variable_slot, ty);
+            self.exception_handlers.push((slot, propagate));
+            if let Some(condition) = &handler.condition {
+                let condition = self.build_expr(condition);
+                let accepted = self.fresh_block();
+                self.emit(IrInstruction::Branch { cond: condition, then_block: accepted, else_block: next });
+                self.end_block();
+                self.current_block_id = Some(accepted);
+            }
+            for stmt in &handler.body { self.build_stmt(stmt); if self.is_current_terminated() { break; } }
+            self.exception_handlers.pop();
+            self.pop_var_scope();
+            if !self.is_current_terminated() {
+                self.run_cleanup(cleanup_index, None);
+                if !self.is_current_terminated() { self.emit(IrInstruction::Jump { target: merge }); }
+            }
+            self.end_block();
+            self.current_block_id = Some(next);
+        }
+        self.emit(IrInstruction::Jump { target: propagate });
+        self.end_block();
+        self.current_block_id = Some(propagate);
+        let pending_reg = self.fresh_reg();
+        self.emit(IrInstruction::Load { dest: pending_reg, ptr: slot, ty: Type::Bytes });
+        let pending = IrOperand::Register(pending_reg, Type::Bytes);
+        self.run_cleanup(cleanup_index, Some(pending.clone()));
+        self.cleanups.pop();
+        if !self.is_current_terminated() { self.route_exception(pending); }
+        self.end_block();
+        self.current_block_id = Some(merge);
+    }
+
+    fn route_await_error(&mut self, error_dest: Register) {
+        self.check_exception(IrOperand::Register(error_dest, Type::Bytes));
     }
 
     fn build_deferred_expression(&mut self, expression: &Expr) -> IrOperand {
@@ -427,8 +574,10 @@ impl IrBuilder {
         deferred.current_instructions.clear();
         deferred.var_pointers.clear();
         deferred.loop_stack.clear();
-        deferred.guard_stack.clear();
-        deferred.guard_exit_stack.clear();
+        deferred.exception_handlers.clear();
+        deferred.cleanups.clear();
+        deferred.cleanup_pending.clear();
+        deferred.loop_cleanup_depths.clear();
         deferred.yield_target_stack.clear();
         deferred.generated_functions.clear();
         deferred.current_method_async = true;
@@ -572,22 +721,9 @@ impl IrBuilder {
                         .as_ref()
                         .and_then(|s| probe.yield_type_in_stmts(s))
                 }),
-                StmtKind::Guard {
-                    body,
-                    catch_clause,
-                    exit_body,
-                } => probe
-                    .yield_type_in_stmts(body)
-                    .or_else(|| {
-                        catch_clause
-                            .as_ref()
-                            .and_then(|(_, body)| probe.yield_type_in_stmts(body))
-                    })
-                    .or_else(|| {
-                        exit_body
-                            .as_ref()
-                            .and_then(|s| probe.yield_type_in_stmts(s))
-                    }),
+                StmtKind::Try { body, catches, finally_body } => probe.yield_type_in_stmts(body)
+                    .or_else(|| catches.iter().find_map(|c| probe.yield_type_in_stmts(&c.body)))
+                    .or_else(|| finally_body.as_ref().and_then(|b| probe.yield_type_in_stmts(b))),
                 _ => None,
             };
             if let Some(ty) = result {
@@ -633,6 +769,38 @@ impl IrBuilder {
     }
 
     pub fn build_program(&mut self, program: &Program) -> IrProgram {
+        let mut normalized = program.clone();
+        for name in ["GenericError", "OutOfBoundsError", "FileError", "FileNotFoundError", "PermissionError", "AlreadyExistsError", "InvalidPathError", "DiskFullError", "LocationPermissionError", "LocationUnavailableError", "JsonError", "JsonParseError", "MissingFieldError", "InvalidTypeError", "XmlError", "XmlParseError"] {
+            if !normalized.items.iter().any(|i| matches!(i, Item::Class(c) if c.name == name)) {
+                normalized.items.push(Item::Class(ClassDecl { name: name.into(), primary_params: vec![ConstructorParam {
+                    name: "message".into(), type_spec: TypeSpec::String, is_var: false,
+                    default_value: Some(Expr { kind: ExprKind::StringLiteral(String::new()), span: Default::default() }), span: Default::default()
+                }], cases: vec![], methods: vec![], span: Default::default() }));
+            }
+        }
+        let program = &normalized;
+        let mut checker = crate::semantics::TypeChecker::new();
+        checker.check_program(program);
+        self.trait_members.clear();
+        self.trait_signatures.clear();
+        let mut traits = vec!["Error".to_string()];
+        traits.extend(program.items.iter().filter_map(|i| if let Item::Trait(t) = i { Some(t.name.clone()) } else { None }));
+        for name in traits {
+            let mut members: Vec<String> = program.items.iter().filter_map(|i| if let Item::Class(c) = i {
+                checker.satisfies_trait(&c.name, &name).then(|| c.name.clone())
+            } else { None }).collect();
+            members.sort();
+            self.trait_members.insert(name, members);
+        }
+        self.trait_signatures.insert(("Error".into(), "message".into()), (vec![], Type::String));
+        for item in &program.items {
+            if let Item::Trait(t) = item {
+                for m in &t.methods {
+                    self.trait_signatures.insert((t.name.clone(), m.name.clone()), (m.params.iter().map(|p| self.type_spec_to_type(&p.type_spec)).collect(), m.return_type.as_ref().map_or(Type::Void, |t| self.type_spec_to_type(t))));
+                }
+            }
+        }
+
         self.method_return_types.clear();
         self.class_fields.clear();
         self.class_field_indices.clear();
@@ -902,7 +1070,7 @@ impl IrBuilder {
         let ret_val = if ret_ty == Type::Void {
             None
         } else {
-            Some(IrOperand::Null)
+            Some(Self::default_operand_for_type(&ret_ty))
         };
         self.emit(IrInstruction::Return { val: ret_val });
         self.finish_block(entry_block);
@@ -937,6 +1105,11 @@ impl IrBuilder {
         self.current_instructions.clear();
         self.var_pointers.clear();
         self.loop_stack.clear();
+        self.loop_cleanup_depths.clear();
+        self.exception_handlers.clear();
+        self.cleanups.clear();
+        self.cleanup_pending.clear();
+        self.in_cleanup = false;
 
         self.push_var_scope();
         let entry_block = self.fresh_block();
@@ -990,7 +1163,7 @@ impl IrBuilder {
 
         if !self.is_current_terminated() {
             self.emit(IrInstruction::Return {
-                val: if method.is_async && ret_ty != Type::Void {
+                val: if ret_ty != Type::Void {
                     Some(Self::default_operand_for_type(&ret_ty))
                 } else {
                     None
@@ -1085,6 +1258,11 @@ impl IrBuilder {
     }
 
     fn build_stmt(&mut self, stmt: &Stmt) {
+        if !self.in_cleanup {
+            let cancellation = self.runtime("ube_exception_poll_cancel", vec![], Type::Bytes);
+            self.check_exception(cancellation);
+        }
+
         match &stmt.kind {
             StmtKind::LocalDecl {
                 name,
@@ -1109,7 +1287,8 @@ impl IrBuilder {
                 } else {
                     IrOperand::ConstantInt(0)
                 };
-                let ty = init_op.get_type();
+                let ty = type_annotation.as_ref().map(|t| self.type_spec_to_type(t)).unwrap_or_else(|| init_op.get_type());
+                let init_op = self.cast(init_op, ty.clone());
                 let ptr_reg = self.fresh_reg();
                 self.emit(IrInstruction::Alloca {
                     dest: ptr_reg,
@@ -1256,6 +1435,10 @@ impl IrBuilder {
                 }
 
                 self.current_block_id = Some(header_block);
+                if !self.in_cleanup {
+                    let error = self.runtime("ube_exception_poll_cancel", vec![], Type::Bytes);
+                    self.check_exception(error);
+                }
                 let cond_op = if let (Some(list), Some(index_ptr)) = (&iterable, iterable_index_ptr)
                 {
                     let index_reg = self.fresh_reg();
@@ -1293,7 +1476,7 @@ impl IrBuilder {
                     then_block: body_block,
                     else_block: false_target,
                 });
-                self.finish_block(header_block);
+                self.end_block();
 
                 self.current_block_id = Some(body_block);
                 if let Some(ptr) = has_iter_ptr {
@@ -1346,6 +1529,7 @@ impl IrBuilder {
 
                 let continue_target = increment_block.unwrap_or(header_block);
                 self.loop_stack.push((continue_target, exit_block));
+                self.loop_cleanup_depths.push(self.cleanups.len());
                 for s in body {
                     self.build_stmt(s);
                     if self.is_current_terminated() {
@@ -1388,6 +1572,7 @@ impl IrBuilder {
                 }
                 self.pop_var_scope();
                 self.loop_stack.pop();
+                self.loop_cleanup_depths.pop();
 
                 if let (Some(check_block), Some(e_stmts), Some(ptr)) =
                     (else_check_block, else_branch, has_iter_ptr)
@@ -1428,26 +1613,24 @@ impl IrBuilder {
                 self.current_block_id = Some(exit_block);
             }
             StmtKind::Break => {
-                if let Some((_, exit_target)) = self.loop_stack.last().cloned() {
-                    self.emit(IrInstruction::Jump {
-                        target: exit_target,
-                    });
-                } else if let Some(exit_target) = self.guard_exit_stack.last().cloned() {
-                    self.emit(IrInstruction::Jump {
-                        target: exit_target,
-                    });
+                if let Some((_, target)) = self.loop_stack.last().copied() {
+                    let depth = *self.loop_cleanup_depths.last().unwrap_or(&0);
+                    self.emit_cleanups(depth);
+                    if !self.is_current_terminated() { self.emit(IrInstruction::Jump { target }); }
                 }
             }
             StmtKind::Continue => {
-                if let Some((header_target, _)) = self.loop_stack.last().cloned() {
-                    self.emit(IrInstruction::Jump {
-                        target: header_target,
-                    });
+                if let Some((target, _)) = self.loop_stack.last().copied() {
+                    let depth = *self.loop_cleanup_depths.last().unwrap_or(&0);
+                    self.emit_cleanups(depth);
+                    if !self.is_current_terminated() { self.emit(IrInstruction::Jump { target }); }
                 }
             }
-            StmtKind::Return(expr_opt) => {
-                let val = expr_opt.as_ref().map(|e| self.build_expr(e));
-                self.emit(IrInstruction::Return { val });
+            StmtKind::Return(expr) => {
+                let val = expr.as_ref().map(|e| self.build_expr(e));
+                let val = val.map(|v| self.cast(v, self.current_method_return_type.clone()));
+                self.emit_cleanups(0);
+                if !self.is_current_terminated() { self.emit(IrInstruction::Return { val }); }
             }
             StmtKind::Yield(expr) => {
                 let val = self.build_expr(expr);
@@ -1475,147 +1658,11 @@ impl IrBuilder {
                     self.emit(IrInstruction::Return { val: Some(val) });
                 }
             }
-            StmtKind::Guard {
-                body,
-                catch_clause,
-                exit_body,
-            } => {
-                let err_ty = Type::Nullable(Box::new(Type::Class {
-                    name: "Error".into(),
-                }));
-                let err_ptr = self.fresh_reg();
-                self.emit(IrInstruction::Alloca {
-                    dest: err_ptr,
-                    ty: err_ty.clone(),
-                });
-                self.emit(IrInstruction::Store {
-                    val: IrOperand::Null,
-                    ptr: err_ptr,
-                });
-
-                let catch_target = self.fresh_block();
-                let exit_target = self.fresh_block();
-                let merge_target = self.fresh_block();
-
-                self.guard_stack.push((err_ptr, catch_target));
-                self.guard_exit_stack.push(exit_target);
-
-                self.push_var_scope();
-                for s in body {
-                    self.build_stmt(s);
-                    if self.is_current_terminated() {
-                        break;
-                    }
-                }
-                if !self.is_current_terminated() {
-                    self.emit(IrInstruction::Jump {
-                        target: exit_target,
-                    });
-                }
-                if let Some(cb) = self.current_block_id {
-                    self.finish_block(cb);
-                }
-                self.pop_var_scope();
-                self.guard_stack.pop();
-                self.guard_exit_stack.pop();
-
-                // Catch Block
-                self.current_block_id = Some(catch_target);
-                if let Some((error_var, c_body)) = catch_clause {
-                    self.push_var_scope();
-                    self.insert_var(error_var.clone(), err_ptr, err_ty);
-                    for s in c_body {
-                        self.build_stmt(s);
-                        if self.is_current_terminated() {
-                            break;
-                        }
-                    }
-                    if !self.is_current_terminated() {
-                        self.emit(IrInstruction::Jump {
-                            target: exit_target,
-                        });
-                    }
-                    if let Some(cb) = self.current_block_id {
-                        self.finish_block(cb);
-                    }
-                    self.pop_var_scope();
-                } else {
-                    self.emit(IrInstruction::Jump {
-                        target: exit_target,
-                    });
-                    if let Some(cb) = self.current_block_id {
-                        self.finish_block(cb);
-                    }
-                }
-
-                // Exit Block (cleanup)
-                self.current_block_id = Some(exit_target);
-                if let Some(e_body) = exit_body {
-                    self.push_var_scope();
-                    for s in e_body {
-                        self.build_stmt(s);
-                        if self.is_current_terminated() {
-                            break;
-                        }
-                    }
-                    if !self.is_current_terminated() {
-                        self.emit(IrInstruction::Jump {
-                            target: merge_target,
-                        });
-                    }
-                    if let Some(cb) = self.current_block_id {
-                        self.finish_block(cb);
-                    }
-                    self.pop_var_scope();
-                } else {
-                    self.emit(IrInstruction::Jump {
-                        target: merge_target,
-                    });
-                    if let Some(cb) = self.current_block_id {
-                        self.finish_block(cb);
-                    }
-                }
-
-                self.current_block_id = Some(merge_target);
-            }
+            StmtKind::Try { body, catches, finally_body } => self.build_try(body, catches, finally_body),
             StmtKind::Throw(expr) => {
-                let val_op = self.build_expr(expr);
-                if let Some((err_ptr, catch_target)) = self.guard_stack.last().cloned() {
-                    let error = if val_op.get_type() == Type::String {
-                        self.build_class_instantiation("GenericError", &[expr.clone()])
-                    } else {
-                        val_op
-                    };
-                    self.emit(IrInstruction::Store {
-                        val: error,
-                        ptr: err_ptr,
-                    });
-                    self.emit(IrInstruction::Jump {
-                        target: catch_target,
-                    });
-                } else if self.current_method_async {
-                    let error_message = if val_op.get_type() == Type::String {
-                        val_op
-                    } else {
-                        IrOperand::ConstantString("asynchronous task threw an error".into())
-                    };
-                    self.emit(IrInstruction::CallRuntime {
-                        dest: None,
-                        symbol: "ube_task_set_error".into(),
-                        args: vec![error_message],
-                        ret_ty: Type::Void,
-                    });
-                    self.emit(IrInstruction::Return {
-                        val: (self.current_method_return_type != Type::Void).then(|| {
-                            Self::default_operand_for_type(&self.current_method_return_type)
-                        }),
-                    });
-                } else {
-                    self.diagnostics.push(Diagnostic::error(
-                        "'throw' can only be used inside a guard block",
-                        Some(expr.span),
-                    ));
-                }
+                let value = self.build_expr(expr);
+                let record = self.make_exception(value, expr.span);
+                self.route_exception(record);
             }
         }
     }
@@ -1751,6 +1798,7 @@ impl IrBuilder {
                 }
             }
             ExprKind::Call { callee, args } => {
+                let mut prepared_receiver = None;
                 if let ExprKind::MemberAccess { object, member, .. } = &callee.kind {
                     if let Some(method) = match member.as_str() {
                         "get" => Some("GET"),
@@ -1762,27 +1810,35 @@ impl IrBuilder {
                         "head" => Some("HEAD"),
                         _ => None,
                     } {
-                        if args.len() != 2 {
-                            self.diagnostics.push(Diagnostic::error(
-                                format!("Server.{} requires a path and a handler", member),
-                                Some(expr.span),
-                            ));
-                            return IrOperand::Null;
+                        let is_static = matches!(&object.kind, ExprKind::Identifier(name) if self.lookup_var(name).is_none());
+                        if !is_static {
+                            let receiver = self.build_expr(object);
+                            let is_server = receiver.get_type() == (Type::Class { name: "Server".into() });
+                            prepared_receiver = Some(receiver);
+                            if is_server {
+                                if args.len() != 2 {
+                                    self.diagnostics.push(Diagnostic::error(
+                                        format!("Server.{} requires a path and a handler", member),
+                                        Some(expr.span),
+                                    ));
+                                    return IrOperand::Null;
+                                }
+                                let server = prepared_receiver.take().unwrap();
+                                let path = self.build_expr(&args[0]);
+                                let Some((handler_symbol, context)) = self.build_server_handler(&args[1])
+                                else {
+                                    return IrOperand::Null;
+                                };
+                                self.emit(IrInstruction::ServerRoute {
+                                    server,
+                                    path,
+                                    method: method.into(),
+                                    context,
+                                    handler_symbol,
+                                });
+                                return IrOperand::Null;
+                            }
                         }
-                        let server = self.build_expr(object);
-                        let path = self.build_expr(&args[0]);
-                        let Some((handler_symbol, context)) = self.build_server_handler(&args[1])
-                        else {
-                            return IrOperand::Null;
-                        };
-                        self.emit(IrInstruction::ServerRoute {
-                            server,
-                            path,
-                            method: method.into(),
-                            context,
-                            handler_symbol,
-                        });
-                        return IrOperand::Null;
                     }
                 }
                 let arg_ops: Vec<IrOperand> = args.iter().map(|a| self.build_expr(a)).collect();
@@ -1799,7 +1855,7 @@ impl IrBuilder {
                         let obj_op = if static_class_name.is_some() {
                             IrOperand::Null
                         } else {
-                            self.build_expr(object)
+                            prepared_receiver.take().unwrap_or_else(|| self.build_expr(object))
                         };
                         let dest = self.fresh_reg();
                         let mut class_name =
@@ -1812,14 +1868,8 @@ impl IrBuilder {
                                 },
                                 _ => "Application".into(),
                             });
-                        if class_name == "Error" && member == "message" {
-                            self.emit(IrInstruction::CallRuntime {
-                                dest: Some(dest),
-                                symbol: "ube_error_message".into(),
-                                args: vec![obj_op],
-                                ret_ty: Type::String,
-                            });
-                            return IrOperand::Register(dest, Type::String);
+                        if self.trait_members.contains_key(&class_name) {
+                            return self.build_trait_call(&class_name, member, obj_op, arg_ops);
                         }
 
                         let async_method = self
@@ -1847,6 +1897,17 @@ impl IrBuilder {
                                 result_ty: result_ty.clone(),
                             });
                             return IrOperand::Register(dest, Type::Task(Box::new(result_ty)));
+                        }
+
+                        if self.class_decls.get(&class_name).is_some_and(|c| c.methods.iter().any(|m| m.name == *member) || c.primary_params.iter().any(|p| p.name == *member)) {
+                            let mut method_name = member.clone();
+                            if member == "render" {
+                                if let Some(IrOperand::Register(_, Type::Class { name })) = arg_ops.first() { method_name = format!("{}_{}", member, name); }
+                            }
+                            let ret_ty = self.method_return_types.get(&(class_name.clone(), method_name.clone())).cloned().unwrap_or(Type::Void);
+                            let dest = (ret_ty != Type::Void).then(|| self.fresh_reg());
+                            self.emit(IrInstruction::CallMethod { dest, class_name, method_name, receiver: obj_op, args: arg_ops, ret_ty: ret_ty.clone() });
+                            return dest.map_or(IrOperand::Null, |d| IrOperand::Register(d, ret_ty));
                         }
 
                         if class_name == "List" {
@@ -2614,13 +2675,7 @@ impl IrBuilder {
                             return IrOperand::Register(dest, ret_ty);
                         }
 
-                        if class_name == "File"
-                            || [
-                                "open", "read", "write", "append", "delete", "exists", "info",
-                                "close",
-                            ]
-                            .contains(&member.as_str())
-                        {
+                        if class_name == "File" {
                             let is_inst = obj_op.get_type()
                                 == (Type::Class {
                                     name: "File".into(),
@@ -3301,6 +3356,26 @@ impl IrBuilder {
                     return IrOperand::ConstantInt(0);
                 }
                 let l_op = self.build_expr(left);
+                if op == &BinaryOp::NullCoalescing {
+                    let Type::Nullable(inner) = l_op.get_type() else { return l_op; };
+                    let ty = *inner;
+                    let slot = self.fresh_reg();
+                    self.emit(IrInstruction::Alloca { dest: slot, ty: ty.clone() });
+                    let condition = self.fresh_reg();
+                    self.emit(IrInstruction::Binary { dest: condition, op: BinaryOp::NotEqual, left: l_op.clone(), right: IrOperand::NullOf(l_op.get_type()), operand_ty: l_op.get_type(), result_ty: Type::Bool });
+                    let present = self.fresh_block(); let absent = self.fresh_block(); let merge = self.fresh_block();
+                    self.emit(IrInstruction::Branch { cond: IrOperand::Register(condition, Type::Bool), then_block: present, else_block: absent }); self.end_block();
+                    self.current_block_id = Some(present);
+                    let value = self.cast(l_op, ty.clone()); self.emit(IrInstruction::Store { val: value, ptr: slot });
+                    self.emit(IrInstruction::Jump { target: merge }); self.end_block();
+                    self.current_block_id = Some(absent);
+                    let value = self.build_expr(right); let value = self.cast(value, ty.clone());
+                    self.emit(IrInstruction::Store { val: value, ptr: slot });
+                    self.emit(IrInstruction::Jump { target: merge }); self.end_block();
+                    self.current_block_id = Some(merge);
+                    let result = self.fresh_reg(); self.emit(IrInstruction::Load { dest: result, ptr: slot, ty: ty.clone() });
+                    return IrOperand::Register(result, ty);
+                }
                 let r_op = self.build_expr(right);
                 let dest = self.fresh_reg();
                 let operand_ty = l_op.get_type();
@@ -3460,7 +3535,7 @@ impl IrBuilder {
                     result_ty: Type::Bool,
                 });
 
-                let check_target_opt = self.guard_stack.last().cloned();
+                let check_target_opt = self.exception_handlers.last().cloned();
                 if let Some((err_ptr, check_target)) = check_target_opt {
                     let oob_block = self.fresh_block();
                     let ok_block = self.fresh_block();
@@ -3484,10 +3559,8 @@ impl IrBuilder {
                             span: expr.span,
                         }],
                     );
-                    self.emit(IrInstruction::Store {
-                        val: err_inst,
-                        ptr: err_ptr,
-                    });
+                    let record = self.make_exception(err_inst, expr.span);
+                    self.emit(IrInstruction::Store { val: record, ptr: err_ptr });
                     self.emit(IrInstruction::Jump {
                         target: check_target,
                     });
