@@ -2258,6 +2258,20 @@ impl TypeChecker {
                                 .get(&field_name)
                                 .or_else(|| info.fields.get(member))
                             {
+                                if member.starts_with('_') && name != cls.name {
+                                    self.diagnostics.push(Diagnostic::error(
+                                        format!("field '{}' is private to class '{}'", member, name),
+                                        Some(expr.span),
+                                    ));
+                                    return None;
+                                }
+                                if !member.starts_with('_') {
+                                    self.diagnostics.push(Diagnostic::error(
+                                        format!("public field '{}' must be read using '{}()'", member, member),
+                                        Some(expr.span),
+                                    ));
+                                    return None;
+                                }
                                 return Some(field_ty.clone());
                             }
                             if let Some((_, ret_ty)) = info.methods.get(member) {
@@ -2357,6 +2371,29 @@ impl TypeChecker {
                                     self.diagnostics.push(Diagnostic::error(format!("Member '{}' not found on trait '{}'", member, name), Some(expr.span)));
                                 }
                                 if let Some(info) = self.classes.get(name).cloned() {
+                                    if let Some((field_ty, is_mutable)) = info.fields.get(&format!("_{}", member)) {
+                                        if matches!(&object.kind, ExprKind::Identifier(identifier)
+                                            if self.symbol_table.lookup(identifier).is_none()) {
+                                            self.diagnostics.push(Diagnostic::error(
+                                                format!("field accessor '{}' requires an instance of '{}'", member, name), Some(expr.span)));
+                                            return None;
+                                        }
+                                        if !args.is_empty() {
+                                            if !is_mutable {
+                                                self.diagnostics.push(Diagnostic::error(
+                                                    format!("cannot set immutable field '{}'", member), Some(expr.span)));
+                                            } else if args.len() != 1 {
+                                                self.diagnostics.push(Diagnostic::error(
+                                                    format!("setter '{}(value)' requires exactly one argument", member), Some(expr.span)));
+                                            } else if let Some(actual) = arg_types.first() {
+                                                if !self.is_assignable_to(actual, field_ty) {
+                                                    self.diagnostics.push(Diagnostic::error(
+                                                        format!("setter '{}' expects '{}', found '{}'", member, field_ty, actual), Some(expr.span)));
+                                                }
+                                            }
+                                            return Some(Type::Void);
+                                        }
+                                    }
                                     if let Some((param_types, ret_ty)) =
                                         info.methods.get(member).cloned()
                                     {
@@ -2396,6 +2433,20 @@ impl TypeChecker {
                                 .get(member)
                                 .or_else(|| info.fields.get(&format!("_{}", member)));
                             if let Some((field_ty, is_mutable)) = field_info {
+                                if member.starts_with('_') && target_cls != cls.name {
+                                    self.diagnostics.push(Diagnostic::error(
+                                        format!("field '{}' is private to class '{}'", member, target_cls),
+                                        Some(target.span),
+                                    ));
+                                    return None;
+                                }
+                                if !member.starts_with('_') {
+                                    self.diagnostics.push(Diagnostic::error(
+                                        format!("public field '{}' must be written using '{}(value)'", member, member),
+                                        Some(target.span),
+                                    ));
+                                    return None;
+                                }
                                 if !is_mutable {
                                     self.diagnostics.push(Diagnostic::error(
                                         format!("cannot reassign immutable field '{}'", member),

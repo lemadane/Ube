@@ -1899,6 +1899,18 @@ impl IrBuilder {
                             return IrOperand::Register(dest, Type::Task(Box::new(result_ty)));
                         }
 
+                        let setter_field = self.class_decls.get(&class_name)
+                            .and_then(|c| c.primary_params.iter().enumerate()
+                                .find(|(_, p)| p.name == *member && p.is_var && arg_ops.len() == 1))
+                            .map(|(index, p)| (index, self.type_spec_to_type(&p.type_spec)));
+                        if let Some((field_index, field_ty)) = setter_field {
+                            let value = self.cast(arg_ops[0].clone(), field_ty);
+                            if let IrOperand::Register(ptr, _) = obj_op {
+                                self.emit(IrInstruction::StoreField { ptr, class_name, field_index, val: value });
+                            }
+                            return IrOperand::Null;
+                        }
+
                         if self.class_decls.get(&class_name).is_some_and(|c| c.methods.iter().any(|m| m.name == *member) || c.primary_params.iter().any(|p| p.name == *member)) {
                             let mut method_name = member.clone();
                             if member == "render" {

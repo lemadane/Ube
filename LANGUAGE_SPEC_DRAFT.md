@@ -426,7 +426,7 @@ class Account(long id, var decimal balance) {
 ## 13. Access Control (Naming-Based Visibility)
 
 - **Unprefixed Identifier** (`Name`, `methodName`): **Public**.
-- **Underscore-Prefixed Identifier** (`_Name`, `_methodName`): **Package-Private / Internal**.
+- **Underscore-Prefixed Fields** (`_name`, `_age`): **Class-private**. Only code inside the declaring class may read or write these backing fields. Public field access requires calls: `user.name()` or `user.age()` for getters, and `user.age(value)` for a `var` setter. Immutable fields have no setter. Direct field reads (`user.age`) and assignments (`user.age = value`) are rejected. Accessors require an object instance.
 
 ---
 

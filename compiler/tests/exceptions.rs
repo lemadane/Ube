@@ -373,3 +373,43 @@ fn native_bare_return_needs_no_semicolon_and_runs_cleanup() {
       main() { this.stop() print(this.value()) }
     }"#, "before\ncleanup\n42\n");
 }
+
+#[test]
+fn backing_fields_are_private_to_the_declaring_class() {
+    for statement in ["print(user._age)", "user._age = 2", "print(user._name)", "user._name = 'B'"] {
+        rejects(&format!("class User(string name, var int age) {{}} class Application {{ main() {{ final user = User('A', 1) {statement} }} }}"), "is private to class 'User'");
+    }
+}
+
+#[test]
+fn public_fields_use_getter_and_setter_calls() {
+    runs(r#"class User(string name, var int age) {
+      birthday() { this._age = this._age + 1 }
+      int read() { return this._age }
+    }
+    class Application { main() {
+      final user = User('A', 1)
+      final shared = user
+      print(user.name())
+      print(user.age())
+      user.age(2)
+      user.birthday()
+      print(user.read())
+      print(shared.age())
+    } }"#, "A\n1\n3\n3\n");
+}
+
+#[test]
+fn public_field_access_and_setter_arguments_are_checked() {
+    for (statement, expected) in [
+        ("print(user.age)", "must be read using 'age()'"),
+        ("user.age = 2", "must be written using 'age(value)'"),
+        ("user.age('bad')", "setter 'age' expects"),
+        ("user.age(1, 2)", "requires exactly one argument"),
+        ("user.name('B')", "cannot set immutable field 'name'"),
+        ("User.age(2)", "requires an instance of 'User'"),
+        ("User.age()", "requires an instance of 'User'"),
+    ] {
+        rejects(&format!("class User(string name, var int age) {{}} class Application {{ main() {{ final user = User('A', 1) {statement} }} }}"), expected);
+    }
+}

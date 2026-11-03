@@ -30,7 +30,7 @@
 
 ### 4. Unified `class` Model & Enums via Sum Classes (No `enum` Keyword)
 - **Single Type Keyword (`class`)**: `class` is the sole user-defined type keyword (no `enum`, `struct`, `record`, or `union`).
-- **Primary Constructor Fields**: `class User(long id, string name, var int age)` automatically generates package-private backing fields (`_id`, `_name`, `_age`) and public getter methods (`id()`, `name()`, `age()`).
+- **Primary Constructor Fields**: `class User(long id, string name, var int age)` automatically generates class-private backing fields (`_id`, `_name`, `_age`) and public getters (`id()`, `name()`, `age()`). A `var` field also supports a setter using the same name with one argument, such as `age(30)`.
 - **Enums via Sum Classes**: Enumerations and algebraic variants are declared using `case` clauses inside a `class` (e.g. `class Status { case Pending case Approved(long orderId) }`).
 
 ### 5. No `void` Keyword & Implicit Void Return Types
@@ -42,7 +42,8 @@
 - All instance field and method accesses inside a class **must** be explicitly prefixed with `this.`. Unqualified access produces a compiler error.
 
 ### 7. Naming-Based Access Control
-- Visibility is governed by identifier prefixes (`name` = public, `_name` = package-private/internal). There are no `public`, `private`, or `protected` keywords.
+- Public fields use accessor calls: `user.name()` and `user.age()` read values; `user.age(value)` writes a `var` field. Immutable fields have no setter. Direct access such as `user.age` or `user.age = value` is rejected.
+- Underscore-prefixed backing fields are class-private: only code inside `User` can read or write `user._age`. There are no `public`, `private`, or `protected` keywords.
 
 ### 8. Built-in `print` Directive
 - `print(...)` is the sole built-in output directive.
