@@ -1,12 +1,12 @@
 use std::ffi::{CStr, CString};
 use std::fs::{self, OpenOptions};
-use std::io::{BufRead, BufReader, Write};
-use std::net::{TcpListener, TcpStream};
+use std::io::Write;
+use std::net::TcpListener;
 use std::os::raw::c_char;
 use std::path::Path as StdPath;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::thread;
-use std::time::Duration;
+
+mod http;
 
 use crate::collections::{ube_list_add, ube_list_create, UbeList};
 use crate::datetime::{ube_datetime_from_unix, UbeDateTime};
@@ -351,6 +351,8 @@ pub struct UbeServer {
     pub port: i32,
     pub is_running: AtomicBool,
     routes: Vec<UbeServerRoute>,
+    http2: bool,
+    tls: Option<std::sync::Arc<rustls::ServerConfig>>,
 }
 
 #[derive(Clone)]
@@ -365,6 +367,7 @@ struct UbeServerRoute {
 pub struct UbeRequest {
     pub method: *mut c_char,
     pub url: *mut c_char,
+    protocol: &'static str,
 }
 
 #[repr(C)]
@@ -390,6 +393,8 @@ pub extern "C" fn ube_server_create() -> *mut UbeServer {
         port: 8080,
         is_running: AtomicBool::new(false),
         routes: Vec::new(),
+        http2: false,
+        tls: None,
     }))
 }
 
@@ -434,25 +439,23 @@ pub extern "C" fn ube_server_start(ptr: *mut UbeServer, port: i32) {
     server.port = i32::from(bound_port);
     server.is_running.store(true, Ordering::Release);
     let routes = server.routes.clone();
-    eprintln!("Ube server listening at http://127.0.0.1:{bound_port}");
+    let scheme = if server.tls.is_some() {
+        "https"
+    } else {
+        "http"
+    };
+    eprintln!("Ube server listening at {scheme}://127.0.0.1:{bound_port}");
 
-    while server.is_running.load(Ordering::Acquire) {
-        match listener.accept() {
-            Ok((stream, _)) => {
-                if let Err(error) = serve_http_connection(stream, &routes) {
-                    eprintln!("Ube server request error: {error}");
-                }
-            }
-            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
-                thread::sleep(Duration::from_millis(20));
-            }
-            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
-            Err(error) => {
-                fail(format!("Ube server accept error: {error}"));
-                server.is_running.store(false, Ordering::Release);
-            }
-        }
+    if let Err(error) = http::serve_listener(
+        listener,
+        &routes,
+        server.tls.clone(),
+        server.http2,
+        &server.is_running,
+    ) {
+        fail(format!("Ube server accept error: {error}"));
     }
+    server.is_running.store(false, Ordering::Release);
 }
 
 #[no_mangle]
@@ -472,7 +475,20 @@ pub extern "C" fn ube_server_port(ptr: *mut UbeServer) -> i32 {
 }
 
 #[no_mangle]
-pub extern "C" fn ube_server_tls(_ptr: *mut UbeServer, _cert: *const c_char, _key: *const c_char) {}
+pub extern "C" fn ube_server_tls(ptr: *mut UbeServer, cert: *const c_char, key: *const c_char) {
+    if ptr.is_null() || cert.is_null() || key.is_null() {
+        fail("Ube server TLS configuration requires a server, certificate path, and key path");
+        return;
+    }
+    let cert = unsafe { CStr::from_ptr(cert) }.to_string_lossy();
+    let key = unsafe { CStr::from_ptr(key) }.to_string_lossy();
+    match http::tls_config(&cert, &key) {
+        Ok(config) => unsafe {
+            (*ptr).tls = Some(std::sync::Arc::new(config));
+        },
+        Err(error) => fail(format!("Ube server TLS configuration failed: {error}")),
+    }
+}
 #[no_mangle]
 pub extern "C" fn ube_server_route(
     ptr: *mut UbeServer,
@@ -545,119 +561,56 @@ pub extern "C" fn ube_response_create(status: i32, body_ptr: *const c_char) -> *
     Box::into_raw(Box::new(UbeResponse { status, body }))
 }
 
-fn serve_http_connection(mut stream: TcpStream, routes: &[UbeServerRoute]) -> std::io::Result<()> {
-    let mut reader = BufReader::new(&mut stream);
-    let mut request_line = String::new();
-    reader.read_line(&mut request_line)?;
-    if request_line.len() > 8192 {
-        drop(reader);
-        return write_http_response(&mut stream, 431, b"Request header too large");
-    }
-    let mut parts = request_line.split_whitespace();
-    let Some(method) = parts.next() else {
-        drop(reader);
-        return write_http_response(&mut stream, 400, b"Bad Request");
-    };
-    let Some(url) = parts.next() else {
-        drop(reader);
-        return write_http_response(&mut stream, 400, b"Bad Request");
-    };
-    let Some(version) = parts.next() else {
-        drop(reader);
-        return write_http_response(&mut stream, 400, b"Bad Request");
-    };
-    if !version.starts_with("HTTP/") {
-        drop(reader);
-        return write_http_response(&mut stream, 400, b"Bad Request");
-    }
-
-    let mut headers_size = request_line.len();
-    loop {
-        let mut line = String::new();
-        let bytes_read = reader.read_line(&mut line)?;
-        if bytes_read == 0 {
-            break;
-        }
-        headers_size += bytes_read;
-        if headers_size > 16 * 1024 {
-            drop(reader);
-            return write_http_response(&mut stream, 431, b"Request header too large");
-        }
-        if line == "\r\n" || line == "\n" {
-            break;
-        }
-    }
-    drop(reader);
-
+// The route callback ABI is shared by HTTP/1.1 and HTTP/2. Keep all generated
+// callbacks on the server thread; response frames may be sent asynchronously.
+fn dispatch_request(
+    method: &str,
+    url: &str,
+    protocol: &'static str,
+    routes: &[UbeServerRoute],
+) -> (u16, Vec<u8>) {
     let path = url.split('?').next().unwrap_or(url);
-    let route = routes
+    let Some(route) = routes
         .iter()
-        .find(|route| route.method == method && route.path == path);
-    let Some(route) = route else {
-        return write_http_response(&mut stream, 404, b"Not Found");
+        .find(|route| route.method == method && route.path == path)
+    else {
+        return (404, b"Not Found".to_vec());
     };
-
-    let Ok(method_string) = CString::new(method) else {
-        return write_http_response(&mut stream, 400, b"Bad Request");
-    };
-    let Ok(url_string) = CString::new(url) else {
-        return write_http_response(&mut stream, 400, b"Bad Request");
+    let (Ok(method_string), Ok(url_string)) = (CString::new(method), CString::new(url)) else {
+        return (400, b"Bad Request".to_vec());
     };
     let mut request = UbeRequest {
         method: method_string.into_raw(),
         url: url_string.into_raw(),
+        protocol,
     };
     let handler: unsafe extern "C" fn(*mut std::ffi::c_void, *mut UbeRequest) -> *mut UbeResponse =
         unsafe { std::mem::transmute(route.handler) };
-    let response = unsafe {
-        handler(
-            route.context as *mut std::ffi::c_void,
-            &mut request as *mut UbeRequest,
-        )
-    };
-
+    let response = unsafe { handler(route.context as *mut std::ffi::c_void, &mut request) };
     unsafe {
         drop(CString::from_raw(request.method));
         drop(CString::from_raw(request.url));
     }
+    let failed = crate::exceptions::take_pending() != 0;
     if response.is_null() {
-        return write_http_response(&mut stream, 500, b"Internal Server Error");
+        return (500, b"Internal Server Error".to_vec());
     }
     let response = unsafe { Box::from_raw(response) };
     let body = if response.body.is_null() {
-        &[][..]
+        Vec::new()
     } else {
-        unsafe { CStr::from_ptr(response.body) }.to_bytes()
+        let body = unsafe { CString::from_raw(response.body) };
+        body.as_bytes().to_vec()
     };
-    let result = write_http_response(&mut stream, response.status, body);
-    if !response.body.is_null() {
-        unsafe { drop(CString::from_raw(response.body)) };
+    if failed {
+        return (500, b"Internal Server Error".to_vec());
     }
-    result
-}
-
-fn write_http_response(stream: &mut TcpStream, status: i32, body: &[u8]) -> std::io::Result<()> {
-    let (status, reason) = match status {
-        200 => (200, "OK"),
-        201 => (201, "Created"),
-        301 => (301, "Moved Permanently"),
-        302 => (302, "Found"),
-        400 => (400, "Bad Request"),
-        401 => (401, "Unauthorized"),
-        404 => (404, "Not Found"),
-        405 => (405, "Method Not Allowed"),
-        431 => (431, "Request Header Fields Too Large"),
-        500 => (500, "Internal Server Error"),
-        code if (100..600).contains(&code) => (code, "Response"),
-        _ => (500, "Internal Server Error"),
+    let status = if (200..600).contains(&response.status) {
+        response.status as u16
+    } else {
+        500
     };
-    write!(
-        stream,
-        "HTTP/1.1 {status} {reason}\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
-        body.len()
-    )?;
-    stream.write_all(body)?;
-    stream.flush()
+    (status, body)
 }
 
 #[no_mangle]
@@ -680,7 +633,15 @@ pub extern "C" fn ube_cookie_create(name: *const c_char, val: *const c_char) -> 
 }
 
 #[no_mangle]
-pub extern "C" fn ube_server_enable_http2(_ptr: *mut UbeServer) {}
+pub extern "C" fn ube_server_enable_http2(ptr: *mut UbeServer) {
+    if ptr.is_null() {
+        fail("Ube server error: received a null server");
+        return;
+    }
+    unsafe {
+        (*ptr).http2 = true;
+    }
+}
 #[no_mangle]
 pub extern "C" fn ube_server_enable_http3(ptr: *mut UbeServer, port: i32) {
     if !ptr.is_null() {
@@ -691,12 +652,17 @@ pub extern "C" fn ube_server_enable_http3(ptr: *mut UbeServer, port: i32) {
 }
 
 #[no_mangle]
-pub extern "C" fn ube_request_protocol(_ptr: *mut UbeRequest) -> *mut c_char {
-    CString::new("HTTP/3").unwrap().into_raw()
+pub extern "C" fn ube_request_protocol(ptr: *mut UbeRequest) -> *mut c_char {
+    let protocol = if ptr.is_null() {
+        ""
+    } else {
+        unsafe { (*ptr).protocol }
+    };
+    CString::new(protocol).unwrap().into_raw()
 }
 #[no_mangle]
-pub extern "C" fn ube_request_is_http3(_ptr: *mut UbeRequest) -> bool {
-    true
+pub extern "C" fn ube_request_is_http3(ptr: *mut UbeRequest) -> bool {
+    !ptr.is_null() && unsafe { (*ptr).protocol == "HTTP/3" }
 }
 
 #[repr(C)]

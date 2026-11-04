@@ -1004,3 +1004,12 @@ fn console_print_methods_and_shorthand() {
     }
     rejects("class Item {} class Application { main() { print(Item()) } }", "Output requires");
 }
+
+#[test]
+fn invalid_server_tls_configuration_is_catchable() {
+    runs(r#"class Application { main() {
+        final server = Server()
+        try { server.tls('/ube-missing-cert.pem', '/ube-missing-key.pem') }
+        catch (GenericError err) { print('invalid TLS configuration') }
+    } }"#, "invalid TLS configuration\n");
+}

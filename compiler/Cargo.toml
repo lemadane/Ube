@@ -7,3 +7,6 @@ edition = "2021"
 ube-runtime = { path = "../runtime" }
 
 [dev-dependencies]
+h2 = "0.4"
+http = "1"
+tokio = { version = "1.38", features = ["net", "rt", "time"] }

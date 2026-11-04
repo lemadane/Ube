@@ -16,7 +16,7 @@ pub fn get_runtime() -> &'static Arc<Runtime> {
         let rt = tokio::runtime::Builder::new_multi_thread()
             .enable_all()
             .build()
-            .expect("Failed to initialize Tokio runtime for Ube QUIC/HTTP3");
+            .expect("Failed to initialize Tokio runtime for Ube networking");
         Arc::new(rt)
     })
 }

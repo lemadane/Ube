@@ -192,3 +192,98 @@ This is a captured multiline string.
         "server exited after handling HTTP requests"
     );
 }
+
+#[test]
+fn compiled_ube_server_serves_http2_and_reports_actual_protocol() {
+    let port = TcpListener::bind(("127.0.0.1", 0))
+        .unwrap()
+        .local_addr()
+        .unwrap()
+        .port();
+    let source = format!(
+        r#"
+        class Application {{
+            main() {{
+                final server = Server()
+                server.enableHttp2()
+                server.get('/protocol', request -> Response.ok('${{request.protocol()}} ${{request.isHttp3()}}'))
+                server.get('/stop') {{ request ->
+                    server.stop()
+                    return Response.ok('stopped')
+                }}
+                server.start({port})
+            }}
+        }}
+    "#
+    );
+    let directory = TestDirectory::new();
+    let binary = compile_ube_server(&source, directory.path());
+    let child = Command::new(binary)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    let mut server = RunningServer(child);
+    let address = SocketAddr::from(([127, 0, 0, 1], port));
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        assert!(
+            server.0.try_wait().unwrap().is_none(),
+            "server exited before listening"
+        );
+        if TcpStream::connect_timeout(&address, Duration::from_millis(100)).is_ok() {
+            break;
+        }
+        assert!(Instant::now() < deadline, "server startup timed out");
+        thread::sleep(Duration::from_millis(25));
+    }
+    ube_runtime::net::get_runtime().block_on(async {
+        tokio::time::timeout(Duration::from_secs(10), async {
+            let stream = tokio::net::TcpStream::connect(address).await.unwrap();
+            let (mut client, connection) = h2::client::handshake(stream).await.unwrap();
+            let driver = tokio::spawn(connection);
+            for (path, expected) in [("/protocol", "HTTP/2 false"), ("/stop", "stopped")] {
+                let request = http::Request::builder()
+                    .uri(format!("http://localhost{path}"))
+                    .body(())
+                    .unwrap();
+                let response = client.send_request(request, true).unwrap().0.await.unwrap();
+                assert_eq!(response.version(), http::Version::HTTP_2);
+                assert_eq!(response.status(), http::StatusCode::OK);
+                let mut stream = response.into_body();
+                let mut body = Vec::new();
+                while let Some(data) = stream.data().await {
+                    let data = data.unwrap();
+                    body.extend_from_slice(&data);
+                    stream.flow_control().release_capacity(data.len()).unwrap();
+                }
+                assert_eq!(body, expected.as_bytes());
+                if path == "/protocol" {
+                    let response = String::from_utf8(send_request(
+                        address,
+                        "GET /protocol HTTP/1.1\r\nHost: localhost\r\n\r\n",
+                    ))
+                    .unwrap();
+                    assert!(response.ends_with("HTTP/1.1 false"), "{response}");
+                }
+            }
+            drop(client);
+            driver.await.unwrap().unwrap();
+        })
+        .await
+        .unwrap();
+    });
+    let deadline = Instant::now() + Duration::from_secs(3);
+    loop {
+        if let Some(status) = server.0.try_wait().unwrap() {
+            assert!(status.success());
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "server.stop() did not stop the process"
+        );
+        thread::sleep(Duration::from_millis(20));
+    }
+}
