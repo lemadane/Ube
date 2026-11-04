@@ -413,3 +413,93 @@ fn public_field_access_and_setter_arguments_are_checked() {
         rejects(&format!("class User(string name, var int age) {{}} class Application {{ main() {{ final user = User('A', 1) {statement} }} }}"), expected);
     }
 }
+
+#[test]
+fn native_declarations_zero_initialize_without_constructor_defaults() {
+    runs(r#"class Defaults {
+      int load() { print('default evaluated') return 99 }
+    }
+    class Record(int count = Defaults().load(), string label = 'configured') {}
+    class Application { main() {
+      Record zero
+      print(zero.count())
+      print(zero.label())
+      final explicit = Record()
+      print(explicit.count())
+      print(explicit.label())
+      Record? absent
+      print(absent == null)
+    } }"#, "0\n\ndefault evaluated\n99\nconfigured\ntrue\n");
+}
+
+#[test]
+fn native_zero_initialization_recurses_without_sharing_or_defaults() {
+    runs(r#"class Point(var int x = 42) {}
+    class Pair(Point left, Point right) {}
+    class Node(int value = 99, Node? next = null) {}
+    class Application { main() {
+      Pair pair
+      pair.left().x(7)
+      print(pair.left().x())
+      print(pair.right().x())
+      Pair other
+      print(other.left().x())
+      Node node
+      print(node.value())
+      print(node.next() == null)
+    } }"#, "7\n0\n0\n0\ntrue\n");
+}
+
+#[test]
+fn native_primitive_declarations_keep_zero_values() {
+    runs(r#"class Settings(int count = 7, long id = 9L, decimal ratio = 1.5,
+      bool enabled = true, string text = 'configured') {}
+    class Application { main() {
+      int count
+      long id
+      decimal ratio
+      bool enabled
+      string text
+      print(count) print(id) print(ratio) print(enabled) print(text)
+      Settings settings
+      print(settings.count()) print(settings.id()) print(settings.ratio())
+      print(settings.enabled()) print(settings.text())
+    } }"#, "0\n0\n0\nfalse\n\n0\n0\n0\nfalse\n\n");
+}
+
+#[test]
+fn unsafe_zero_initialization_requires_nullable_links_or_explicit_initializers() {
+    rejects("class Node(Node next) {} class Application { main() { Node node } }", "recursive non-nullable class");
+    rejects("class A(B b) {} class B(A a) {} class Application { main() { A value } }", "recursive non-nullable class");
+    rejects("class Application { main() { Server app } }", "requires an explicit initializer");
+    rejects("class Application { main() { Channel<int> values } }", "requires an explicit initializer");
+    rejects("trait Named { string name() } class Application { main() { Named value } }", "requires an explicit initializer");
+}
+
+#[test]
+fn native_startup_uses_the_same_zero_values_as_local_declarations() {
+    runs(r#"class Defaults {
+      int load() { print('unexpected default evaluation') return 123 }
+    }
+    class Child(int count = 77) {}
+    class Application(int count = Defaults().load(), long support = 44L,
+      string caption = 'configured', Child child = Child(), Child? absent = Child()) {
+      main() {
+        print(this.count())
+        print(this.support())
+        print(this.caption())
+        print(this.child().count())
+        print(this.absent() == null)
+        Application other
+        print(other.child().count())
+        final configured = Child()
+        print(configured.count())
+      }
+    }"#, "0\n0\n\n0\ntrue\n0\n77\n");
+}
+
+#[test]
+fn unsafe_startup_layouts_are_rejected_before_codegen() {
+    rejects("class Application(Application next) { main() {} }", "recursive non-nullable class");
+    rejects("class Application(Server app = Server()) { main() {} }", "requires an explicit initializer");
+}

@@ -2,6 +2,10 @@
 
 This document details the 14 implementation phases for the **Ube** compiler, including deliverables, dependencies, technical risks, engineer-week estimates, objective exit criteria, and parallelization opportunities.
 
+This is a planning roadmap, not a completion report. Estimates and exit criteria describe targets. Current implementation details are in [README.md](README.md) and [ARCHITECTURE.md](ARCHITECTURE.md).
+
+Current language rules: declarations and application startup zero-initialize without constructor defaults; explicit construction applies defaults. Backing fields are class-private, public getters use `field()`, and `var` setters use `field(value)`. One-line strings use single quotes, characters use backticks, and text blocks use double quotes followed by a newline. Semicolons are prohibited in code.
+
 ---
 
 ## Phased Timeline & Estimates Overview
@@ -32,7 +36,7 @@ Phase 13: Self-Hosting Assessment       [ 4 wks ]
 ### Phase 0: Specification Baseline
 - **Deliverables**: Finalized EBNF grammar, language spec baseline (`LANGUAGE_SPEC_DRAFT.md`), language decision records (LDRs), and positive/negative syntax test suites.
 - **Dependencies**: None.
-- **Risks**: Syntax ambiguities in backtick string interpolation and word booleans.
+- **Risks**: Syntax ambiguities in single-quoted string interpolation and double-quoted text blocks and word booleans.
 - **Estimate**: 2 Engineer-Weeks.
 - **Exit Criteria**: 100% of approved syntax features documented with zero grammatical ambiguities in LALR/Pratt grammar rules.
 - **Parallelization**: Grammar specification and test-case drafting can run in parallel.
@@ -50,7 +54,7 @@ Phase 13: Self-Hosting Assessment       [ 4 wks ]
 ---
 
 ### Phase 2: Semantic Frontend
-- **Deliverables**: Lexical scoping symbol table (`SymbolTable`), package and import resolver, type system representations, mutability validator, default initialization checks, explicit `this` enforcement, naming-based visibility checks, flow-sensitive `is` type narrowing.
+- **Deliverables**: Lexical scoping symbol table (`SymbolTable`), package and import resolver, type system representations, mutability validator, shared zero-initialization checks, nullable cycle handling, runtime-resource initializer validation, explicit `this` enforcement, naming-based visibility checks, flow-sensitive `is` type narrowing.
 - **Dependencies**: Phase 1.
 - **Risks**: Complex flow-sensitive narrowing logic invalidation across nested blocks.
 - **Estimate**: 6 Engineer-Weeks.
@@ -64,17 +68,17 @@ Phase 13: Self-Hosting Assessment       [ 4 wks ]
 - **Dependencies**: Phase 2.
 - **Risks**: Platform-specific C-ABI calling conventions and linker flag differences.
 - **Estimate**: 5 Engineer-Weeks.
-- **Exit Criteria**: **MVP Milestone**: A valid Ube "Hello World" application (`class Application { void main() { ... } }`) compiles to a native executable and runs with exit code 0.
+- **Exit Criteria**: **MVP Milestone**: A valid Ube "Hello World" application (`class Application { main() { ... } }`) compiles to a native executable and runs with exit code 0.
 - **Parallelization**: LLVM IR generator and `ube-runtime` library can be built in parallel.
 
 ---
 
 ### Phase 4: Complete Class Model
-- **Deliverables**: `var` field mutation validation, immutable-field protection, primary constructor argument lowering, class memory layout generation, package-private member access checks, and instance method dispatch.
+- **Deliverables**: `var` field mutation validation, immutable-field protection, primary constructor argument lowering, class memory layout generation, class-private backing-field checks and public getter/setter calls, and instance method dispatch.
 - **Dependencies**: Phase 3.
 - **Risks**: Incorrect struct padding and alignment in LLVM layout generation.
 - **Estimate**: 6 Engineer-Weeks.
-- **Exit Criteria**: Complex classes with `var` fields, explicit `this`, and constructor defaults compile and execute correctly natively.
+- **Exit Criteria**: Class-private fields, `field()` getters, `var`-only `field(value)` setters, explicit constructor defaults, and default-free zero initialization for declarations and startup pass native tests.
 - **Parallelization**: Field access validation and LLVM class struct generation can be split.
 
 ---
@@ -120,12 +124,12 @@ Phase 13: Self-Hosting Assessment       [ 4 wks ]
 ---
 
 ### Phase 9: Errors & Resources
-- **Deliverables**: `Result<T, E>` compiler integration, error propagation operator `?`, `defer` statement lowering, resource cleanup block injection.
+- **Deliverables**: `try`, typed and conditional `catch`, `finally`, and `throw` lowering; structural error matching; explicit exception propagation; cleanup across returns and loop exits; suppressed errors; catchable runtime I/O failures.
 - **Dependencies**: Phase 8.
-- **Risks**: Unhandled resource leak paths during early return inside `defer` blocks.
+- **Risks**: Missed cleanup or error propagation across nested control flow and async cancellation.
 - **Estimate**: 4 Engineer-Weeks.
-- **Exit Criteria**: Programs using `defer` clean up file handles and memory reliably across all return branches.
-- **Parallelization**: `defer` stack tracking and `Result` error operator can proceed in parallel.
+- **Exit Criteria**: Native tests verify `finally` on success, exceptions, returns, and loop exits, including async cleanup after cancellation.
+- **Parallelization**: Exception checking, cleanup lowering, and runtime failure conversion can be developed independently.
 
 ---
 
@@ -140,7 +144,7 @@ Phase 13: Self-Hosting Assessment       [ 4 wks ]
 ---
 
 ### Phase 11: Concurrency
-- **Deliverables**: Task representation, user-space scheduler, `async` and `await` lowering, task cancellation, channels, and async I/O runtime integration.
+- **Deliverables**: Task representation, user-space scheduler, `async` and `await` lowering, one-shot worker cancellation, cleanup awaits, typed channels, and async I/O runtime integration.
 - **Dependencies**: Phase 10.
 - **Risks**: Deadlocks or data races in scheduler context switching.
 - **Estimate**: 8 Engineer-Weeks.

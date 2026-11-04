@@ -28,6 +28,7 @@ pub struct TypeChecker {
     traits: HashMap<String, TraitInfo>,
     current_class: Option<String>,
     current_return_type: Option<Type>,
+    zero_init_classes: std::collections::HashSet<String>,
     loop_depth: usize,
     pub diagnostics: Vec<Diagnostic>,
 }
@@ -40,6 +41,7 @@ impl TypeChecker {
             traits: HashMap::new(),
             current_class: None,
             current_return_type: None,
+            zero_init_classes: Default::default(),
             loop_depth: 0,
             diagnostics: Vec::new(),
         };
@@ -1775,6 +1777,9 @@ impl TypeChecker {
 
     pub fn check_program(&mut self, program: &Program) -> bool {
         self.diagnostics.clear();
+        self.zero_init_classes = program.items.iter().filter_map(|item| {
+            if let Item::Class(class) = item { Some(class.name.clone()) } else { None }
+        }).collect();
 
         for item in &program.items {
             match item {
@@ -1882,6 +1887,11 @@ impl TypeChecker {
 
         for item in &program.items {
             if let Item::Class(cls) = item {
+                if cls.methods.iter().any(|method| method.name.eq_ignore_ascii_case("main")) {
+                    if let Err(message) = self.check_zero_value(&Type::Class { name: cls.name.clone() }, &mut Vec::new()) {
+                        self.diagnostics.push(Diagnostic::error(message, Some(cls.span)));
+                    }
+                }
                 self.check_class(cls);
             }
         }
@@ -1966,6 +1976,27 @@ impl TypeChecker {
         self.current_return_type = None;
     }
 
+    fn check_zero_value(&self, ty: &Type, visiting: &mut Vec<String>) -> Result<(), String> {
+        match ty {
+            Type::Int | Type::Long | Type::Byte | Type::Decimal | Type::Bool | Type::String
+            | Type::Nullable(_) => Ok(()),
+            Type::Class { name } if self.zero_init_classes.contains(name) => {
+                if visiting.contains(name) {
+                    return Err(format!("cannot zero-initialize recursive non-nullable class '{}'; make the recursive field nullable", name));
+                }
+                visiting.push(name.clone());
+                if let Some(info) = self.classes.get(name) {
+                    for (field_ty, _) in info.fields.values() {
+                        self.check_zero_value(field_ty, visiting)?;
+                    }
+                }
+                visiting.pop();
+                Ok(())
+            }
+            _ => Err(format!("type '{}' requires an explicit initializer; it has no implicit zero value", ty)),
+        }
+    }
+
     fn check_stmt(&mut self, cls: &ClassDecl, stmt: &Stmt) {
         match &stmt.kind {
             StmtKind::LocalDecl {
@@ -1983,6 +2014,13 @@ impl TypeChecker {
                 let declared_ty = type_annotation
                     .as_ref()
                     .map(|ann| self.type_spec_to_type(ann));
+                if initializer.is_none() {
+                    if let Some(ty) = &declared_ty {
+                        if let Err(message) = self.check_zero_value(ty, &mut Vec::new()) {
+                            self.diagnostics.push(Diagnostic::error(message, Some(stmt.span)));
+                        }
+                    }
+                }
 
                 if let (Some(decl_ty), Some(ity)) = (&declared_ty, &init_ty) {
                     if !self.is_assignable_to(ity, decl_ty) {

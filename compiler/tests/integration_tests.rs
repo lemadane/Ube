@@ -490,7 +490,8 @@ fn test_e2e_go_zero_value_user() {
     let llvm_ir = emitter.emit_program(&ir_program);
 
     assert!(llvm_ir.contains("%User = type { i64, i8*, i32 }"));
-    assert!(llvm_ir.contains("store i32 18"));
+    assert!(llvm_ir.contains("store i32 0"));
+    assert!(!llvm_ir.contains("store i32 18"));
 }
 
 #[test]
@@ -825,7 +826,7 @@ fn test_e2e_reject_wrong_method_argument_type() {
 }
 
 #[test]
-fn test_e2e_application_constructor_defaults_are_initialized() {
+fn test_e2e_application_startup_uses_zero_initialization() {
     let source_code = r#"
         class Application(
             var int port = 8080
@@ -865,10 +866,11 @@ fn test_e2e_application_constructor_defaults_are_initialized() {
     let mut emitter = TextualLlvmEmitter::new();
     let llvm_ir = emitter.emit_program(&ir_program);
 
-    // Synthetic main must initialize Application.port.
+    // Startup ignores constructor defaults and uses the shared zero initializer.
     assert!(
-        llvm_ir.contains("store i32 8080"),
-        "Application default value was never initialized:\n{}",
+        llvm_ir.contains("store i32 0") && !llvm_ir.contains("store i32 8080")
+            && llvm_ir.contains("@__ube.internal_zero(i8* null)"),
+        "Application startup did not use zero initialization:\n{}",
         llvm_ir
     );
 }

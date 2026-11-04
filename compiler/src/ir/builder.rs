@@ -927,6 +927,25 @@ impl IrBuilder {
 
         ir_functions.append(&mut self.generated_functions);
         ir_classes.append(&mut self.generated_classes);
+        if let Some(entry) = ir_functions.iter().find(|function| function.name.eq_ignore_ascii_case("main")) {
+            let ty = Type::Class { name: entry.class_name.clone() };
+            let mut startup = Self::new();
+            startup.class_decls = self.class_decls.clone();
+            startup.current_method_return_type = ty.clone();
+            let receiver = startup.fresh_reg();
+            let block = startup.fresh_block();
+            startup.current_block_id = Some(block);
+            let value = startup.build_zero_value(&ty, &mut Vec::new());
+            startup.emit(IrInstruction::Return { val: Some(value) });
+            startup.end_block();
+            self.diagnostics.extend(startup.diagnostics);
+            ir_functions.push(IrFunction {
+                // The dot prevents collisions with source-level class names.
+                class_name: "__ube.internal".into(), name: "zero".into(),
+                receiver: (receiver, Type::Bytes), params: Vec::new(),
+                return_type: ty, is_async: false, blocks: startup.blocks,
+            });
+        }
         IrProgram {
             classes: ir_classes,
             functions: ir_functions,
@@ -1188,6 +1207,41 @@ impl IrBuilder {
         }
     }
 
+    fn build_zero_value(&mut self, ty: &Type, visiting: &mut Vec<String>) -> IrOperand {
+        match ty {
+            Type::Int | Type::Byte => IrOperand::ConstantInt(0),
+            Type::Long => IrOperand::ConstantLong(0),
+            Type::Decimal => IrOperand::ConstantDecimal(0.0),
+            Type::Bool => IrOperand::ConstantBool(false),
+            Type::String => IrOperand::ConstantString(String::new()),
+            Type::Nullable(_) => IrOperand::NullOf(ty.clone()),
+            Type::Class { name } => {
+                if visiting.contains(name) {
+                    self.diagnostics.push(Diagnostic::error(
+                        format!("cannot zero-initialize recursive non-nullable class '{}'; make the recursive field nullable", name), None));
+                    return IrOperand::NullOf(ty.clone());
+                }
+                let Some(class) = self.class_decls.get(name).cloned() else {
+                    self.diagnostics.push(Diagnostic::error(format!("type '{}' requires an explicit initializer", ty), None));
+                    return IrOperand::NullOf(ty.clone());
+                };
+                visiting.push(name.clone());
+                let args = class.primary_params.iter().map(|param| {
+                    let field_ty = self.type_spec_to_type(&param.type_spec);
+                    self.build_zero_value(&field_ty, visiting)
+                }).collect();
+                visiting.pop();
+                let dest = self.fresh_reg();
+                self.emit(IrInstruction::InstantiateClass { dest, class_name: name.clone(), args });
+                IrOperand::Register(dest, ty.clone())
+            }
+            _ => {
+                self.diagnostics.push(Diagnostic::error(format!("type '{}' requires an explicit initializer", ty), None));
+                IrOperand::NullOf(ty.clone())
+            }
+        }
+    }
+
     pub fn build_class_instantiation(&mut self, class_name: &str, args: &[Expr]) -> IrOperand {
         if class_name == "Channel" {
             return self.build_channel_instantiation(args, Type::Int);
@@ -1212,16 +1266,8 @@ impl IrBuilder {
                     if let Some(def_expr) = &param.default_value {
                         arg_ops.push(self.build_expr(def_expr));
                     } else {
-                        let default_op = match self.type_spec_to_type(&param.type_spec) {
-                            Type::Int | Type::Long | Type::Byte => IrOperand::ConstantInt(0),
-                            Type::Decimal => IrOperand::ConstantDecimal(0.0),
-                            Type::Bool => IrOperand::ConstantBool(false),
-                            Type::String => IrOperand::ConstantString("".into()),
-                            Type::Class { name: ref cname } => {
-                                self.build_class_instantiation(cname, &[])
-                            }
-                            _ => IrOperand::Null,
-                        };
+                        let field_ty = self.type_spec_to_type(&param.type_spec);
+                        let default_op = self.build_zero_value(&field_ty, &mut vec![class_name.into()]);
                         arg_ops.push(default_op);
                     }
                 }
@@ -1274,16 +1320,7 @@ impl IrBuilder {
                     self.build_expr(init)
                 } else if let Some(ts) = type_annotation {
                     let ty = self.type_spec_to_type(ts);
-                    match ty {
-                        Type::Int | Type::Long | Type::Byte => IrOperand::ConstantInt(0),
-                        Type::Decimal => IrOperand::ConstantDecimal(0.0),
-                        Type::Bool => IrOperand::ConstantBool(false),
-                        Type::String => IrOperand::ConstantString("".into()),
-                        Type::Class { name: ref cname } => {
-                            self.build_class_instantiation(cname, &[])
-                        }
-                        _ => IrOperand::Null,
-                    }
+                    self.build_zero_value(&ty, &mut Vec::new())
                 } else {
                     IrOperand::ConstantInt(0)
                 };

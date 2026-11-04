@@ -33,8 +33,8 @@ Ube provides `print(...)` as the sole built-in output directive. `print` **alway
 ```java
 class Application {
     main() {
-        final name = `Lem`
-        print(`Hello, ${name}!`)
+        final name = 'Lem'
+        print('Hello, ${name}!')
     }
 }
 ```
@@ -47,13 +47,13 @@ Ube provides exactly six primitive data types (the `void` keyword does not exist
 
 | Type Specifier | Native Representation | Description | Default Value |
 | :--- | :--- | :--- | :--- |
-| `string` | Immutable UTF-16 pointer + length | Textual string | `` (empty string) |
+| `string` | Immutable UTF-8 text; current C ABI uses NUL-terminated bytes | Textual string | `''` (empty string) |
 | `int` | Signed 32-bit integer (`i32`) | Standard integer | `0` |
 | `decimal` | IEEE 754 64-bit float (`double`) | Double-precision floating point | `0.0` |
 | `byte` | Unsigned 8-bit integer (`u8`) | Raw byte data | `0` |
 | `long` | Signed 64-bit integer (`i64`) | Wide integer | `0` |
 | `bool` | 1-bit boolean (`i1`) | Logical truth value | `false` |
-| `char` (N/A) | *No distinct char type* | Represented as 1-character `string` | `` |
+| Character literal | No distinct runtime char type | Backticks, such as `` `A` ``; represented as a one-character `string` | Not a declared type |
 
 ---
 
@@ -90,20 +90,20 @@ trait Printable {
 
     // Default method implementation
     string getHeader() {
-        return `=== PRINTABLE ITEM ===`
+        return '=== PRINTABLE ITEM ==='
     }
 }
 
 // Class definitions — NO 'implements' keyword needed!
 class User(long id, string name) {
     printDetails() {
-        print(`User #${this._id}: ${this._name}`)
+        print('User #${this._id}: ${this._name}')
     }
 }
 
 class Invoice(long id, decimal total) {
     printDetails() {
-        print(`Invoice #${this._id}: \$${this._total}`)
+        print('Invoice #${this._id}: \$${this._total}')
     }
 }
 
@@ -114,7 +114,7 @@ class Application {
     }
 
     main() {
-        final user = User(1000L, `Lem`)
+        final user = User(1000L, 'Lem')
         final invoice = Invoice(5001L, 199.99)
 
         this.render(user)
@@ -125,27 +125,27 @@ class Application {
 
 ---
 
-## 6. Singletons via Application-Scoped Dependency Injection
+## 6. Application-Scoped Sharing via Constructor Injection
 
-Because Ube has no static fields or global variables, singletons are created once at application startup inside `Application.main()` and injected into dependent classes via primary constructors:
+Create shared objects explicitly inside `Application.main()` and inject them through primary constructors. Sharing is a lifetime convention, not an enforced singleton: other instances remain legal, and there is no singleton marker or registry.
 
 ```java
 class DatabaseConnection(string url) {
     query(string sql) {
-        print(`Querying ${this._url}: ${sql}`)
+        print('Querying ${this._url}: ${sql}')
     }
 }
 
 class UserService(DatabaseConnection db) {
     findUser(long id) {
-        this._db.query(`SELECT * FROM users WHERE id = ${id}`)
+        this._db.query('SELECT * FROM users WHERE id = ${id}')
     }
 }
 
 class Application {
     main() {
-        // Created ONCE at startup — acts as an application-level singleton
-        final db = DatabaseConnection(`postgres://localhost:5432`)
+        // Created explicitly and shared with dependent services
+        final db = DatabaseConnection('postgres://localhost:5432')
 
         final userService = UserService(db)
         userService.findUser(1000L)
@@ -187,7 +187,7 @@ Channels declare an element type and optional positive capacity. `send(value)` r
 
 ```java
 final events = Channel<string>(16)
-final accepted = await events.send(`ready`)
+final accepted = await events.send('ready')
 final event = await events.receive()
 events.close()
 ```
@@ -220,29 +220,29 @@ Ube has **no class inheritance** (`extends` is prohibited). Code reuse and polym
 ```java
 class Engine(int horsepower) {
     start() {
-        print(`Engine started (${this._horsepower} HP)`)
+        print('Engine started (${this._horsepower} HP)')
     }
 }
 
 class Logger(string prefix) {
     info(string message) {
-        print(`[${this._prefix}] ${message}`)
+        print('[${this._prefix}] ${message}')
     }
 }
 
 // Composition via Primary Constructor fields
 class Car(string model, Engine engine, Logger logger) {
     startCar() {
-        this._logger.info(`Starting vehicle ${this._model}...`)
+        this._logger.info('Starting vehicle ${this._model}...')
         this._engine.start() // Delegation forwarding
     }
 }
 
 class Application {
     main() {
-        final logger = Logger(`APP`)
+        final logger = Logger('APP')
         final engine = Engine(400)
-        final car = Car(`Mustang`, engine, logger)
+        final car = Car('Mustang', engine, logger)
         car.startCar()
     }
 }
@@ -298,9 +298,9 @@ class Application {
 
         // Pattern matching via switch (exhaustive compile-time check)
         final message = switch (status) {
-            case Pending -> `Order is waiting for approval`
-            case Approved(orderId, amount) -> `Order #${orderId} approved for \$${amount}!`
-            case Rejected(reason) -> `Order rejected: ${reason}`
+            case Pending -> 'Order is waiting for approval'
+            case Approved(orderId, amount) -> 'Order #${orderId} approved for \$${amount}!'
+            case Rejected(reason) -> 'Order rejected: ${reason}'
         }
 
         print(message)
@@ -332,25 +332,25 @@ class Application {
         }
 
         // 3. Collection Element Iteration
-        final names = [`Lem`, `Rhea`, `Alex`]
+        final names = ['Lem', 'Rhea', 'Alex']
         for (name in names) {
-            print(`Name: ${name}`)
+            print('Name: ${name}')
         }
 
         // 4. Index & Item Destructuring Iteration
         for (index, name in names) {
-            print(`${index}: ${name}`)
+            print('${index}: ${name}')
         }
 
         // 5. Map Key-Value Destructuring Iteration
         final userScores = [1000L: 95, 1001L: 88]
         for (id, score in userScores) {
-            print(`ID ${id} -> Score ${score}`)
+            print('ID ${id} -> Score ${score}')
         }
 
         // 6. Numeric Range Iteration
         for (i in 0..5) {
-            print(`Index: ${i}`)
+            print('Index: ${i}')
         }
     }
 }
@@ -367,41 +367,41 @@ class Application {
     main() {
         // 1. Constant Value Matching
         final statusText = switch (200) {
-            case 200 -> `OK`
-            default -> `Unknown`
+            case 200 -> 'OK'
+            default -> 'Unknown'
         }
 
         // 2. Variant Matching with Payload Destructuring
         final orderMessage = switch (OrderStatus.Approved(10042L, 99.99)) {
-            case Pending -> `Waiting`
-            case Approved(id, amt) -> `Approved ID: ${id}`
-            case Rejected(r) -> `Rejected: ${r}`
+            case Pending -> 'Waiting'
+            case Approved(id, amt) -> 'Approved ID: ${id}'
+            case Rejected(r) -> 'Rejected: ${r}'
         }
 
         // 3. Type Pattern Matching ('is')
-        final Object val = `Hello`
+        final Object val = 'Hello'
         final typeDesc = switch (val) {
-            case is string -> `String`
-            default -> `Other`
+            case is string -> 'String'
+            default -> 'Other'
         }
 
         // 4. Guard Clauses ('if' guards)
         final grade = switch (85) {
-            case s if (s >= 90) -> `Grade A`
-            case s if (s >= 80) -> `Grade B`
-            default -> `Grade F`
+            case s if (s >= 90) -> 'Grade A'
+            case s if (s >= 80) -> 'Grade B'
+            default -> 'Grade F'
         }
 
         // 5. Multiple Value Or-Patterns
-        final isWeekend = switch (`Saturday`) {
-            case `Saturday`, `Sunday` -> true
+        final isWeekend = switch ('Saturday') {
+            case 'Saturday', 'Sunday' -> true
             default -> false
         }
 
         // 6. Anonymous Object Structural Matching
-        final accessLevel = switch ({ id: 1000, role: `Admin` }) {
-            case { role: `Admin` } -> `Admin Access`
-            default -> `Guest Access`
+        final accessLevel = switch ({ id: 1000, role: 'Admin' }) {
+            case { role: 'Admin' } -> 'Admin Access'
+            default -> 'Guest Access'
         }
     }
 }
@@ -434,29 +434,50 @@ class Account(long id, var decimal balance) {
 
 Ube uses word-based logical operators: `not`, `and`, `nand`, `or`, `nor`, `xor`, `xnor`. Symbol `!` is prohibited.
 
-Falsy values: `false`, `null`, `0`, `0.0`, `-0.0`, `` ``. All other values are truthy.
+Falsy values: `false`, `null`, `0`, `0.0`, `-0.0`, `''`. All other values are truthy.
 
 ```java
 class Application {
     main() {
         final bool isConnected = false
-        final string input = ``
+        final string input = ''
         final Object data = 42
 
         // 1. Logical negation of boolean
         if (not isConnected) {
-            print(`System disconnected`)
+            print('System disconnected')
         }
 
         // 2. Falsiness check
         if (not input) {
-            print(`No input provided`)
+            print('No input provided')
         }
 
         // 3. Negated type check ('is not')
         if (data is not string) {
-            print(`Data is not a text string`)
+            print('Data is not a text string')
         }
+    }
+}
+```
+
+---
+
+## Zero Initialization of Declarations
+
+A typed local declaration without an initializer uses zero initialization, not an implicit constructor call. Numbers become `0`, booleans `false`, strings `''`, and nullable references `null`. A user-defined class receives a fresh object whose fields are recursively zero-initialized. Constructor default expressions are ignored, including defaults that allocate objects or call methods. Explicit construction (`User()`) still evaluates defaults.
+
+The entry-point application instance uses the same zero-initialization path as local declarations. Its constructor defaults are not evaluated at startup. Configuration and resource initialization belong explicitly in `main()`.
+
+Non-nullable class cycles are rejected during zero initialization; use nullable references to break them. Runtime-only types (including servers and channels) and traits require explicit initializers unless declared nullable. Zero initialization never invokes their creation APIs.
+
+```ube
+class User(string name = 'Guest') {}
+class Application {
+    main() {
+        User zero                 // zero.name() is ''
+        final configured = User() // configured.name() is 'Guest'
+        User? absent              // null
     }
 }
 ```

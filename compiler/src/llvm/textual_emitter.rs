@@ -575,57 +575,10 @@ impl TextualLlvmEmitter {
                 .push_str("define i32 @main(i32 %argc, i8** %argv) {\n");
             self.output.push_str("entry:\n");
             self.output.push_str("  call void @ube_runtime_init()\n");
+            // Startup shares the IR builder's declaration zero-initialization path.
             self.output.push_str(&format!(
-                "  %sz_ptr = getelementptr {}, {}* null, i32 1\n",
-                class_type, class_type
+                "  %app = call {}* @__ube.internal_zero(i8* null)\n", class_type
             ));
-            self.output.push_str(&format!(
-                "  %app_sz = ptrtoint {}* %sz_ptr to i64\n",
-                class_type
-            ));
-            self.output
-                .push_str("  %raw_mem = call i8* @ube_alloc(i64 %app_sz, i64 8)\n");
-            self.output.push_str(&format!(
-                "  %app = bitcast i8* %raw_mem to {}*\n",
-                class_type
-            ));
-
-            if let Some(cls) = ir_program
-                .classes
-                .iter()
-                .find(|c| c.name == m_fn.class_name)
-            {
-                for (i, (field_name, field_ty)) in cls.fields.iter().enumerate() {
-                    let field_ty_str = self.type_to_llvm(field_ty);
-                    self.output.push_str(&format!(
-                        "  %app_gep_{} = getelementptr inbounds {}, {}* %app, i32 0, i32 {}\n",
-                        i, class_type, class_type, i
-                    ));
-                    if field_name.contains("port") || field_ty == &Type::Int {
-                        self.output
-                            .push_str(&format!("  store i32 8080, i32* %app_gep_{}, align 8\n", i));
-                    } else if field_ty == &Type::Long {
-                        self.output
-                            .push_str(&format!("  store i64 0, i64* %app_gep_{}, align 8\n", i));
-                    } else if field_ty == &Type::Decimal {
-                        self.output.push_str(&format!(
-                            "  store double 0.0, double* %app_gep_{}, align 8\n",
-                            i
-                        ));
-                    } else if field_ty == &Type::Bool {
-                        self.output
-                            .push_str(&format!("  store i1 false, i1* %app_gep_{}, align 8\n", i));
-                    } else {
-                        self.output.push_str(&format!(
-                            "  store {} null, {}* %app_gep_{}, align 8\n",
-                            field_ty_str, field_ty_str, i
-                        ));
-                    }
-                }
-            }
-
-            let application_type = self.emit_operand(&IrOperand::ConstantString(m_fn.class_name.clone()));
-            self.output.push_str(&format!("  call void @ube_object_register(i8* %raw_mem, i8* {})\n", application_type));
             self.output.push_str(&format!(
                 "  call void @{}({}* %app)\n",
                 target_symbol, class_type

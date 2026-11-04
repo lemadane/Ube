@@ -6,7 +6,7 @@ This document defines the system architecture, compiler pipeline, directory layo
 
 ## 1. Compiler Pipeline Architecture
 
-The Ube compiler follows a strictly phased compilation pipeline that directly emits LLVM IR without intermediate transpilation to external high-level languages.
+The current CLI lexes and parses Ube, runs semantic checks, builds typed IR, emits textual LLVM IR, and invokes `clang` for native compilation and linking. The diagram below also includes planned resolver, LLVM binding, optimization, and linker integrations; it is not a claim that every stage is implemented.
 
 ```text
 Ube Source Code (.ube)
@@ -44,29 +44,29 @@ Ube/
 ├── README.md                       # Main project README
 ├── LANGUAGE_SPEC_DRAFT.md          # Baseline language specification
 ├── ARCHITECTURE.md                 # Compiler & runtime architecture
-├── DECISIONS_NEEDED.md             # 40 unresolved feature resolutions
 ├── MILESTONES.md                   # 14 phased milestones & roadmap
-├── IMPLEMENTATION_PLAN.md          # Master implementation plan
 ├── compiler/                       # Crate: ube-compiler
 │   ├── Cargo.toml                  # Compiler crate manifest
 │   └── src/
 │       ├── main.rs                 # ube CLI driver (check, emit-ir, emit-llvm, build)
 │       ├── lib.rs                  # Compiler library exports
 │       ├── diagnostics/            # Span tracking & colorized diagnostic emitter
-│       ├── lexer/                  # Backtick string scanner & token lexer
+│       ├── lexer/                  # Single-quoted strings, double-quoted text blocks, backtick characters
 │       ├── parser/                 # Unified class Pratt parser & AST nodes
 │       ├── resolver/               # Scope & symbol resolution
 │       ├── types/                  # Type system representations
-│       ├── semantics/              # Explicit 'this' & immutability checker
-│       ├── ir/                     # SSA Control Flow Graph IR builder
+│       ├── semantics/              # Types, class-private fields, accessor calls & zero-initialization checks
+│       ├── ir/                     # CFG, shared zero initialization & exception routing
 │       └── llvm/                   # Textual LLVM IR emitter & C-main builder
 ├── runtime/                        # Crate: ube-runtime (Native C-ABI static library)
 │   ├── Cargo.toml                  # Runtime crate manifest
 │   └── src/
 │       ├── lib.rs                  # C-ABI runtime init & cleanup
-│       ├── memory.rs               # Heap allocator primitives & object headers
-│       ├── strings.rs              # UTF-16 string runtime primitives
+│       ├── memory.rs               # Tracked heap allocations & shutdown cleanup
+│       ├── strings.rs              # UTF-8 string runtime primitives
 │       ├── io.rs                   # System I/O wrappers (@ube_print_str, etc.)
+│       ├── exceptions.rs           # Pending errors, structural identity & suppression
+│       ├── concurrency.rs          # Tokio tasks/channels & one-shot cancellation
 │       ├── gc.rs                   # Precise incremental GC stubs
 │       └── collections.rs          # Runtime collection array/map representations
 └── standard-library/               # Core Ube standard library packages
@@ -129,12 +129,25 @@ The compiler generates a native C-ABI `main(int argc, char** argv)` function dur
 define i32 @main(i32 %argc, i8** %argv) {
 entry:
     call void @ube_runtime_init()
-    %app_ptr = call %Application* @Application_create()
+    %app_ptr = call %Application* @__ube.internal_zero(i8* null)
     call void @Application_main(%Application* %app_ptr)
+    call void @ube_exception_fail_unhandled()
     call void @ube_runtime_cleanup()
     ret i32 0
 }
 ```
+
+### Shared Zero Initialization
+
+The IR builder generates `__ube.internal_zero` for startup using the same zero-value builder as typed local declarations. `User user` creates a fresh zero-valued object; `User()` is explicit construction and applies constructor defaults. Startup ignores `Application` defaults, including expressions with side effects. Resource creation belongs explicitly inside `main()`.
+
+Numbers become `0`, booleans `false`, strings `''`, and nullable references `null`. Non-nullable user-class fields are recursively zero-initialized without default evaluation. Non-nullable cycles are diagnosed; nullable links terminate recursion. Runtime-only types and traits require explicit initializers unless nullable. These are allocated class objects, not allocation-free embedded values.
+
+### Field Access, Syntax & Errors
+
+Generated backing fields such as `_age` are class-private. Public access requires `user.age()`; a `var` field also accepts `user.age(value)`. Direct `user.age` reads and assignments are rejected. One-line strings use single quotes, text blocks use double quotes followed by a line break, and character literals use backticks. Semicolons in code are errors; literals and comments may contain them.
+
+The compiler lowers `try` / typed `catch` / `finally` / `throw` into explicit control flow and a runtime pending-error channel, without unwinding through Rust. Cleanup runs across returns, loop exits, and propagated exceptions. Cleanup failures preserve pending errors as suppressed. Awaited failures retain their error objects. Cancellation is delivered once per worker so later cleanup awaits can complete; those awaits can still fail or time out.
 
 ### 4.2 Built-in `print` Directive
 Ube provides `print(...)` as the sole built-in output directive (always appends a newline, equivalent to Java's `System.out.println` or Python's `print()`). There is no separate `println` keyword in Ube.
@@ -142,8 +155,8 @@ Ube provides `print(...)` as the sole built-in output directive (always appends 
 ```java
 class Application {
     main() {
-        final user = User(1000, `Lem`, 35)
-        print(`Hello, ${user.name()}!`) // Built-in print directive (always includes newline)
+        final user = User(1000, 'Lem', 35)
+        print('Hello, ${user.name()}!') // Built-in print directive (always includes newline)
     }
 }
 ```
@@ -158,7 +171,7 @@ System intrinsics for `print` are wired directly to native runtime static librar
 
 ## 5. Memory Management & Garbage Collector Architecture
 
-Ube uses a precise, garbage-collected runtime.
+A precise garbage collector is a roadmap goal. Currently `ube_alloc` tracks raw allocations for explicit release or runtime-shutdown cleanup, and the GC entry points are stubs. Generated objects contain their declared fields directly; they do not currently have the proposed object header below. This is not yet a production tracing collector.
 
 ```text
   [ Ube Heap Allocator ]
@@ -167,8 +180,8 @@ Ube uses a precise, garbage-collected runtime.
              └──► Large Objects (Page-aligned direct mmap allocations)
 ```
 
-### 5.1 Object Layout Header
-Every Ube object allocated on the heap begins with a 16-byte object header:
+### 5.1 Proposed Object Layout Header
+The following 16-byte header is a planned design, not the current object ABI:
 
 ```text
  0                   4                   8                   12                  16 Bytes
@@ -178,7 +191,7 @@ Every Ube object allocated on the heap begins with a 16-byte object header:
 └───────────────────┴───────────────────┴───────────────────┴───────────────────┘
 ```
 
-### 5.2 Incremental GC Strategy
+### 5.2 Planned Incremental GC Strategy
 - **Phase 1 (MVP)**: Stop-the-world, mark-and-sweep collector using shadow stacks or LLVM `statepoint` / `gc.root` intrinsics.
 - **Phase 2 (Production)**: Tri-color generational collector with thread-local allocation buffers (TLABs) and read/write barriers.
 - **Stack Allocation Optimization**: Escape analysis pass in Ube IR identifies non-escaping objects and replaces heap allocation with stack `alloca`.
@@ -187,7 +200,7 @@ Every Ube object allocated on the heap begins with a 16-byte object header:
 
 ## 6. Custom Typed Ube IR Design
 
-Before emitting LLVM IR, the compiler translates the Typed AST into a high-level Control Flow Graph (CFG) Intermediate Representation in SSA form.
+Before emitting LLVM IR, the compiler builds a typed control-flow graph with registers and stack slots. The following is a simplified sketch; authoritative IR definitions are in `compiler/src/ir/nodes.rs`.
 
 ```rust
 pub struct IrProgram {
@@ -196,6 +209,9 @@ pub struct IrProgram {
 }
 
 pub struct IrFunction {
+    pub class_name: String,
+    pub receiver: (Register, Type),
+    pub is_async: bool,
     pub name: String,
     pub params: Vec<(Register, Type)>,
     pub return_type: Type,

@@ -15,17 +15,17 @@
 ### 1. Pure Object-Oriented (No `static`, No Free Functions)
 - **No Static Methods, Fields, or Classes**: Every executable function in Ube must be an instance method belonging to a class object.
  - **Application Entry Point**: The application entry point is an instance method (`main()`) on an `Application` class. The compiler automatically generates the native C-ABI wrapper.
-- **Singletons via Dependency Injection**: Singletons are created once at application startup inside `Application.main()` and passed via primary constructors.
+- **Shared Instances via Constructor Injection**: Create an object explicitly in `Application.main()` and pass it to dependent classes. This shares the instance but does not enforce singleton uniqueness; there is no singleton marker or runtime registry.
 
 ### 2. Zero Inheritance & Maximum Performance
 - **No `extends` or Abstract Classes**: Ube has **no inheritance**.
-- **0-Byte Vtable Overhead**: Because there is no inheritance, every method call is 100% statically known at compile time. There are no virtual method table (vtable) lookups.
+- **Dispatch**: Concrete instance calls use direct functions. Trait calls use runtime structural method lookup; objects do not carry an inheritance vtable.
 - **Aggressive Inlining**: LLVM inlines instance method bodies directly into caller sites.
 - **Cache Locality**: Class instance headers do not store virtual pointer (`vptr`) fields, resulting in smaller memory headers and superior CPU L1/L2/L3 cache hit rates.
 
 ### 3. Structural `trait` Subtyping (No `implements` Keyword)
 - **Behavioral Contracts**: Abstraction and behavior reuse are declared using `trait`.
-- **Implicit Structural Subtyping**: Classes satisfy traits **implicitly** based on method signatures (like Go and TypeScript, but powered by 0-cost LLVM static dispatch like Rust).
+- **Implicit Structural Subtyping**: Classes satisfy traits **implicitly** based on method signatures (with direct concrete calls and runtime structural dispatch for trait values).
 - **Default Method Logic**: Traits can supply default method implementations, enabling code reuse without class inheritance (`extends`).
 
 ### 4. Unified `class` Model & Enums via Sum Classes (No `enum` Keyword)
@@ -362,9 +362,9 @@ class Application {
 }
 ```
 
-### 5. Singleton Implementation via Application-Scoped Dependency Injection
+### 5. Application-Scoped Sharing via Constructor Injection
 
-Because Ube omits global static variables, singletons are created once at application startup and passed into dependent services:
+Create a shared instance explicitly at startup and pass it into dependent services. Constructor injection also supports separate instances; it does not make a class a singleton or prevent additional construction:
 
 ```java
 class DatabaseConnection(string connectionUrl) {
@@ -387,12 +387,12 @@ class OrderService(DatabaseConnection db) {
 
 class Application {
     main() {
-        // Created ONCE at startup — acts as an application-level singleton
-        final dbSingleton = DatabaseConnection('postgres://localhost:5432/main')
+        // One shared instance for these services; additional instances are still allowed
+        final sharedDatabase = DatabaseConnection('postgres://localhost:5432/main')
 
         // Injected into dependent service instances
-        final userService = UserService(dbSingleton)
-        final orderService = OrderService(dbSingleton)
+        final userService = UserService(sharedDatabase)
+        final orderService = OrderService(sharedDatabase)
 
         userService.findUser(1000L)
         orderService.findOrders(1000L)
@@ -891,27 +891,38 @@ class Application {
 }
 ```
 
-### 19. Compile-Time Null Safety & Variable Initializers
+### 19. Zero Initialization & Explicit Construction
 
-```java
-class User(string name = 'Guest')
+A typed variable declared without an initializer receives a zero value. This does not evaluate constructor defaults or run user code. Explicit constructor calls still evaluate defaults. The runtime initializes the entry-point `Application` object using the same zero-initialization path, so its constructor defaults are also ignored at startup. Put configuration and resource creation explicitly inside `main()`.
+
+```ube
+class User(string name = 'Guest', var int age = 18) {}
 
 class Application {
     main() {
-        // 1. Non-nullable type declaration automatically invokes default constructor User()
-        User u1          // Automatically calls User() constructor
-        User u2 = User() // Explicitly calls User() constructor
+        User zero
+        print(zero.name()) // Empty string
+        print(zero.age())  // 0
 
-        // 2. Nullable type declaration requires '?' and defaults to null
-        User? u3        // Defaults to null
-        User? u4 = null // Explicitly assigned null
+        final configured = User()
+        print(configured.name()) // Guest
+        print(configured.age())  // 18
 
-        // 3. Optional chaining & null coalescing
-        final displayName = u3?.name() ?? 'Anonymous'
-        print('Display Name: ${displayName}')
+        User? absent
+        print(absent == null) // true
     }
 }
 ```
+
+| Declared type | Zero value |
+| --- | --- |
+| `int`, `long`, `byte`, `decimal` | `0` |
+| `bool` | `false` |
+| `string` | `''` |
+| Nullable type, such as `User?` | `null` |
+| User-defined class | A new object with recursively zero-initialized fields |
+
+Each declaration creates independent class values; it does not share a singleton. Non-nullable nested class fields are recursively allocated without evaluating defaults. Recursive non-nullable layouts such as `class Node(Node next)` cannot be zero-initialized: use a nullable link (`Node? next`) to terminate the layout. Runtime objects such as servers, channels, and streams, and variables typed as traits, require an explicit initializer or a nullable declaration. A plain declaration never calls their creation APIs or acquires their resources.
 
 ---
 
@@ -981,9 +992,7 @@ For detailed compiler pipeline design, module layout, object layout headers, mem
 
 - [Language Specification Baseline (`LANGUAGE_SPEC_DRAFT.md`)](LANGUAGE_SPEC_DRAFT.md)
 - [Compiler & Runtime Architecture (`ARCHITECTURE.md`)](ARCHITECTURE.md)
-- [Unresolved Design Decisions (`DECISIONS_NEEDED.md`)](DECISIONS_NEEDED.md)
 - [Phased Milestones & Roadmap (`MILESTONES.md`)](MILESTONES.md)
-- [Master Implementation Plan (`IMPLEMENTATION_PLAN.md`)](IMPLEMENTATION_PLAN.md)
 
 ---
 
