@@ -2643,12 +2643,7 @@ impl TypeChecker {
                             Some(*inner)
                         } else { l_ty }
                     }
-                    BinaryOp::And
-                    | BinaryOp::Nand
-                    | BinaryOp::Or
-                    | BinaryOp::Nor
-                    | BinaryOp::Xor
-                    | BinaryOp::Xnor => {
+                    BinaryOp::And | BinaryOp::Or => {
                         if let (Some(lt), Some(rt)) = (&l_ty, &r_ty) {
                             if lt != &Type::Bool || rt != &Type::Bool {
                                 self.diagnostics.push(Diagnostic::error(

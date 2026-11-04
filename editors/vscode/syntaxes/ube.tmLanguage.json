@@ -34,7 +34,7 @@
         },
         {
           "name": "keyword.operator.word.ube",
-          "match": "\\b(not|and|nand|or|nor|xor|xnor)\\b"
+          "match": "\\b(not|and|or)\\b"
         },
         {
           "name": "support.function.builtin.ube",

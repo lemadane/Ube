@@ -96,11 +96,7 @@ pub enum BinaryOp {
     Greater,
     GreaterEqual,
     And,
-    Nand,
     Or,
-    Nor,
-    Xor,
-    Xnor,
     NullCoalescing,
     Range, // ..
 }

@@ -736,30 +736,6 @@ impl TextualLlvmEmitter {
                 let l_str = self.emit_operand(left);
                 let r_str = self.emit_operand(right);
                 match op {
-                    BinaryOp::Nand => {
-                        let tmp = format!("tmp_nand_{}", self.string_counter);
-                        self.string_counter += 1;
-                        format!(
-                            "%{} = and i1 {}, {}\n  %{} = xor i1 %{}, true",
-                            tmp, l_str, r_str, dest.0, tmp
-                        )
-                    }
-                    BinaryOp::Nor => {
-                        let tmp = format!("tmp_nor_{}", self.string_counter);
-                        self.string_counter += 1;
-                        format!(
-                            "%{} = or i1 {}, {}\n  %{} = xor i1 %{}, true",
-                            tmp, l_str, r_str, dest.0, tmp
-                        )
-                    }
-                    BinaryOp::Xnor => {
-                        let tmp = format!("tmp_xnor_{}", self.string_counter);
-                        self.string_counter += 1;
-                        format!(
-                            "%{} = xor i1 {}, {}\n  %{} = xor i1 %{}, true",
-                            tmp, l_str, r_str, dest.0, tmp
-                        )
-                    }
                     BinaryOp::NullCoalescing => {
                         let tmp_cond = format!("tmp_nc_{}", self.string_counter);
                         self.string_counter += 1;
@@ -849,7 +825,6 @@ impl TextualLlvmEmitter {
                             }
                             BinaryOp::And => "and",
                             BinaryOp::Or => "or",
-                            BinaryOp::Xor => "xor",
                             other => panic!("Unsupported binary operator lowering: {:?}", other),
                         };
                         format!("%{} = {} {} {}, {}", dest.0, op_str, ty_str, l_str, r_str)

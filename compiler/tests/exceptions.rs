@@ -503,3 +503,31 @@ fn unsafe_startup_layouts_are_rejected_before_codegen() {
     rejects("class Application(Application next) { main() {} }", "recursive non-nullable class");
     rejects("class Application(Server app = Server()) { main() {} }", "requires an explicit initializer");
 }
+
+#[test]
+fn removed_boolean_operators_are_rejected_in_expressions() {
+    for operator in ["nand", "nor", "xor", "xnor"] {
+        let source = format!("class Application {{ main() {{ print(true {operator} false) }} }}");
+        let mut parser = Parser::new(Lexer::new(&source));
+        parser.parse_program();
+        assert!(!parser.diagnostics.is_empty(), "Accepted removed operator {operator}");
+    }
+}
+
+#[test]
+fn native_boolean_logic_keeps_not_and_or_precedence() {
+    runs(r#"class Application { main() {
+      print(not true) print(not false)
+      print(true and true) print(true and false)
+      print(false or true) print(false or false)
+      print(true or false and false)
+      print((true or false) and false)
+      print(not (true and false))
+      print(not (true or false))
+      final nand = 1
+      final nor = 2
+      final xor = 3
+      final xnor = 4
+      print(nand + nor + xor + xnor)
+    } }"#, "false\ntrue\ntrue\nfalse\ntrue\nfalse\ntrue\nfalse\ntrue\nfalse\n10\n");
+}

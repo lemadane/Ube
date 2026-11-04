@@ -9,9 +9,8 @@ pub enum Precedence {
     Assignment,     // =, ??=
     With,           // with
     NullCoalescing, // ??
-    Or,             // or, nor
-    Xor,            // xor, xnor
-    And,            // and, nand
+    Or,             // or
+    And,            // and
     Equality,       // ==, !=, is, is not
     Comparison,     // <, <=, >, >=
     Range,          // ..
@@ -27,9 +26,8 @@ impl Precedence {
             TokenKind::Equal | TokenKind::QuestionQuestionEqual => Precedence::Assignment,
             TokenKind::With => Precedence::With,
             TokenKind::QuestionQuestion => Precedence::NullCoalescing,
-            TokenKind::Or | TokenKind::Nor => Precedence::Or,
-            TokenKind::Xor | TokenKind::Xnor => Precedence::Xor,
-            TokenKind::And | TokenKind::Nand => Precedence::And,
+            TokenKind::Or => Precedence::Or,
+            TokenKind::And => Precedence::And,
             TokenKind::EqualEqual | TokenKind::BangEqual | TokenKind::Is => Precedence::Equality,
             TokenKind::Less
             | TokenKind::LessEqual
@@ -1531,11 +1529,7 @@ impl<'a> Parser<'a> {
                     TokenKind::Greater => BinaryOp::Greater,
                     TokenKind::GreaterEqual => BinaryOp::GreaterEqual,
                     TokenKind::And => BinaryOp::And,
-                    TokenKind::Nand => BinaryOp::Nand,
                     TokenKind::Or => BinaryOp::Or,
-                    TokenKind::Nor => BinaryOp::Nor,
-                    TokenKind::Xor => BinaryOp::Xor,
-                    TokenKind::Xnor => BinaryOp::Xnor,
                     TokenKind::QuestionQuestion => BinaryOp::NullCoalescing,
                     TokenKind::DotDot => BinaryOp::Range,
                     _ => {

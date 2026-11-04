@@ -307,7 +307,7 @@ fn test_e2e_nested_cfg_and_logical_ops() {
             main() {
                 final a = true
                 final b = false
-                final res = a nand b
+                final res = not (a and b)
                 final comp = 10 > 5
 
                 if (a) {
@@ -341,7 +341,7 @@ fn test_e2e_nested_cfg_and_logical_ops() {
 
     assert!(llvm_ir.contains("icmp sgt i32 10, 5") || llvm_ir.contains("icmp sgt i64 10, 5"));
     assert!(llvm_ir.contains("and i1"));
-    assert!(llvm_ir.contains("xor i1 %tmp_nand_"));
+    assert!(llvm_ir.contains("icmp eq i1"));
     assert!(!llvm_ir.contains("UNREACHABLE DEAD CODE"));
 }
 
@@ -629,7 +629,7 @@ fn test_e2e_unary_not_lowering() {
     let mut emitter = TextualLlvmEmitter::new();
     let llvm_ir = emitter.emit_program(&ir_program);
 
-    assert!(llvm_ir.contains("xor i1"));
+    assert!(llvm_ir.contains("icmp eq i1"));
 }
 
 #[test]

@@ -3437,11 +3437,7 @@ impl IrBuilder {
                     | BinaryOp::Greater
                     | BinaryOp::GreaterEqual
                     | BinaryOp::And
-                    | BinaryOp::Nand
-                    | BinaryOp::Or
-                    | BinaryOp::Nor
-                    | BinaryOp::Xor
-                    | BinaryOp::Xnor => Type::Bool,
+                    | BinaryOp::Or => Type::Bool,
                     _ => operand_ty.clone(),
                 };
 
@@ -3463,9 +3459,9 @@ impl IrBuilder {
                     UnaryOp::Not => {
                         self.emit(IrInstruction::Binary {
                             dest,
-                            op: BinaryOp::Xor,
+                            op: BinaryOp::Equal,
                             left: op_val,
-                            right: IrOperand::ConstantBool(true),
+                            right: IrOperand::ConstantBool(false),
                             operand_ty: Type::Bool,
                             result_ty: Type::Bool,
                         });

@@ -432,7 +432,7 @@ class Account(long id, var decimal balance) {
 
 ## 14. Word-Based Boolean Operators & The `not` Keyword
 
-Ube uses word-based logical operators: `not`, `and`, `nand`, `or`, `nor`, `xor`, `xnor`. Symbol `!` is prohibited.
+Ube uses word-based logical operators: `not`, `and`, `or`. Symbol `!` is prohibited.
 
 Falsy values: `false`, `null`, `0`, `0.0`, `-0.0`, `''`. All other values are truthy.
 

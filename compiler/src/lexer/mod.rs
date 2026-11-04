@@ -9,6 +9,17 @@ mod tests {
     use super::*;
 
     #[test]
+    fn removed_boolean_operator_names_are_plain_identifiers() {
+        let mut lexer = Lexer::new("nand nor xor xnor and or not");
+        for name in ["nand", "nor", "xor", "xnor"] {
+            assert_eq!(lexer.next_token().kind, TokenKind::Identifier(name.into()));
+        }
+        assert_eq!(lexer.next_token().kind, TokenKind::And);
+        assert_eq!(lexer.next_token().kind, TokenKind::Or);
+        assert_eq!(lexer.next_token().kind, TokenKind::Not);
+    }
+
+    #[test]
     fn semicolons_are_rejected_as_code_but_allowed_in_literals_and_comments() {
         let source = ";\n';' `;` \";\" \"\n  ;\n  \" // ;\n";
         let mut lexer = Lexer::new(source);
@@ -35,7 +46,7 @@ mod tests {
             final message = 'Hello, world'
             final prompt = "Hello\nworld"
             final initial = `A`
-            if (a and not b or c xor d) {
+            if (a and not b or c) {
                 user?.birthday()
             }
         "#;
@@ -61,7 +72,6 @@ mod tests {
         assert!(tokens.contains(&TokenKind::And));
         assert!(tokens.contains(&TokenKind::Not));
         assert!(tokens.contains(&TokenKind::Or));
-        assert!(tokens.contains(&TokenKind::Xor));
         assert!(tokens.contains(&TokenKind::QuestionDot));
         assert!(tokens.contains(&TokenKind::StringLiteral("Hello, world".to_string())));
         assert!(tokens.contains(&TokenKind::StringLiteral("Hello\nworld".to_string())));

@@ -56,7 +56,7 @@
 - **Flow-Sensitive Narrowing**: Evaluating a nullable `User?` in an `if (user)` block automatically narrows `user` to non-null `User`.
 
 ### 10. Word-Based Boolean Operators & `not` Keyword
-- Logical operators use English words: `not`, `and`, `nand`, `or`, `nor`, `xor`, `xnor`. The `!` symbol is prohibited (replaced by `not`).
+- Logical operators use English words: `not`, `and`, `or`. The `!` symbol is prohibited (replaced by `not`).
 
 ### 11. First-Class Nullability & Optional Operators
 - Native `null` (never `nil`) with postfix `Type?` (`User?`).
@@ -628,36 +628,27 @@ class Application {
 }
 ```
 
-### 10. Word-Based Logical Operators (`not`, `and`, `nand`, `or`, `nor`, `xor`, `xnor`)
+### 10. Word-Based Logical Operators (`not`, `and`, `or`)
 
-Ube uses English words for all boolean operators instead of symbols like `!`, `&&`, `||`:
+Ube uses `not`, `and`, and `or` for boolean logic. Precedence is `not`, then `and`, then `or`; parentheses make grouping explicit.
 
-```java
+```ube
 class Application {
     main() {
         final bool isReady = true
         final bool isConnected = false
 
-        // 1. NOT operator
         if (not isConnected) {
             print('System is currently disconnected')
         }
 
-        // 2. AND & NAND operators
-        final bool bothActive = isReady and isConnected     // false
-        final bool notBothActive = isReady nand isConnected // true
+        final bool bothActive = isReady and isConnected // false
+        final bool eitherActive = isReady or isConnected // true
+        final bool neitherActive = not (isReady or isConnected) // false
 
-        // 3. OR & NOR operators
-        final bool eitherActive = isReady or isConnected    // true
-        final bool neitherActive = isReady nor isConnected   // false
-
-        // 4. XOR (Exclusive OR) & XNOR (Equivalence) operators
-        final bool exclusiveOne = isReady xor isConnected   // true (exactly one is true)
-        final bool bothMatch = isReady xnor isConnected     // false (they differ)
-
-        print('bothActive: ${bothActive}')
-        print('eitherActive: ${eitherActive}')
-        print('exclusiveOne: ${exclusiveOne}')
+        print(bothActive)
+        print(eitherActive)
+        print(neitherActive)
     }
 }
 ```
