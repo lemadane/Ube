@@ -969,6 +969,10 @@ impl<'a> Parser<'a> {
                 kind: ExprKind::DecimalLiteral(val),
                 span: tok.span,
             }),
+            TokenKind::TextBlock(val) => Ok(Expr {
+                kind: ExprKind::TextBlock(val),
+                span: tok.span,
+            }),
             TokenKind::StringLiteral(val) => Ok(Expr {
                 kind: ExprKind::StringLiteral(val),
                 span: tok.span,

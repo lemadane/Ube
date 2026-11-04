@@ -2155,7 +2155,7 @@ impl TypeChecker {
                         if let Some(e) = expr_opt {
                             let actual_ty = self.check_expr(cls, e);
                             if let Some(act) = actual_ty {
-                                if act != expected_ret && act != Type::Void {
+                                if !self.is_assignable_to(&act, &expected_ret) && act != Type::Void {
                                     self.diagnostics.push(Diagnostic::error(
                                         format!(
                                             "Mismatched return type: expected '{:?}', found '{:?}'",
@@ -2243,7 +2243,7 @@ impl TypeChecker {
             ExprKind::IntLiteral(_) => Some(Type::Int),
             ExprKind::LongLiteral(_) => Some(Type::Long),
             ExprKind::DecimalLiteral(_) => Some(Type::Decimal),
-            ExprKind::StringLiteral(_) => Some(Type::String),
+            ExprKind::StringLiteral(_) | ExprKind::TextBlock(_) => Some(Type::String),
             ExprKind::BoolLiteral(_) => Some(Type::Bool),
             ExprKind::NullLiteral => Some(Type::Nullable(Box::new(Type::Void))),
             ExprKind::This => Some(Type::Class {
@@ -2345,6 +2345,9 @@ impl TypeChecker {
                 match &callee.kind {
                     ExprKind::MemberAccess { object, member, .. } => {
                         if let Some(obj_ty) = self.check_expr(cls, object) {
+                            if matches!(&obj_ty, Type::Class { name } if name == "List" || name == "Map") && arg_types.iter().any(|ty| ty.nullable_scalar_inner().is_some() || matches!(ty, Type::Task(inner) if inner.nullable_scalar_inner().is_some())) {
+                                self.diagnostics.push(Diagnostic::error("Nullable scalar values and tasks with nullable scalar results are not supported in untyped collection storage yet", Some(expr.span)));
+                            }
                             if matches!(obj_ty, Type::Task(_)) && member == "cancel" {
                                 return Some(Type::Bool);
                             }
@@ -2565,7 +2568,8 @@ impl TypeChecker {
                         Type::Void => false,
                         Type::Nullable(inner) => matches!(
                             inner.as_ref(),
-                            Type::String
+                            Type::Int | Type::Long | Type::Byte | Type::Bool | Type::Decimal
+                                | Type::String
                                 | Type::Class { .. }
                                 | Type::Task(_)
                                 | Type::Channel(_)
@@ -2632,6 +2636,9 @@ impl TypeChecker {
             ExprKind::Binary { op, left, right } => {
                 let l_ty = self.check_expr(cls, left);
                 let r_ty = self.check_expr(cls, right);
+                if (l_ty.as_ref().is_some_and(|ty| ty.nullable_scalar_inner().is_some()) || r_ty.as_ref().is_some_and(|ty| ty.nullable_scalar_inner().is_some())) && !matches!(op, BinaryOp::Equal | BinaryOp::NotEqual | BinaryOp::NullCoalescing) {
+                    self.diagnostics.push(Diagnostic::error("Use ?? to provide a non-null scalar before arithmetic or ordering comparisons", Some(expr.span)));
+                }
                 match op {
                     BinaryOp::NullCoalescing => {
                         if let Some(Type::Nullable(inner)) = l_ty {
@@ -2718,7 +2725,11 @@ impl TypeChecker {
             }
             ExprKind::ListLiteral(elements) => {
                 for elem in elements {
-                    self.check_expr(cls, elem);
+                    if let Some(ty) = self.check_expr(cls, elem) {
+                        if ty.nullable_scalar_inner().is_some() || matches!(&ty, Type::Task(inner) if inner.nullable_scalar_inner().is_some()) {
+                            self.diagnostics.push(Diagnostic::error("Nullable scalar values and tasks with nullable scalar results are not supported in untyped List storage yet", Some(elem.span)));
+                        }
+                    }
                 }
                 Some(Type::Class {
                     name: "List".into(),
@@ -2726,8 +2737,13 @@ impl TypeChecker {
             }
             ExprKind::MapLiteral(pairs) => {
                 for (k, v) in pairs {
-                    self.check_expr(cls, k);
-                    self.check_expr(cls, v);
+                    for value in [k, v] {
+                        if let Some(ty) = self.check_expr(cls, value) {
+                            if ty.nullable_scalar_inner().is_some() || matches!(&ty, Type::Task(inner) if inner.nullable_scalar_inner().is_some()) {
+                                self.diagnostics.push(Diagnostic::error("Nullable scalar values and tasks with nullable scalar results are not supported in untyped Map storage yet", Some(value.span)));
+                            }
+                        }
+                    }
                 }
                 Some(Type::Class { name: "Map".into() })
             }

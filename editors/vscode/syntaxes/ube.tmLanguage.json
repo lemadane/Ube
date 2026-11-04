@@ -3,14 +3,30 @@
   "name": "Ube",
   "scopeName": "source.ube",
   "patterns": [
-    { "include": "#comments" },
-    { "include": "#keywords" },
-    { "include": "#types" },
-    { "include": "#constants" },
-    { "include": "#strings" },
-    { "include": "#numbers" },
-    { "include": "#operators" },
-    { "include": "#functions" }
+    {
+      "include": "#comments"
+    },
+    {
+      "include": "#keywords"
+    },
+    {
+      "include": "#types"
+    },
+    {
+      "include": "#constants"
+    },
+    {
+      "include": "#strings"
+    },
+    {
+      "include": "#numbers"
+    },
+    {
+      "include": "#operators"
+    },
+    {
+      "include": "#functions"
+    }
   ],
   "repository": {
     "comments": {
@@ -73,48 +89,25 @@
     "strings": {
       "patterns": [
         {
-          "name": "string.quoted.double.multiline.ube",
-          "begin": "\"(?=[ \\t\\f]*(?:\\r\\n|\\r|\\n))",
-          "end": "(?<!\\\\)(?:\\\\\\\\)*\"",
-          "patterns": [
-            {
-              "name": "constant.character.escape.ube",
-              "match": "\\\\([\"\\\\ntr])"
-            }
-          ]
+          "name": "string.quoted.other.backtick.ube",
+          "begin": "`",
+          "end": "`",
+          "patterns": []
         },
         {
           "name": "string.quoted.single.ube",
           "begin": "'",
-          "end": "'",
+          "end": "(?<!\\\\)(?:\\\\\\\\)*'",
           "patterns": [
             {
               "name": "constant.character.escape.ube",
-              "match": "\\\\(['\"\\\\ntr$])"
+              "match": "\\\\(['\\\"\\\\ntr$])"
             }
           ]
         },
         {
-          "name": "string.quoted.double.ube",
-          "begin": "\"",
-          "end": "(?<!\\\\)(?:\\\\\\\\)*\"",
-          "patterns": [
-            {
-              "name": "constant.character.escape.ube",
-              "match": "\\\\([\"\\\\ntr$])"
-            }
-          ]
-        },
-        {
-          "name": "char.quoted.backtick.ube",
-          "begin": "`",
-          "end": "`",
-          "patterns": [
-            {
-              "name": "constant.character.escape.ube",
-              "match": "\\\\([`\\\\ntr$])"
-            }
-          ]
+          "name": "invalid.illegal.reserved-double-quote.ube",
+          "match": "\""
         }
       ]
     },

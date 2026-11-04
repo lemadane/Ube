@@ -1,172 +1,120 @@
-# Ube Compiler Phased Execution Milestones
+# Ube Roadmap v2 — Proposed Scope and Release Gates
 
-This document details the 14 implementation phases for the **Ube** compiler, including deliverables, dependencies, technical risks, engineer-week estimates, objective exit criteria, and parallelization opportunities.
+Status: proposal for prioritization, not a completion report or a production-readiness claim. This replaces the earlier fourteen-phase schedule. Current behavior is documented in [README.md](README.md), [the language specification](LANGUAGE_SPEC_DRAFT.md), and [the architecture](ARCHITECTURE.md).
 
-This is a planning roadmap, not a completion report. Estimates and exit criteria describe targets. Current implementation details are in [README.md](README.md) and [ARCHITECTURE.md](ARCHITECTURE.md).
+The sequence is foundation, one working financial API, then extensions justified by use. Existing experimental code remains available during migration. This proposal does not remove language features, move repositories, or establish new compatibility guarantees by itself.
 
-Current language rules: declarations and application startup zero-initialize without constructor defaults; explicit construction applies defaults. Backing fields are class-private, public getters use `field()`, and `var` setters use `field(value)`. One-line strings use single quotes, characters use backticks, and text blocks use double quotes followed by a newline. Semicolons are prohibited in code.
+## Current Starting Point
 
----
+- The compiler emits textual LLVM IR and invokes `clang` to produce native executables.
+- Classes, structural traits, control flow, collections, and explicit exception propagation exist, but native correctness still needs broader coverage. The known trait-polymorphism test failure must be resolved before a foundation release.
+- Domain-specific names and lowering are embedded in the compiler. Its Cargo manifest directly depends on `ube-runtime`, whose dependencies include Tokio, TLS, and QUIC libraries. Package separation is a target, not the current architecture.
+- The HTTP server implements blocking, loopback-only HTTP/1.1 with exact method/path matching. Request bodies and several advertised advanced APIs remain unfinished or placeholders.
+- `Money` amounts and the language `decimal` currently use binary floating point (`f64`). Exact monetary arithmetic is not implemented and must precede a credible financial API demonstration.
+- Memory tracking and shutdown cleanup exist; the tracing-GC entry points remain stubs. Long-lived service behavior must be measured before reliability claims.
 
-## Phased Timeline & Estimates Overview
+## Phase 1 — Stabilize the Foundation
 
-Total Estimated Duration: **74 Engineer-Weeks**
+Planning window: approximately twelve weeks, reviewed every four weeks. Release gates decide readiness; the calendar does not promise completion.
 
-```text
-Phase 0: Specification Baseline          [ 2 wks ]
-Phase 1: Compiler Skeleton             [ 3 wks ]
-Phase 2: Semantic Frontend              [ 6 wks ]
-Phase 3: Minimal LLVM Vertical Slice    [ 5 wks ] ──► MVP Milestone
-Phase 4: Complete Class Model           [ 6 wks ]
-Phase 5: Anonymous Objects              [ 4 wks ]
-Phase 6: Control Flow                   [ 5 wks ]
-Phase 7: Generics & Composition         [ 8 wks ]
-Phase 8: Nullability                    [ 5 wks ]
-Phase 9: Errors & Resources             [ 4 wks ]
-Phase 10: Runtime & Garbage Collection  [ 8 wks ]
-Phase 11: Concurrency                   [ 8 wks ]
-Phase 12: Developer Tooling             [ 6 wks ]
-Phase 13: Self-Hosting Assessment       [ 4 wks ]
-```
+### Scope Freeze
 
----
+Concentrate new work on `class`, `trait`, `case`, `for`, `if`, `switch`, `try` / `catch` / `finally` / `throw`, `List`, `Map`, `print`, and `not` / `and` / `or`. Supporting declarations, methods, accessors, returns, loop exits, primitive types, nullability, and literal syntax remain part of that core. Existing array forms qualify for the stable subset only after native execution tests establish their supported behavior.
 
-## Phase Breakdowns
+Keep the recently established rules consistent:
 
-### Phase 0: Specification Baseline
-- **Deliverables**: Finalized EBNF grammar, language spec baseline (`LANGUAGE_SPEC_DRAFT.md`), language decision records (LDRs), and positive/negative syntax test suites.
-- **Dependencies**: None.
-- **Risks**: Syntax ambiguities in single-quoted string interpolation and double-quoted text blocks and word booleans.
-- **Estimate**: 2 Engineer-Weeks.
-- **Exit Criteria**: 100% of approved syntax features documented with zero grammatical ambiguities in LALR/Pratt grammar rules.
-- **Parallelization**: Grammar specification and test-case drafting can run in parallel.
+- Typed declarations and application startup zero-initialize through one implementation. Explicit constructors apply defaults. Non-nullable cycles and implicit runtime-resource initialization produce diagnostics.
+- Backing fields are class-private. Public reads use `field()`; `var` writes use `field(value)`.
+- Single quotes delimit one-line strings and character values. Backticks delimit raw text blocks. Double quotes are reserved for JSON content, and semicolons are prohibited in code.
+- Loop `else` runs only for zero body entries. Documentation and executable examples cover normal completion, `break`, `continue`, and initially false conditions.
 
----
+Fix nullable scalar representation and task/channel transport as foundation work. This is a correctness requirement for existing types, not concurrency API expansion. Maintain existing async/task/channel regressions while stabilizing their exception and cleanup paths. Defer concurrency API expansion, new protocols, financial features, XML mapping, advanced date/time APIs, and additional syntax.
 
-### Phase 1: Compiler Skeleton
-- **Deliverables**: Cargo workspace repository, `ube` CLI scaffolding, source file loader, source location span tracker (`Position`, `Span`), diagnostics emitter, hand-written Pratt parser, AST data structures, and parser snapshot tests.
-- **Dependencies**: Phase 0.
-- **Risks**: AST data structure bloat or inefficient span tracking.
-- **Estimate**: 3 Engineer-Weeks.
-- **Exit Criteria**: Parser achieves 100% test coverage on valid/invalid syntax test fixtures with accurate diagnostic spans.
-- **Parallelization**: CLI scaffolding and Lexer/Parser can proceed concurrently.
+### Work
 
----
+1. Inventory each advertised feature as implemented and execution-tested, experimental, unsupported, or planned. The README must distinguish those states. Unsupported operations should produce diagnostics rather than emit invalid IR or silently succeed.
+2. Compile and execute every runnable core example in debug and release builds. Expand native coverage around trait dispatch, getters/setters, zero initialization, nullability, collections, nested control flow, and exception cleanup. Syntax-only tests do not establish runtime support.
+3. Resolve the trait-polymorphism failure. If its textual assertion is invalid, replace it with meaningful LLVM verification and native behavior checks; establish that dispatch works before changing the assertion.
+4. Check emitted IR with the supported LLVM toolchain. For rejected programs, require a source span and actionable message. Add regressions for each confirmed crash, verifier failure, miscompilation, or missed diagnostic.
+5. Verify release flags and executable results. Measure direct-call optimization on representative examples; trait runtime dispatch must not be described as universally inlined or free.
+6. Establish memory and resource baselines for repeated allocation, errors, task completion, and cleanup. Document existing retention and GC limitations.
+7. Design the minimal package boundary: module/type loading, ordinary method resolution, a documented native ABI, runtime dependency selection, and linking of local packages. A registry and dependency solver are not prerequisites.
 
-### Phase 2: Semantic Frontend
-- **Deliverables**: Lexical scoping symbol table (`SymbolTable`), package and import resolver, type system representations, mutability validator, shared zero-initialization checks, nullable cycle handling, runtime-resource initializer validation, explicit `this` enforcement, naming-based visibility checks, flow-sensitive `is` type narrowing.
-- **Dependencies**: Phase 1.
-- **Risks**: Complex flow-sensitive narrowing logic invalidation across nested blocks.
-- **Estimate**: 6 Engineer-Weeks.
-- **Exit Criteria**: All frontend semantic passes pass 100% negative compilation test fixtures.
-- **Parallelization**: Type checking and name resolution can be implemented in parallel modules.
+### Phase 1 Blocker: Nullable Scalars Across Async Boundaries
 
----
+The compiler now lowers nullable primitives as an inline presence flag plus scalar payload and transports task/channel values through a two-word tagged ABI. Native regressions cover null versus zero/false, calls/returns, public fields, captures, all five nullable scalar types, repeated awaits, timeouts, failures, and closed channels. No ordinary numeric payload is reserved as a null sentinel.
 
-### Phase 3: Minimal LLVM Vertical Slice (MVP Milestone)
-- **Deliverables**: Custom Typed Ube IR builder, textual LLVM IR emitter (`TextualLlvmEmitter`), driver for native linker (`lld`), and `ube-runtime` static library with basic I/O (`print_i64`, `print_str`).
-- **Dependencies**: Phase 2.
-- **Risks**: Platform-specific C-ABI calling conventions and linker flag differences.
-- **Estimate**: 5 Engineer-Weeks.
-- **Exit Criteria**: **MVP Milestone**: A valid Ube "Hello World" application (`class Application { main() { ... } }`) compiles to a native executable and runs with exit code 0.
-- **Parallelization**: LLVM IR generator and `ube-runtime` library can be built in parallel.
+Untyped collections still store single-word elements. Nullable scalars and tasks returning nullable scalars are diagnosed when stored, including task-combinator lists. Complete typed nullable collection/combinator support before declaring the full nullable matrix stable.
 
----
+Remaining validation includes integer boundaries and floating-point bit patterns, multiple concurrent waiters, cancellation under contention, memory/ownership baselines, and supported target ABI coverage. Preserve existing exception and cleanup regressions. The two-word scalar representation requires no per-payload allocation; pointer/object lifetime rules remain unchanged.
 
-### Phase 4: Complete Class Model
-- **Deliverables**: `var` field mutation validation, immutable-field protection, primary constructor argument lowering, class memory layout generation, class-private backing-field checks and public getter/setter calls, and instance method dispatch.
-- **Dependencies**: Phase 3.
-- **Risks**: Incorrect struct padding and alignment in LLVM layout generation.
-- **Estimate**: 6 Engineer-Weeks.
-- **Exit Criteria**: Class-private fields, `field()` getters, `var`-only `field(value)` setters, explicit constructor defaults, and default-free zero initialization for declarations and startup pass native tests.
-- **Parallelization**: Field access validation and LLVM class struct generation can be split.
+### Exit Gates
 
----
+- The complete supported test suite passes without excluding known compiler failures. CI jobs needing loopback access run in an environment that provides it.
+- Every runnable core example builds and runs with expected output in debug and release configurations. Examples outside the stable subset are explicitly marked experimental.
+- No known LLVM verifier failure or native correctness failure remains in the declared release matrix. This is a tested support claim, not a guarantee of zero undiscovered bugs.
+- Trait dispatch and exception/cleanup behavior have native regressions, not just token or IR-substring assertions.
+- Nullable primitives retain their presence and value across supported local, call, field, task, and channel paths. No accepted nullable scalar program in this test matrix emits invalid IR, and null never aliases zero or a failure outcome.
+- Supported toolchain versions, target platform, diagnostics, memory limits, and reproducible build commands are documented.
+- Domain APIs have an implementation-status inventory and a reviewable extraction design. No additional domain-specific compiler branches are introduced during the freeze.
 
-### Phase 5: Anonymous Objects
-- **Deliverables**: Literal object parser, structural type inference, canonical field ordering algorithm, generated getter methods, structural `equals` and `hash` generation, and `with` expression updates.
-- **Dependencies**: Phase 4.
-- **Risks**: Name mangling collisions for structurally identical anonymous object types across modules.
-- **Estimate**: 4 Engineer-Weeks.
-- **Exit Criteria**: Anonymous object literals compile, update via `with`, and pass structural equality native tests.
-- **Parallelization**: Structural type checking and `with` LLVM lowering can proceed in parallel.
+## Phase 2 — Ship One Financial API Demonstration
 
----
+Prerequisite: Phase 1 exit gates. Keep this phase to a single-currency financial API with JSON requests, exact amounts, persistence, and HTTP/1.1. Define a small demonstration such as a ledger or transfer simulation with a reproducible command and request/response examples.
 
-### Phase 6: Control Flow
-- **Deliverables**: Collection-based `for` loop lowering, indexed iteration, condition loops, infinite loops, `break` and `continue`, `switch` statements and expressions with `case` arrows, `if` guards, `yield`, and exhaustiveness validation.
-- **Dependencies**: Phase 4.
-- **Risks**: Complex control flow graph basic block splitting in nested switch expressions.
-- **Estimate**: 5 Engineer-Weeks.
-- **Exit Criteria**: All `for` loop variants and `switch` expressions pass exhaustive codegen verification.
-- **Parallelization**: `for` loop lowering and `switch` expression lowering can be parallelized.
+### Deliver the Whole Request Path
 
----
+1. **Exact amounts:** choose a documented integer-minor-unit or decimal representation, with explicit scale and rounding rules. Test checked overflow, negative values, serialization, arithmetic, and currency mismatch errors. Do not use the existing `f64` amount representation for this demonstration's monetary calculations. Defer foreign exchange and broad currency catalogs.
+2. **JSON:** parse and validate request payloads, preserve exact amount representations, produce consistent responses, and return useful errors for malformed input. Do not introduce an ambiguous bare double-quoted language literal as a shortcut.
+3. **Persistence:** implement and test one bounded persistence model, including restart behavior and failed-write handling. Document its durability and concurrency guarantees.
+4. **HTTP/1.1:** implement the request method/path, headers, framing, body handling, status codes, and response content types required by the demonstration. Bound request size, waiting time, and concurrent work. Reject unsupported framing explicitly.
+5. **Deployment:** provide explicit configurable bind host and port. Keep loopback as the documented default; exercise `0.0.0.0` binding only through explicit configuration in integration tests. Document the supported deployment and TLS termination arrangement.
+6. **Behavior under failure:** verify validation failures, arithmetic errors, repeated requests, persistence errors, disconnects, cancellation, and cleanup through the complete request path. Specify idempotency and shared-state behavior for the chosen API.
 
-### Phase 7: Generics & Composition
-- **Deliverables**: Generic class and method declaration handling, monomorphization pipeline, structural constraint validation, generic type inference, and binary size optimization passes.
-- **Dependencies**: Phase 6.
-- **Risks**: Monomorphization code bloat and recursive generic instantiation infinite loops.
-- **Estimate**: 8 Engineer-Weeks.
-- **Exit Criteria**: Generic data structures (`List<T>`, `Map<K, V>`) compile without interfaces and execute natively.
-- **Parallelization**: Constraint validation and monomorphization codegen can proceed in parallel.
+### Extract Packages Incrementally
 
----
+Proposed package names are organizational targets, not syntax already supported by Ube:
 
-### Phase 8: Nullability
-- **Deliverables**: Nullable types (`Type?`), `null` literal, flow-sensitive non-null narrowing, optional chaining operator `?.`, null coalescing `??`, null-coalescing assignment `??=`.
-- **Dependencies**: Phase 7.
-- **Risks**: Flaws in flow-sensitive narrowing during complex short-circuit boolean expressions.
-- **Estimate**: 5 Engineer-Weeks.
-- **Exit Criteria**: All nullability operators compile cleanly to branchless LLVM instructions or basic blocks.
-- **Parallelization**: Parser/type checker rules and LLVM lowering can be parallelized.
+| Component | Responsibility |
+| --- | --- |
+| Core compiler | Parse, resolve, check, and lower ordinary language constructs |
+| Core runtime | Allocation, core strings/collections, errors, task primitives where required, and a documented ABI |
+| `ube-json` | JSON parsing, validation, and serialization |
+| `ube-money` | Exact monetary values and single-currency arithmetic |
+| `ube-io` | Files and the chosen persistence primitives |
+| `ube-http` | HTTP server and request/response behavior |
+| `ube-std` | Optional package collection or distribution umbrella |
 
----
+First establish a local package and native-linking path. Migrate a small package through it, then migrate the demonstration dependencies. Only then consider moving packages into another repository. A directory rename alone does not remove compiler coupling.
 
-### Phase 9: Errors & Resources
-- **Deliverables**: `try`, typed and conditional `catch`, `finally`, and `throw` lowering; structural error matching; explicit exception propagation; cleanup across returns and loop exits; suppressed errors; catchable runtime I/O failures.
-- **Dependencies**: Phase 8.
-- **Risks**: Missed cleanup or error propagation across nested control flow and async cancellation.
-- **Estimate**: 4 Engineer-Weeks.
-- **Exit Criteria**: Native tests verify `finally` on success, exceptions, returns, and loop exits, including async cleanup after cancellation.
-- **Parallelization**: Exception checking, cleanup lowering, and runtime failure conversion can be developed independently.
+Remove domain-specific aliases, type-checker registrations, method-name special cases, and LLVM declarations as their packages migrate. Keep the native ABI general and versioned. Compiler bootstrap must not require linking financial or HTTP implementations; installing the compiler and linking an application runtime are separate concerns.
 
----
+### Exit Gates
 
-### Phase 10: Runtime & Garbage Collection
-- **Deliverables**: Thread-local heap allocators, LLVM `statepoint` / stack map generation, precise object header management, incremental mark-and-sweep GC, and escape analysis pass.
-- **Dependencies**: Phase 9.
-- **Risks**: GC root discovery crashes or dangling pointer race conditions during collection.
-- **Estimate**: 8 Engineer-Weeks.
-- **Exit Criteria**: Long-running allocation stress tests execute continuously without memory leaks or corrupt pointers.
-- **Parallelization**: Allocator development and LLVM stack map generation can proceed in parallel.
+- One documented command builds the demo, and scripted requests verify its complete behavior after startup and restart.
+- Tests cover actual POST bodies, JSON failures, exact arithmetic, and persistence failures, not only route registration or type checking.
+- The core compiler has no domain-specific knowledge of `Money`, `Json`, or `Server`. The same names can be declared as ordinary user classes without triggering domain lowering.
+- An application using only the core profile does not link optional financial, XML, HTTP, TLS, or QUIC implementations.
+- Package loading and linking are tested from a clean checkout without a hosted registry.
+- Binary size, throughput, latency, and memory growth are measured with toolchain, hardware, and workload recorded. A five-megabyte binary is an experiment to measure, not a release promise.
+- The release is labeled as a demonstration until its documented correctness, durability, security, and operational requirements have been validated. Passing a happy-path demo alone does not establish production readiness.
 
----
+## Phase 3 — Expand from Observed Needs
 
-### Phase 11: Concurrency
-- **Deliverables**: Task representation, user-space scheduler, `async` and `await` lowering, one-shot worker cancellation, cleanup awaits, typed channels, and async I/O runtime integration.
-- **Dependencies**: Phase 10.
-- **Risks**: Deadlocks or data races in scheduler context switching.
-- **Estimate**: 8 Engineer-Weeks.
-- **Exit Criteria**: 100,000 concurrent tasks spawn, communicate via channels, and complete natively.
-- **Parallelization**: Scheduler development and `async`/`await` state-machine transformation can be split.
+Prerequisite: the financial API is used and its outstanding operational issues are understood. Add one independently testable package capability at a time.
 
----
+Candidates include HTTP/2, HTTP/3/QUIC, XML and record mapping, foreign exchange, richer currency catalogs, date/time extensions, and broader task/channel combinators. None is a mandatory item for the first financial API release. TLS needed for a deployment belongs in that deployment's requirements; protocol expansion does not have to precede a correctly deployed HTTP/1.1 service.
 
-### Phase 12: Developer Tooling
-- **Deliverables**: `ube fmt` formatter, Language Server Protocol (`ube-lsp`), syntax highlighter, DWARF debug information generator, and package manager (`ube pkg`).
-- **Dependencies**: Phase 11.
-- **Risks**: LSP latency during live incremental type checking.
-- **Estimate**: 6 Engineer-Weeks.
-- **Exit Criteria**: VS Code extension provides full auto-complete, diagnostics, formatting, and step debugging via LLDB.
-- **Parallelization**: Formatter, LSP, and Package Manager can be built concurrently by separate engineers.
+For each addition require a concrete consumer, package ownership, compatibility policy, complete native/integration tests, and measured dependency and binary-size impact. An unavailable API must be absent from the stable surface or fail explicitly; it must not remain an advertised no-op.
 
----
+Revisit a production tracing collector, advanced tooling, registry distribution, and self-hosting when usage and measurements justify their cost. Changes to core syntax require a separate proposal and migration plan.
 
-### Phase 13: Self-Hosting Assessment
-- **Deliverables**: Assessment report measuring language maturity, specification stability, compiler performance, and a staged bootstrapping roadmap for rewriting `ube` compiler in Ube.
-- **Dependencies**: Phase 12.
-- **Risks**: Immature language features hindering compiler self-implementation.
-- **Estimate**: 4 Engineer-Weeks.
-- **Exit Criteria**: Complete specification review confirming Ube is capable of hosting its own frontend and IR builder.
-- **Parallelization**: Benchmark analysis and bootstrap architecture drafting can run concurrently.
+## Immediate Next Work
+
+1. Resolve the known trait test failure and establish a fully passing native baseline.
+2. Complete nullable collection/combinator support and the remaining tagged task/channel ABI validation matrix.
+3. Classify the README's API claims and experimental examples against executable behavior.
+4. Inventory domain coupling in the compiler and runtime; draft the smallest local-package/native-ABI path that can remove it.
+5. Define the exact-money representation and one minimal API demonstration before expanding any financial or server API.
+
+Track progress with evidence attached to these gates, rather than by the number of advertised APIs.

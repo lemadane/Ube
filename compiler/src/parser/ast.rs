@@ -122,6 +122,7 @@ pub enum ExprKind {
     LongLiteral(i64),
     DecimalLiteral(f64),
     StringLiteral(String),
+    TextBlock(String),
     BoolLiteral(bool),
     NullLiteral,
     Identifier(String),

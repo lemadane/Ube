@@ -8,8 +8,8 @@ class FileTransferApplication {
 
         // 1. Configure TLS 1.3 encryption (Mandatory for QUIC)
         server.tls(
-            `cert.pem`,
-            `key.pem`
+            'cert.pem',
+            'key.pem'
         )
 
         // 2. Enable Native HTTP/3 over QUIC on UDP port 443
@@ -17,9 +17,9 @@ class FileTransferApplication {
 
         // 3. Upload File Endpoint (POST /files/:name)
         // Streams incoming QUIC payload directly to disk without loading full file into memory.
-        server.post(`/files/:name`) { request ->
-            final name = request.path(`name`)
-            final destPath = `uploads/${name}`
+        server.post('/files/:name') { request ->
+            final name = request.path('name')
+            final destPath = 'uploads/${name}'
 
             final destination = File.openWrite(destPath)
             
@@ -40,24 +40,24 @@ class FileTransferApplication {
 
         // 4. Download File Endpoint (GET /files/:name)
         // Supports Range requests (Range: bytes=104857600-) for resumable downloads.
-        server.get(`/files/:name`) { request ->
-            final name = request.path(`name`)
-            final filePath = `uploads/${name}`
+        server.get('/files/:name') { request ->
+            final name = request.path('name')
+            final filePath = 'uploads/${name}'
 
             if (!File.exists(filePath)) {
                 Response.status(404).json({
-                    error: `File not found`,
+                    error: 'File not found',
                     file: name
                 })
             }
 
-            final rangeHeader = request.header(`Range`)
+            final rangeHeader = request.header('Range')
             final stream = File.openRead(filePath)
 
-            Response.header(`Accept-Ranges`, `bytes`)
-            Response.header(`X-SHA256`, File.sha256(filePath))
+            Response.header('Accept-Ranges', 'bytes')
+            Response.header('X-SHA256', File.sha256(filePath))
 
-            if (rangeHeader != ``) {
+            if (rangeHeader != '') {
                 // Return 206 Partial Content for range resumption
                 Response.status(206).stream(stream)
             } else {
@@ -66,9 +66,9 @@ class FileTransferApplication {
         }
 
         // 5. File Metadata & Integrity Verification (HEAD /files/:name)
-        server.head(`/files/:name`) { request ->
-            final name = request.path(`name`)
-            final filePath = `uploads/${name}`
+        server.head('/files/:name') { request ->
+            final name = request.path('name')
+            final filePath = 'uploads/${name}'
 
             if (!File.exists(filePath)) {
                 Response.status(404)
@@ -77,27 +77,27 @@ class FileTransferApplication {
             final info = File.info(filePath)
             final sha256 = File.sha256(filePath)
 
-            Response.header(`Content-Length`, info.size().toString())
-            Response.header(`X-SHA256`, sha256)
-            Response.header(`Accept-Ranges`, `bytes`)
+            Response.header('Content-Length', info.size().toString())
+            Response.header('X-SHA256', sha256)
+            Response.header('Accept-Ranges', 'bytes')
             Response.ok()
         }
 
         // 6. List Files Endpoint (GET /files)
-        server.get(`/files`) { request ->
-            final files = Directory.list(`uploads`)
+        server.get('/files') { request ->
+            final files = Directory.list('uploads')
             
             Response.json({
-                directory: `uploads`,
+                directory: 'uploads',
                 count: files.length(),
                 files: files
             })
         }
 
         // 7. Delete File Endpoint (DELETE /files/:name)
-        server.delete(`/files/:name`) { request ->
-            final name = request.path(`name`)
-            final filePath = `uploads/${name}`
+        server.delete('/files/:name') { request ->
+            final name = request.path('name')
+            final filePath = 'uploads/${name}'
 
             if (File.exists(filePath)) {
                 File.delete(filePath)
@@ -107,7 +107,7 @@ class FileTransferApplication {
                 })
             } else {
                 Response.status(404).json({
-                    error: `File not found`
+                    error: 'File not found'
                 })
             }
         }

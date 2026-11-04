@@ -14,7 +14,7 @@ function isEscaped(source, index) {
 function skipQuotedString(source, index, end) {
   const quote = source[index];
   for (let cursor = index + 1; cursor < end; cursor += 1) {
-    if (source[cursor] === quote && !isEscaped(source, cursor)) {
+    if (source[cursor] === quote && (quote === "`" || !isEscaped(source, cursor))) {
       return cursor + 1;
     }
   }
@@ -276,7 +276,7 @@ function countBraces(line, lexicalState) {
       continue;
     }
     if (lexicalState.quote) {
-      if (line[cursor] === lexicalState.quote && !isEscaped(line, cursor)) {
+      if (line[cursor] === lexicalState.quote && (lexicalState.quote === "`" || !isEscaped(line, cursor))) {
         lexicalState.quote = null;
       }
       continue;

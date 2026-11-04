@@ -51,6 +51,7 @@ pub enum TokenKind {
     LongLiteral(i64),
     DecimalLiteral(f64),
     StringLiteral(String),
+    TextBlock(String),
     Identifier(String),
 
     // String Interpolation Tokens

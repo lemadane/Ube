@@ -64,7 +64,7 @@
 
 ### 12. Collections Policy & Unified `for` Loops (No `while` Keyword)
 - **`for` is the Sole Loop Keyword**: There is no `while` or `do-while` keyword in Ube.
-- **`for` / `else` (0-Iteration Fallback)**: `for (item in items) { ... } else { ... }`. The `else` block executes **ONLY if the loop body executed 0 times** (e.g. collection is empty `[]`, `null`, or condition is initially `false`).
+- **`for` / `else` (0-Iteration Fallback)**: `for (item in items) { ... } else { ... }`. The `else` block executes **only when the loop body is entered zero times**, such as an empty collection or an initially false condition. Once the body is entered, even an immediate `break` or `continue` prevents the fallback. See the [worked examples](#zero-iteration-fallback).
 - **`break` & `continue`**: `break` exits the nearest loop; `continue` skips to the next iteration.
 - **`Array<T>`**: Fixed-size contiguous buffer (`Array<int>(10)`).
 - **`List<T>`**: Dynamic growable sequence (`[1, 2, 3]` literal syntax, `.add()`, `.remove()`).
@@ -78,7 +78,7 @@
 ### 14. Concurrency Runtime (Tokio)
 - Async method calls are submitted to a shared multithreaded Tokio runtime. Receivers and arguments are captured before the call returns, and `await` blocks the calling Ube thread until completion.
 - The Rust runtime provides typed `Task<T>` results/errors, completion-based combinators, timeouts, cancellation, and bounded closable channels.
-- The compiler ABI transports task and channel values through a 64-bit slot, encoding primitive values and pointers. Ube await infers `Task<T>` from async method declarations; failures propagate into a surrounding `try`/`catch`.
+- The compiler ABI transports task and channel values through an inline two-word value (64-bit payload plus presence metadata), encoding primitive values and pointers. Ube await infers `Task<T>` from async method declarations; failures propagate into a surrounding `try`/`catch`.
 - One rule: **if it waits, you `await` it.** `async expr` (or an `async` method call) starts work; `await` gets the result.
 - `Channel<T>(capacity)` is a typed bounded channel: `await ch.send(v)` (false once closed), `await ch.receive()`, and `ch.close()`. A closed-channel receive after queued values are drained is catchable.
 - `await task.timeout(ms)` fails with a catchable `task timed out` and cancels the task; it works on any task, including `ch.receive()`.
@@ -137,56 +137,39 @@
 
 ### 23. String Literals & Text Blocks
 
-One-line strings use single quotes (`'Hello'`). Backticks are reserved for character literals, such as `` `A` ``. A one-character string still uses single quotes (`'A'`).
+One-line strings and character values use single quotes: `'Hello'`, `'A'`, and `''`. A character is represented as a one-character string; there is no separate `char` type. Single-quoted strings support escapes such as `\n`, `\t`, `\r`, `\`, and `\'`, and existing `${...}` interpolation. A physical line break inside a single-quoted literal is an error.
 
-Text blocks open with a double quote followed by a line break and end with a closing double quote. They are useful for JSON, SQL, and HTML.
+Backticks delimit raw text blocks, inline or across multiple lines. They preserve all content exactly, including whitespace, line endings, double quotes, backslashes, and `${...}`. There is no escape processing, interpolation, indentation removal, or implicit trimming. The next backtick always closes the block, even after a backslash; a backtick cannot appear inside it.
 
-- One-line strings use `'text'`; a double quote followed only by optional spaces, tabs, or form-feed and a physical line break begins a multi-line string, closed by the next unescaped `"`.
-- Multi-line strings normalize LF, CRLF, and CR to `\n`, remove common incidental indentation (including the closing delimiter's indentation), and retain the newline before a closing delimiter on its own line. Put the closing quote after the last content character to omit that final newline.
-- Escape sequences include `\n`, `\t`, `\r`, `\b`, `\f`, `\\`, `\"`, `\'`, `\s`, octal escapes, and `\u` followed by four hexadecimal digits. A backslash directly before a physical line break joins the next line without a newline.
-- Braces are literal; multi-line strings do not interpolate.
+Double quotes are reserved for JSON syntax and are rejected as standalone Ube string delimiters. JSON payloads may contain ordinary double quotes inside a backtick block, then be passed to `Json.parse`. This does not introduce a separate JSON literal type.
 
 ```ube
-final json = "
-    {
-        \"name\": \"Ube\",
-        \"active\": true
-    }
-    "
-
-final sql = "
-    select id, name
-    from users
-    where active = true
-    "
-
-final html = "
-    <article>
-        <h1>Welcome</h1>
-    </article>
-    "
-
 final ordinary = 'Hello\nWorld'
+final character = 'A'
+
+final json = `{"name":"Ube","active":true,"path":"C:\\tmp"}`
+
+final sql = `select id, name
+from users
+where active = true`
+
+final html = `<article class="welcome">
+    <h1>Welcome</h1>
+</article>`
 ```
 
-The opening line break is excluded. For example, this text block has the value `Hello\nWorld\n`:
+The first block below has the value `Hello\nWorld`. The second includes a final newline. Any indentation before content or a closing delimiter is part of the value.
 
 ```ube
-final message = "
-    Hello
-    World
-    "
+final message = `Hello
+World`
+
+final withTrailingNewline = `Hello
+World
+`
 ```
 
-Move the closing quote onto the last content line to omit the trailing newline:
-
-```ube
-final message = "
-    Hello
-    World"
-```
-
-Embedded double quotes must be escaped as `\"`, as in the JSON example above. Unknown escapes and unterminated text blocks are compile errors.
+To include a backtick in a one-line string, write it between single quotes. Double quotes and backslashes inside raw blocks need no Ube escaping; JSON's own escaping rules still apply to JSON data.
 
 ---
 
@@ -603,6 +586,147 @@ class Application {
 }
 ```
 
+#### Zero-iteration fallback
+
+**Read `for ... else` as: “if the body never starts, run this fallback.”** Reaching the body once is enough to disable the fallback. It does not mean “no break” or “no matching item.”
+
+| What happened? | Does `else` run? |
+| --- | --- |
+| The collection was empty | Yes |
+| The condition was false before the first iteration | Yes |
+| The body ran and the loop finished normally | No |
+| The body ran and immediately executed `break` | No |
+| The body ran but every iteration executed `continue` | No |
+| A `return` or unhandled error exits the loop | No; it follows the normal return/error path |
+
+Each example below can be placed inside `Application.main()`.
+
+**1. Empty collection: fallback runs**
+
+```ube
+final items = []
+for (item in items) {
+    print(item)
+} else {
+    print('no items')
+}
+```
+
+Output:
+
+```text
+no items
+```
+
+**2. Nonempty collection: fallback does not run**
+
+```ube
+final items = [10, 20]
+for (item in items) {
+    print(item)
+} else {
+    print('no items')
+}
+```
+
+Output:
+
+```text
+10
+20
+```
+
+**3. Immediate break: fallback does not run**
+
+```ube
+for (item in [10, 20]) {
+    print(item)
+    break
+} else {
+    print('no items')
+}
+print('after loop')
+```
+
+Output:
+
+```text
+10
+after loop
+```
+
+The first iteration has already started when `break` executes. There is no fallback after it.
+
+**4. Every iteration continues: fallback does not run**
+
+```ube
+for (item in [10, 20]) {
+    continue
+} else {
+    print('no items')
+}
+print('done')
+```
+
+Output:
+
+```text
+done
+```
+
+Skipping the remaining statements with `continue` still counts as entering the body.
+
+**5. Condition loops: only the initial condition matters**
+
+```ube
+for (false) {
+    print('body')
+} else {
+    print('initially false')
+}
+
+var remaining = 1
+for (remaining > 0) {
+    print(remaining)
+    remaining = remaining - 1
+} else {
+    print('never entered')
+}
+print('finished')
+```
+
+Output:
+
+```text
+initially false
+1
+finished
+```
+
+**6. Searching: track whether a match was found explicitly**
+
+```ube
+var found = false
+for (item in [1, 3, 5]) {
+    if (item == 2) {
+        found = true
+        break
+    }
+}
+if (not found) {
+    print('no match')
+}
+```
+
+Output:
+
+```text
+no match
+```
+
+A nonempty search with no match still entered its body. Use a flag and a separate `if`, rather than a loop `else`, to report search failure.
+
+
 ### 9. Truthy & Falsy Control Flow with Word Booleans
 
 In Ube, conditions in `if (condition)` statements evaluate **truthiness and falsiness** without requiring explicit boolean comparisons:
@@ -683,9 +807,9 @@ assert_eq!(channel.receive().await?, None);
 - `await_timeout` returns `TaskError::Timeout` and requests cancellation. Dropping an async future cancels it at await points. A generated Ube method callback already running on the blocking pool cannot be forcibly stopped; its task is marked cancelled but its synchronous body may continue.
 - `Channel<T>` is bounded (default capacity 64). Sends wait for capacity, receive returns `None` after close and buffered values are drained, and close wakes blocked senders/receivers with a closed outcome.
 
-The compiler now schedules calls to declared `async` methods and infers the awaited result type. Async method results are transported through a 64-bit ABI slot (integer/boolean/decimal bit representation or pointer); compiler-generated callbacks own their capture context, and task handles are cleaned up with the runtime. `Task.all`, `Task.any`, `Task.race`, and `Task.allSettled` also return tasks and observe completion order.
+The compiler now schedules calls to declared `async` methods and infers the awaited result type. Async method results are transported through a two-word ABI value (64-bit integer/boolean/decimal bits or pointer, plus presence metadata); compiler-generated callbacks own their capture context, and task handles are cleaned up with the runtime. `Task.all`, `Task.any`, `Task.race`, and `Task.allSettled` also return tasks and observe completion order.
 
-The compiler transports async method throws and runtime task failures to an enclosing `try`/`catch`; use `err.message()` to inspect the message. Awaiting a failure without a matching `catch` propagates it from an async method or `async` expression to its awaiter; anywhere else the program stops with `Ube error: unhandled exception ...` (exit code 1). Generated async methods poll cancellation at basic-block boundaries and raise a catchable cancellation error so cleanup runs; a currently executing indivisible operation cannot be interrupted. `async expr` captures visible locals when submitted and evaluates the expression on a worker. Language channels support explicit element types (`Channel<T>(capacity)`) and `close()`; `send(value)` returns `Task<bool>` and `receive()` returns `Task<T>`, with the channel wait performed on Tokio. `send` completes with false if the channel is closed; after buffered values are drained, `receive` fails with a catchable channel-closed error. `task.timeout(ms)` wraps any task (including a channel operation) with a deadline; `Task.race` waits on several channels at once. The language channel bridge transports non-null primitive values and pointer-sized values through the existing 64-bit ABI; nullable scalar payloads are rejected.
+The compiler transports async method throws and runtime task failures to an enclosing `try`/`catch`; use `err.message()` to inspect the message. Awaiting a failure without a matching `catch` propagates it from an async method or `async` expression to its awaiter; anywhere else the program stops with `Ube error: unhandled exception ...` (exit code 1). Generated async methods poll cancellation at basic-block boundaries and raise a catchable cancellation error so cleanup runs; a currently executing indivisible operation cannot be interrupted. `async expr` captures visible locals when submitted and evaluates the expression on a worker. Language channels support explicit element types (`Channel<T>(capacity)`) and `close()`; `send(value)` returns `Task<bool>` and `receive()` returns `Task<T>`, with the channel wait performed on Tokio. `send` completes with false if the channel is closed; after buffered values are drained, `receive` fails with a catchable channel-closed error. `task.timeout(ms)` wraps any task (including a channel operation) with a deadline; `Task.race` waits on several channels at once. The language channel bridge supports primitive values, pointer-sized values, and nullable scalars (`int?`, `long?`, `byte?`, `bool?`, `decimal?`). Scalar presence is stored separately, so null remains distinct from zero and false across locals, calls, fields, captures, tasks, and channels. Task errors and channel closure use the exception path, not a null payload. Untyped `List`/`Map` storage still uses single-word elements: storing nullable scalars or tasks with nullable scalar results is diagnosed, including lists passed to task combinators. Typed nullable collections/combinators remain Phase 1 follow-up work. Compiler and runtime must be rebuilt together for the new ABI.
 
 Cancellation is delivered once per worker callback, either at a cancellation poll or while awaiting. After delivery, subsequent awaits, including those in `finally`, wait normally so async cleanup can finish. Errors and timeouts from cleanup operations still propagate; the original cancellation remains pending unless handled or replaced by a cleanup failure.
 

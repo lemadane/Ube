@@ -53,7 +53,7 @@ Ube provides exactly six primitive data types (the `void` keyword does not exist
 | `byte` | Unsigned 8-bit integer (`u8`) | Raw byte data | `0` |
 | `long` | Signed 64-bit integer (`i64`) | Wide integer | `0` |
 | `bool` | 1-bit boolean (`i1`) | Logical truth value | `false` |
-| Character literal | No distinct runtime char type | Backticks, such as `` `A` ``; represented as a one-character `string` | Not a declared type |
+| Character literal | No distinct runtime char type | Single quotes, such as `'A'`; represented as a one-character `string` | Not a declared type |
 
 ---
 
@@ -209,7 +209,7 @@ try {
 
 A worker receives its cancellation request once, whether at a cancellation poll or during `await`. After delivery, subsequent awaits, including `finally` cleanup, wait normally. This does not suppress failures or timeouts from the awaited operations.
 
-**Limits.** Cancellation is cooperative: generated async code checks for cancellation at basic-block boundaries, so an indivisible operation already in progress (for example a blocking native call) runs to completion. Task and channel payloads are carried through a 64-bit slot; non-null primitive and pointer-sized channel payloads are supported and nullable scalar payloads are rejected. Arithmetic directly on a `Task` or `Channel` is a type error.
+**Limits.** Cancellation is cooperative: generated async code checks for cancellation at basic-block boundaries, so an indivisible operation already in progress (for example a blocking native call) runs to completion. Task and channel payloads use a two-word ABI value: a 64-bit payload and presence metadata. Nullable scalars (`int?`, `long?`, `byte?`, `bool?`, `decimal?`) retain null independently of zero/false through calls, fields, captures, awaited results, and channel operations. Errors and channel closure remain separate exceptions. Arithmetic directly on a `Task` or `Channel` is a type error. Untyped collections cannot store nullable scalars or tasks returning nullable scalars; these cases receive diagnostics, including nullable task-combinator inputs. Compiler and runtime must be rebuilt together.
 
 ---
 
@@ -313,6 +313,29 @@ class Application {
 ## 10. Unified `for` Loop & Control Flow (`break` & `continue`)
 
 Ube uses `for` as its **sole loop keyword**. There is no `while` or `do-while` keyword in the language. `break` exits the loop immediately, while `continue` skips to the next iteration.
+
+**Loop `else` means zero body entries.** An optional `else` block runs only if the loop body was never entered. This includes an empty collection or a condition that is initially false. Entering the body sets this state before its first statement: an immediate `break` or `continue` therefore prevents the fallback. Normal completion after one or more iterations also skips it. A return or propagated error follows its normal control-flow path, not the fallback. A nested loop tracks its own body-entry state independently.
+
+```ube
+class Application {
+    main() {
+        for (item in []) {
+            print(item)
+        } else {
+            print('empty') // Runs: zero iterations
+        }
+
+        for (item in [1]) {
+            break
+        } else {
+            print('empty') // Does not run: the body was entered
+        }
+    }
+}
+```
+
+Loop `else` does not test whether a search found a match. Use an explicit flag and a separate `if` for that purpose. See the [worked examples and output](README.md#zero-iteration-fallback).
+
 
 ```java
 class Application {
@@ -484,32 +507,21 @@ class Application {
 
 ---
 
-## 15. String Literals
+## 15. String Literals and Raw Text Blocks
 
-One-line strings use single quotes (`'Hello\nWorld'`). Backticks are reserved for character literals. A double quote followed by optional spaces, tabs, or form-feed and a physical line terminator starts a multi-line string. The next unescaped double quote closes it. Braces remain literal; multi-line strings do not perform interpolation.
+Single quotes delimit one-line strings and character values: `'Hello'`, `'A'`, and `''`. Characters use the string representation; there is no separate `char` type. Escape sequences such as `\n`, `\t`, `\r`, `\`, and `\'` are interpreted, and existing `${...}` interpolation is supported. Unescaped physical line breaks are errors.
 
-```ube
-final message = "
-    Hello World!
-    Welcome!
-    "
-```
+Backticks delimit raw text blocks. A block can be inline or span multiple physical lines. Every character between the delimiters is preserved, including opening/trailing newlines, indentation, CR/LF line endings, double quotes, and backslashes. Raw blocks do not decode escapes or perform interpolation. The next backtick closes the block unconditionally; backticks cannot be escaped inside it. An unterminated block is a lexical error.
 
-The opening line terminator is syntax and is not part of the value. LF, CRLF, and CR source line endings normalize to `\n`. The common leading indentation across nonblank content lines and the closing delimiter's indentation is removed, counting each space or tab as one indentation character. Blank and whitespace-only lines become empty lines. The line break immediately before a closing delimiter on its own line is retained; placing the closing quote after the last content character omits that final newline.
-
-Multi-line strings support `\n`, `\t`, `\r`, `\b`, `\f`, `\\`, `\"`, `\'`, `\s`, octal escapes, and `\u` followed by four hexadecimal digits. A backslash immediately followed by a physical line terminator removes that line break after indentation normalization. Unknown or incomplete escapes are errors. An embedded double quote must be escaped; the first unescaped double quote ends the literal. Multi-line string values use the same `string` representation as ordinary literals.
+Double quotes are reserved for JSON syntax, not standalone Ube literals. JSON payloads can be written inside raw text blocks and passed to `Json.parse`; JSON escaping remains part of the payload and is interpreted by the JSON parser, not the Ube lexer. No dedicated JSON literal type is introduced by this rule.
 
 ```ube
-final json = "
-    {
-        \"name\": \"Ube\",
-        \"active\": true
-    }
-    "
-
-final sql = "
-    select id, name
-    from users
-    where active = true
-    "
+final character = 'A'
+final message = 'Hello\nWorld'
+final json = `{"name":"Ube","active":true,"line":"\n"}`
+final sql = `select id, name
+from users
+where active = true`
 ```
+
+The SQL value contains two line breaks and no trailing newline. An opening line break, if present after the first backtick, would also be part of its value.

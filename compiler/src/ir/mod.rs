@@ -61,9 +61,9 @@ mod tests {
         let mut emitter = TextualLlvmEmitter::new();
         let llvm = emitter.emit_program(&ir);
         assert!(llvm.contains("call i8* @ube_task_spawn"));
-        assert!(llvm.contains("call i64 @ube_task_context_get"));
+        assert!(llvm.contains("call { i64, i64 } @ube_task_context_get_value"));
         assert!(llvm.contains("call i32 @Worker_compute(%Worker*"));
-        assert!(llvm.contains("call i64 @ube_task_await(i8*"));
+        assert!(llvm.contains("call { i64, i64 } @ube_task_await_value(i8*"));
         assert!(llvm.contains("call i8* @ube_task_all_async(i8*"));
         assert!(llvm.contains("trunc i64"));
     }
@@ -79,7 +79,7 @@ mod tests {
 
             class Application {
                 void main() {
-                    final user = User(1000, `Lem`, 35)
+                    final user = User(1000, 'Lem', 35)
                     user.birthday()
                 }
             }
@@ -152,10 +152,10 @@ mod tests {
                 void main() {
                     final root = Math.sqrt(4)
                     final value = if (1) {
-                        final branchValue = `left`
+                        final branchValue = 'left'
                         yield branchValue
                     } else {
-                        final branchValue = `right`
+                        final branchValue = 'right'
                         yield branchValue
                     }
                     final date = if (true) {

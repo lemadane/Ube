@@ -58,20 +58,6 @@ impl<'a> Lexer<'a> {
         self.peek_char.map(|(_, ch)| ch)
     }
 
-    fn is_multiline_string_opener(&self) -> bool {
-        let Some((index, _)) = self.current_char else {
-            return false;
-        };
-        let mut chars = self.source[index + 1..].chars();
-        loop {
-            match chars.next() {
-                Some(' ' | '\t' | '\u{000c}') => {}
-                Some('\n' | '\r') => return true,
-                _ => return false,
-            }
-        }
-    }
-
     pub fn next_token(&mut self) -> Token {
         self.skip_whitespace_and_comments();
 
@@ -93,9 +79,11 @@ impl<'a> Lexer<'a> {
 
         let kind = match ch {
             '\'' => self.read_single_quoted_string(),
-            '"' if self.is_multiline_string_opener() => self.read_multiline_string(),
-            '"' => self.read_double_quoted_string(),
-            '`' => self.read_backtick_char_literal(),
+            '"' => {
+                self.advance();
+                TokenKind::Error("Double quotes are reserved for JSON; use single quotes for strings or backticks for text blocks".into())
+            }
+            '`' => self.read_text_block(),
             '+' => {
                 self.advance();
                 TokenKind::Plus
@@ -282,10 +270,14 @@ impl<'a> Lexer<'a> {
                         Some('t') => content.push('\t'),
                         Some('r') => content.push('\r'),
                         Some('$') => content.push('$'),
+                        Some('\n' | '\r') => return TokenKind::Error("Unescaped line break in single-quoted string; use a backtick text block".into()),
                         Some(other) => content.push(other),
                         None => break,
                     }
                     self.advance();
+                }
+                '\n' | '\r' => {
+                    return TokenKind::Error("Unescaped line break in single-quoted string; use a backtick text block".into())
                 }
                 _ => {
                     content.push(ch);
@@ -297,279 +289,15 @@ impl<'a> Lexer<'a> {
         TokenKind::Error("Unterminated single-quoted string literal".into())
     }
 
-    fn read_double_quoted_string(&mut self) -> TokenKind {
+    fn read_text_block(&mut self) -> TokenKind {
         self.advance();
         let mut content = String::new();
-
         while let Some(ch) = self.peek() {
-            match ch {
-                '"' => {
-                    self.advance();
-                    return TokenKind::StringLiteral(content);
-                }
-                '\\' => {
-                    self.advance();
-                    match self.peek() {
-                        Some('"') => content.push('"'),
-                        Some('\\') => content.push('\\'),
-                        Some('n') => content.push('\n'),
-                        Some('t') => content.push('\t'),
-                        Some('r') => content.push('\r'),
-                        Some('$') => content.push('$'),
-                        Some(other) => content.push(other),
-                        None => break,
-                    }
-                    self.advance();
-                }
-                '\n' | '\r' => {
-                    return TokenKind::Error(
-                        "Unescaped line break in single-line string literal".into(),
-                    )
-                }
-                _ => {
-                    content.push(ch);
-                    self.advance();
-                }
-            }
-        }
-
-        TokenKind::Error("Unterminated double-quoted string literal".into())
-    }
-
-    fn read_multiline_string(&mut self) -> TokenKind {
-        self.advance();
-        while matches!(self.peek(), Some(' ' | '\t' | '\u{000c}')) {
             self.advance();
+            if ch == '`' { return TokenKind::TextBlock(content); }
+            content.push(ch);
         }
-        match self.peek() {
-            Some('\n') => {
-                self.advance();
-            }
-            Some('\r') => {
-                self.advance();
-                if self.peek() == Some('\n') {
-                    self.advance();
-                }
-            }
-            _ => {
-                return TokenKind::Error(
-                    "Text block opening delimiter must be followed by a line break".into(),
-                )
-            }
-        }
-
-        let mut content = String::new();
-        while self.peek().is_some() {
-            if self.peek() == Some('"')
-                && content.chars().rev().take_while(|ch| *ch == '\\').count() % 2 == 0
-            {
-                self.advance();
-                let normalized = Self::normalize_multiline_string(&content);
-                return Self::decode_multiline_escapes(&normalized);
-            }
-            if let Some(ch) = self.advance().map(|(_, ch)| ch) {
-                content.push(ch);
-            }
-        }
-
-        if content.ends_with('\\') {
-            TokenKind::Error(
-                "Unterminated multi-line string literal after an incomplete escape sequence"
-                    .into(),
-            )
-        } else {
-            TokenKind::Error("Unterminated multi-line string literal".into())
-        }
-    }
-
-    fn normalize_multiline_string(content: &str) -> String {
-        let normalized = content.replace("\r\n", "\n").replace('\r', "\n");
-        let lines: Vec<&str> = normalized.split('\n').collect();
-        let indentation = |line: &str| {
-            line.chars()
-                .take_while(|ch| matches!(ch, ' ' | '\t' | '\u{000c}'))
-                .count()
-        };
-        let indent = lines
-            .iter()
-            .filter(|line| !line.trim().is_empty())
-            .map(|line| indentation(line))
-            .chain(lines.last().map(|line| indentation(line)))
-            .min()
-            .unwrap_or(0);
-
-        let mut result = String::new();
-        for (index, line) in lines.iter().enumerate() {
-            if index > 0 {
-                result.push('\n');
-            }
-            if line.trim().is_empty() {
-                continue;
-            }
-            let skip = line
-                .char_indices()
-                .nth(indent.min(indentation(line)))
-                .map(|(byte_index, _)| byte_index)
-                .unwrap_or(line.len());
-            result.push_str(&line[skip..]);
-        }
-
-        result
-    }
-
-    fn decode_multiline_escapes(content: &str) -> TokenKind {
-        let chars: Vec<char> = content.chars().collect();
-        let mut result = String::new();
-        let mut index = 0;
-        while index < chars.len() {
-            let ch = chars[index];
-            index += 1;
-            if ch != '\\' {
-                result.push(ch);
-                continue;
-            }
-
-            let Some(escape) = chars.get(index).copied() else {
-                return TokenKind::Error(
-                    "Multi-line string ends with an incomplete escape sequence".into(),
-                );
-            };
-            index += 1;
-            match escape {
-                '\n' => {}
-                'b' => result.push('\u{0008}'),
-                't' => result.push('\t'),
-                'n' => result.push('\n'),
-                'f' => result.push('\u{000c}'),
-                'r' => result.push('\r'),
-                '"' => result.push('"'),
-                '\'' => result.push('\''),
-                '\\' => result.push('\\'),
-                's' => result.push(' '),
-                '0'..='7' => {
-                    let mut value = escape.to_digit(8).unwrap();
-                    let max_digits = if escape <= '3' { 3 } else { 2 };
-                    let mut digits = 1;
-                    while digits < max_digits
-                        && chars
-                            .get(index)
-                            .is_some_and(|next| matches!(next, '0'..='7'))
-                    {
-                        value = value * 8 + chars[index].to_digit(8).unwrap();
-                        index += 1;
-                        digits += 1;
-                    }
-                    let Some(decoded) = char::from_u32(value) else {
-                        return TokenKind::Error("Invalid octal escape sequence".into());
-                    };
-                    result.push(decoded);
-                }
-                'u' => {
-                    let Some(code_point) = Self::read_hex_escape(&chars, &mut index, 4) else {
-                        return TokenKind::Error(
-                            "Unicode escape must contain exactly four hexadecimal digits".into(),
-                        );
-                    };
-                    let code_point = if (0xD800..=0xDBFF).contains(&code_point) {
-                        if chars.get(index..index + 2) != Some(&['\\', 'u'][..]) {
-                            return TokenKind::Error(
-                                "High surrogate Unicode escape must be followed by a low surrogate"
-                                    .into(),
-                            );
-                        }
-                        index += 2;
-                        let Some(low) = Self::read_hex_escape(&chars, &mut index, 4) else {
-                            return TokenKind::Error("Invalid low-surrogate Unicode escape".into());
-                        };
-                        if !(0xDC00..=0xDFFF).contains(&low) {
-                            return TokenKind::Error(
-                                "High surrogate Unicode escape must be followed by a low surrogate"
-                                    .into(),
-                            );
-                        }
-                        0x10000 + ((code_point - 0xD800) << 10) + (low - 0xDC00)
-                    } else {
-                        code_point
-                    };
-                    let Some(decoded) = char::from_u32(code_point) else {
-                        return TokenKind::Error("Invalid Unicode escape sequence".into());
-                    };
-                    result.push(decoded);
-                }
-                other => {
-                    return TokenKind::Error(format!(
-                        "Invalid escape sequence '\\{}' in multi-line string",
-                        other
-                    ))
-                }
-            }
-        }
-
-        TokenKind::StringLiteral(result)
-    }
-
-    fn read_hex_escape(chars: &[char], index: &mut usize, digits: usize) -> Option<u32> {
-        let end = index.checked_add(digits)?;
-        let hex: String = chars.get(*index..end)?.iter().collect();
-        if !hex.chars().all(|ch| ch.is_ascii_hexdigit()) {
-            return None;
-        }
-        *index = end;
-        u32::from_str_radix(&hex, 16).ok()
-    }
-
-    fn read_backtick_char_literal(&mut self) -> TokenKind {
-        self.advance();
-        let mut content = String::new();
-
-        while let Some(ch) = self.peek() {
-            match ch {
-                '`' => {
-                    self.advance();
-                    return TokenKind::StringLiteral(content);
-                }
-                '\\' => {
-                    self.advance();
-                    match self.peek() {
-                        Some('`') => {
-                            self.advance();
-                            content.push('`');
-                        }
-                        Some('\\') => {
-                            self.advance();
-                            content.push('\\');
-                        }
-                        Some('n') => {
-                            self.advance();
-                            content.push('\n');
-                        }
-                        Some('t') => {
-                            self.advance();
-                            content.push('\t');
-                        }
-                        Some('r') => {
-                            self.advance();
-                            content.push('\r');
-                        }
-                        Some('$') => {
-                            self.advance();
-                            content.push('$');
-                        }
-                        Some(other) => {
-                            self.advance();
-                            content.push(other);
-                        }
-                        None => break,
-                    }
-                }
-                _ => {
-                    content.push(ch);
-                    self.advance();
-                }
-            }
-        }
-
-        TokenKind::Error("Unterminated backtick character literal".into())
+        TokenKind::Error("Unterminated backtick text block".into())
     }
 
     fn read_number(&mut self) -> TokenKind {

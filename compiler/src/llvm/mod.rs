@@ -21,7 +21,7 @@ mod tests {
 
             class Application {
                 void main() {
-                    final user = User(1000, `Lem`, 35)
+                    final user = User(1000, 'Lem', 35)
                     user.birthday()
                 }
             }

@@ -21,11 +21,11 @@ fn test_ube_end_to_end_pipeline() {
 
         class Application {
             main() {
-                final user = User(1000, `Lem`, 35)
+                final user = User(1000, 'Lem', 35)
                 user.birthday()
 
-                final obj = { id: 1000, name: `Lem` }
-                print(`User birthday updated!`)
+                final obj = { id: 1000, name: 'Lem' }
+                print('User birthday updated!')
             }
         }
     "#;
@@ -83,13 +83,13 @@ fn test_ube_trait_parsing() {
         trait Printable {
             printDetails()
             string getHeader() {
-                return `=== PRINTABLE ===`
+                return '=== PRINTABLE ==='
             }
         }
 
         class User(long id, string name) {
             printDetails() {
-                print(`User #${this._id}: ${this._name}`)
+                print('User #${this._id}: ${this._name}')
             }
         }
     "#;
@@ -118,7 +118,7 @@ fn test_e2e_person_birthday() {
 
         class Application {
             main() {
-                final person = Person(`Lem`, 35)
+                final person = Person('Lem', 35)
                 print(person.name())
                 print(person.age())
                 person.birthday()
@@ -161,8 +161,8 @@ fn test_lambda_captures_outer_variables() {
     let source_code = r#"
         class Application {
             main() {
-                final res = "Hello from my Ube server!"
-                server.get("/", request -> response.ok(res))
+                final res = 'Hello from my Ube server!'
+                server.get('/', request -> response.ok(res))
             }
         }
     "#;
@@ -188,19 +188,19 @@ fn test_e2e_trait_polymorphism() {
             printDetails()         // Abstract method
 
             string getHeader() {    // Default implementation
-                return `=== PRINTABLE ITEM ===`
+                return '=== PRINTABLE ITEM ==='
             }
         }
 
         class User(long id, string name) {
             printDetails() { // Concrete implementation
-                print(`User #${this._id}: ${this._name}`)
+                print('User #${this._id}: ${this._name}')
             }
         }
 
         class Invoice(long id, decimal total) {
             printDetails() { // Concrete implementation
-                print(`Invoice #${this._id}: \$${this._total}`)
+                print('Invoice #${this._id}: \$${this._total}')
             }
         }
 
@@ -211,7 +211,7 @@ fn test_e2e_trait_polymorphism() {
             }
 
             main() {
-                final user = User(1000L, `Lem`)
+                final user = User(1000L, 'Lem')
                 final invoice = Invoice(5001L, 199.99)
 
                 this.render(user)    // Calls render with a User
@@ -269,9 +269,9 @@ fn test_e2e_control_flow_and_dynamic_alloc() {
                 final cond = true
 
                 if (cond) {
-                    print(`Condition true`)
+                    print('Condition true')
                 } else {
-                    print(`Condition false`)
+                    print('Condition false')
                 }
 
                 for {
@@ -312,14 +312,14 @@ fn test_e2e_nested_cfg_and_logical_ops() {
 
                 if (a) {
                     if (b) {
-                        print(`Inner B`)
+                        print('Inner B')
                     }
-                    print(`Outer A`)
+                    print('Outer A')
                 }
 
                 for {
                     break
-                    print(`UNREACHABLE DEAD CODE`)
+                    print('UNREACHABLE DEAD CODE')
                 }
             }
         }
@@ -355,7 +355,7 @@ fn test_e2e_default_constructor_args() {
 
         class Application {
             main() {
-                final user = User(`Lem`)
+                final user = User('Lem')
             }
         }
     "#;
@@ -423,8 +423,8 @@ fn test_e2e_go_style_zero_values() {
                 User user
                 final u1 = User()
                 final u2 = User(1000L)
-                final u3 = User(1000L, `Lem`)
-                final u4 = User(1000L, `Lem`, 35)
+                final u3 = User(1000L, 'Lem')
+                final u4 = User(1000L, 'Lem', 35)
 
                 print(user.id())
                 print(user.name())
@@ -508,8 +508,8 @@ fn test_e2e_unified_zero_value_instantiation() {
                 Account a1
                 final a2 = Account()
                 final a3 = Account(1000L)
-                final a4 = Account(1000L, `Lem`)
-                final a5 = Account(1000L, `Lem`, 500)
+                final a4 = Account(1000L, 'Lem')
+                final a5 = Account(1000L, 'Lem', 500)
 
                 print(a1.balance())
                 print(a2.balance())
@@ -545,7 +545,7 @@ fn test_type_checker_constructor_argument_types() {
 
         class Application {
             main() {
-                final invalid = User(`Lem`, 1000L)
+                final invalid = User('Lem', 1000L)
             }
         }
     "#;
@@ -566,7 +566,7 @@ fn test_type_checker_variable_decl_type_enforcement() {
     let source_code = r#"
         class Application {
             main() {
-                int age = `hello`
+                int age = 'hello'
             }
         }
     "#;
@@ -587,7 +587,7 @@ fn test_type_checker_if_condition_bool_enforcement() {
         class Application {
             main() {
                 if (123) {
-                    print(`Hello`)
+                    print('Hello')
                 }
             }
         }
@@ -754,7 +754,7 @@ fn test_e2e_reject_wrong_field_assignment_type() {
     let source_code = r#"
         class User(var int age) {
             corrupt() {
-                this._age = `not an integer`
+                this._age = 'not an integer'
             }
         }
     "#;
@@ -788,7 +788,7 @@ fn test_e2e_reject_wrong_method_argument_type() {
     let source_code = r#"
         class Greeter {
             greet(int times) {
-                print(`Hello`)
+                print('Hello')
             }
         }
 
@@ -796,7 +796,7 @@ fn test_e2e_reject_wrong_method_argument_type() {
             main() {
                 final greeter = Greeter()
 
-                greeter.greet(`wrong`)
+                greeter.greet('wrong')
             }
         }
     "#;
@@ -968,9 +968,9 @@ fn test_e2e_string_interpolation_is_not_literal_text() {
     let source_code = r#"
         class Application {
             main() {
-                final name = `Lem`
+                final name = 'Lem'
 
-                print(`Hello ${name}`)
+                print('Hello ${name}')
             }
         }
     "#;
@@ -1093,7 +1093,7 @@ fn test_e2e_trait_declared_return_types_preserved_across_all_types() {
 
         class Application {
             main() {
-                final s = Service(42, 1000L, 3.14, true, `OK`)
+                final s = Service(42, 1000L, 3.14, true, 'OK')
                 print(s.count())
                 print(s.timestamp())
                 print(s.ratio())
@@ -1272,7 +1272,7 @@ fn test_e2e_optional_chaining_emits_diagnostic_until_supported() {
 
         class Application {
             main() {
-                final u = User(`Alice`)
+                final u = User('Alice')
                 print(u?.name)
             }
         }
@@ -1383,15 +1383,15 @@ fn test_e2e_try_check_no_error_flow() {
         class Application {
             main() {
                 try {
-                    print(`Step 1`)
+                    print('Step 1')
         
                 }
                 catch (Error err) {
-                    print(`Error occurred`)
+                    print('Error occurred')
                 }
         
                 finally {
-                    print(`Cleanup`)
+                    print('Cleanup')
                 }
             }
         }
@@ -1445,16 +1445,16 @@ fn test_e2e_try_raise_check_error_flow() {
         class Application {
             main() {
                 try {
-                    print(`Before throw`)
-                    throw(CustomError(`Something went wrong`))
+                    print('Before throw')
+                    throw(CustomError('Something went wrong'))
         
                 }
                 catch (Error err) {
-                    print(`Handled error`)
+                    print('Handled error')
                 }
         
                 finally {
-                    print(`Cleanup always runs`)
+                    print('Cleanup always runs')
                 }
             }
         }
@@ -1500,7 +1500,7 @@ fn test_e2e_throw_outside_try_is_valid() {
     let source_code = r#"
         class Application {
             main() {
-                throw(`Error outside try`)
+                throw('Error outside try')
             }
         }
     "#;
@@ -1525,11 +1525,11 @@ fn test_e2e_try_raise_string_interpolation_flow() {
         class App {
             main() {
                 try {
-                    throw(`an error occurred`)
+                    throw('an error occurred')
         
                 }
                 catch (Error error) {
-                    print(`${error}`)
+                    print('${error}')
                 }
             }
         }
@@ -1581,7 +1581,7 @@ fn test_e2e_raise_primitive_emits_diagnostic() {
         
                 }
                 finally {
-                    print(`Cleanup`)
+                    print('Cleanup')
                 }
             }
         }
@@ -1615,7 +1615,7 @@ fn test_e2e_raise_custom_class_error_trait() {
           string rawMsg
         ) {
             string message() {
-                return `Error ${this._code}: ${this._rawMsg}`
+                return 'Error ${this._code}: ${this._rawMsg}'
             }
         }
         
@@ -1625,7 +1625,7 @@ fn test_e2e_raise_custom_class_error_trait() {
                     throw(
                       CustomError(
                         404,
-                        `Not Found`
+                        'Not Found'
                       )
                     )
         
@@ -1801,7 +1801,7 @@ fn test_e2e_async_task_raise_rethrown_on_await() {
         
         class Application {
             async riskyTask() {
-                throw(`async task error`)
+                throw('async task error')
             }
         
             main() {
@@ -1912,7 +1912,7 @@ fn test_e2e_typed_closable_channel() {
             main() {
                 Channel<string> messages = Channel<string>(2)
                 final receivedTask = messages.receive()
-                final sentTask = messages.send(`hello`)
+                final sentTask = messages.send('hello')
                 final sent = await sentTask
                 final received = await receivedTask
                 messages.close()
@@ -1932,7 +1932,7 @@ fn test_e2e_typed_closable_channel() {
     let mut emitter = TextualLlvmEmitter::new();
     let llvm = emitter.emit_program(&ir);
     assert!(llvm.contains("@ube_channel_create_capacity"));
-    assert!(llvm.contains("call i8* @ube_channel_send_async("));
+    assert!(llvm.contains("call i8* @ube_channel_send_value_async("));
     assert!(llvm.contains("call i8* @ube_channel_recv_async("));
     assert!(llvm.contains("@ube_channel_close"));
     assert!(!llvm.contains("call i1 @ube_channel_send("), "send must not block");
@@ -1945,7 +1945,7 @@ fn test_async_task_errors_route_to_try_catch() {
         
         class Application {
             async fail() {
-                throw(`task failed`)
+                throw('task failed')
             }
         
             main() {
@@ -2023,7 +2023,7 @@ fn test_e2e_try_check_inside_async_method_body() {
             async safeTask() {
                 var res = 0
                 try {
-                    throw(`inner async error`)
+                    throw('inner async error')
         
                 }
                 catch (Error err) {
@@ -2094,7 +2094,7 @@ fn test_e2e_task_all_combinator_fail_fast() {
         
         class Application {
             async failingTask() {
-                throw(`task 2 failed`)
+                throw('task 2 failed')
             }
         
             main() {
@@ -2275,7 +2275,7 @@ fn test_unguarded_await_failure_stops_or_propagates() {
     let source = r#"
         class Application {
             async fail() {
-                throw(`boom`)
+                throw('boom')
             }
 
             async relay() {
@@ -2372,8 +2372,8 @@ fn test_e2e_datetime_formatting_and_parsing() {
     let source_code = r#"
         class Application {
             main() {
-                final dt = DateTime.parse(`2026-08-31T14:30:00+08:00`)
-                final formatted = dt.format(`yyyy-MM-dd HH:mm:ss`)
+                final dt = DateTime.parse('2026-08-31T14:30:00+08:00')
+                final formatted = dt.format('yyyy-MM-dd HH:mm:ss')
                 print(formatted)
             }
         }
@@ -2433,8 +2433,8 @@ fn test_e2e_datetime_instant_timezone_invariance() {
     let source_code = r#"
         class Application {
             main() {
-                final manila = DateTime.of(2026, 8, 31, 17, 0, `Asia/Manila`)
-                final tokyo = manila.in(`Asia/Tokyo`)
+                final manila = DateTime.of(2026, 8, 31, 17, 0, 'Asia/Manila')
+                final tokyo = manila.in('Asia/Tokyo')
                 print(manila.timestamp() == tokyo.timestamp())
                 print(manila.hour())
                 print(tokyo.hour())
@@ -2980,8 +2980,8 @@ fn test_e2e_file_write_read_exists_delete() {
     let source_code = r#"
         class Application {
             main() {
-                final path = `test_file_rw.txt`
-                File.write(path, `Hello Ube File API`)
+                final path = 'test_file_rw.txt'
+                File.write(path, 'Hello Ube File API')
                 print(File.exists(path))
                 final content = File.read(path)
                 print(content)
@@ -3015,10 +3015,10 @@ fn test_e2e_file_open_object_read_after_close() {
         
         class Application {
             main() {
-                final path = `test_obj_file.txt`
+                final path = 'test_obj_file.txt'
                 File.write(
                   path,
-                  `File Object Line`
+                  'File Object Line'
                 )
                 final file = File.open(path)
                 try {
@@ -3058,8 +3058,8 @@ fn test_e2e_file_info_metadata() {
     let source_code = r#"
         class Application {
             main() {
-                final path = `test_info.txt`
-                File.write(path, `Metadata test`)
+                final path = 'test_info.txt'
+                File.write(path, 'Metadata test')
                 final info = File.info(path)
                 print(info.size() > 0)
                 print(info.isDirectory())
@@ -3091,12 +3091,12 @@ fn test_e2e_directory_and_path_operations() {
     let source_code = r#"
         class Application {
             main() {
-                final p = Path.join(`/home/user`, `config.json`)
+                final p = Path.join('/home/user', 'config.json')
                 print(Path.filename(p))
                 print(Path.extension(p))
-                final dir = `test_dir_logs`
+                final dir = 'test_dir_logs'
                 Directory.create(dir)
-                final files = Directory.list(`.`)
+                final files = Directory.list('.')
                 print(files.len() >= 0)
                 Directory.delete(dir)
             }
@@ -3128,13 +3128,13 @@ fn test_e2e_file_error_handling_try_check() {
         class Application {
             main() {
                 try {
-                    final content = File.read(`non_existent_file_999.txt`)
+                    final content = File.read('non_existent_file_999.txt')
                     print(content)
         
                 }
                 catch (Error err) {
                     if (err is FileNotFoundError) {
-                        print(`File does not exist`)
+                        print('File does not exist')
                     }
                 }
             }
@@ -3165,11 +3165,11 @@ fn test_server_route_registration_and_response_factories_typecheck() {
         class Application {
             main() {
                 final server = Server()
-                server.get(`/users`) { request ->
-                    return Response.ok(`User list`)
+                server.get('/users') { request ->
+                    return Response.ok('User list')
                 }
-                server.post(`/users`) { request ->
-                    return Response.created(`User created`)
+                server.post('/users') { request ->
+                    return Response.created('User created')
                 }
                 print(server.port())
             }
@@ -3200,13 +3200,13 @@ fn test_server_request_path_query_headers_typecheck() {
         class Application {
             main() {
                 final server = Server()
-                server.get(`/users/{id}`) { request ->
-                    final id = request.pathLong(`id`)
-                    final auth = request.header(`Authorization`)
+                server.get('/users/{id}') { request ->
+                    final id = request.pathLong('id')
+                    final auth = request.header('Authorization')
                     if (id == 0) {
-                        return Response.notFound(`User not found`)
+                        return Response.notFound('User not found')
                     }
-                    return Response.json(`{"id": 1, "name": "Alice"}`)
+                    return Response.json('{"id": 1, "name": "Alice"}')
                 }
             }
         }
@@ -3237,14 +3237,14 @@ fn test_server_middleware_and_try_syntax_typecheck() {
         class Application {
             main() {
                 final server = Server()
-                server.use(`/api`) { request ->
+                server.use('/api') { request ->
                     if (not request.hasBearerToken()) {
-                        raise(GenericError(`Unauthorized`))
+                        raise(GenericError('Unauthorized'))
                     }
                 }
-                server.get(`/api/data`) { request ->
+                server.get('/api/data') { request ->
                     try {
-                        final val = request.query(`search`)
+                        final val = request.query('search')
                         print(val)
                     }
                     catch (Error err) {
@@ -3252,7 +3252,7 @@ fn test_server_middleware_and_try_syntax_typecheck() {
                             print(err.message())
                         }
                     }
-                    Response.text(`Request processed`)
+                    Response.text('Request processed')
                 }
             }
         }
@@ -3282,10 +3282,10 @@ fn test_server_websocket_and_tls_syntax_typecheck() {
         class Application {
             main() {
                 final server = Server()
-                server.tls(`cert.pem`, `key.pem`)
-                server.websocket(`/chat`) { socket ->
+                server.tls('cert.pem', 'key.pem')
+                server.websocket('/chat') { socket ->
                     socket.onMessage { msg ->
-                        socket.send(`Echo: ${msg}`)
+                        socket.send('Echo: ${msg}')
                     }
                 }
                 server.start(8080)
@@ -3320,10 +3320,10 @@ fn test_server_http_protocol_versions_syntax_typecheck() {
                 final server = Server()
                 server.enableHttp2()
                 server.enableHttp3(443)
-                server.get(`/protocol`) { request ->
+                server.get('/protocol') { request ->
                     print(request.protocol())
                     print(request.isHttp3())
-                    return Response.ok(`Protocol: ${request.protocol()}`)
+                    return Response.ok('Protocol: ${request.protocol()}')
                 }
             }
         }
@@ -3352,10 +3352,10 @@ fn test_e2e_json_parse_getters_stringify() {
     let source_code = r#"
         class Application {
             main() {
-                final text = `{"name": "Lem", "age": 40}`
+                final text = '{"name": "Lem", "age": 40}'
                 final json = Json.parse(text)
-                print(json.getString(`name`))
-                print(json.getInt(`age`))
+                print(json.getString('name'))
+                print(json.getInt('age'))
                 final s = Json.stringify(json)
                 print(s.len() > 0)
             }
@@ -3387,7 +3387,7 @@ fn test_e2e_json_parse_error_handling() {
         class Application {
             main() {
                 try {
-                    final data = Json.parse(`{invalid_json}`)
+                    final data = Json.parse('{invalid_json}')
         
                 }
                 catch (Error err) {
@@ -3422,9 +3422,9 @@ fn test_e2e_xml_create_element_text_tostring() {
     let source_code = r#"
         class Application {
             main() {
-                final doc = Xml.create(`user`)
-                doc.root().element(`name`).text(`Lem`)
-                doc.root().element(`age`).text(`40`)
+                final doc = Xml.create('user')
+                doc.root().element('name').text('Lem')
+                doc.root().element('age').text('40')
                 print(doc.toString())
             }
         }
@@ -3453,10 +3453,10 @@ fn test_e2e_xml_parse_child_navigation() {
     let source_code = r#"
         class Application {
             main() {
-                final text = `<user><name>Lem</name><age>40</age></user>`
+                final text = '<user><name>Lem</name><age>40</age></user>'
                 final doc = Xml.parse(text)
                 final root = doc.root()
-                print(root.child(`name`).text())
+                print(root.child('name').text())
             }
         }
     "#;
@@ -3484,13 +3484,13 @@ fn test_e2e_pure_ube_json_and_xml_record_mapping() {
     let source_code = r#"
         class Application {
             main() {
-                final jsonText = `{"restaurantID": "0603", "orderType": "DineIn"}`
+                final jsonText = '{"restaurantID": "0603", "orderType": "DineIn"}'
                 final json = Json.parse(jsonText)
-                print(json.getString(`restaurantID`))
+                print(json.getString('restaurantID'))
 
-                final xmlText = `<KitchenOrderScan><RestaurantID>0603</RestaurantID></KitchenOrderScan>`
+                final xmlText = '<KitchenOrderScan><RestaurantID>0603</RestaurantID></KitchenOrderScan>'
                 final xmlDoc = Xml.parse(xmlText)
-                print(xmlDoc.root().child(`RestaurantID`).text())
+                print(xmlDoc.root().child('RestaurantID').text())
             }
         }
     "#;
@@ -3518,10 +3518,10 @@ fn test_e2e_pure_ube_partial_parse_and_strict_modes() {
     let source_code = r#"
         class Application {
             main() {
-                final partialJson = Json.partialParse(`{"name": "Lem", "extra": 123}`, JsonObject)
-                print(partialJson.getString(`name`))
-                final partialXml = Xml.partialParse(`<user><name>Lem</name><extra>123</extra></user>`, XmlDocument)
-                print(partialXml.root().child(`name`).text())
+                final partialJson = Json.partialParse('{"name": "Lem", "extra": 123}', JsonObject)
+                print(partialJson.getString('name'))
+                final partialXml = Xml.partialParse('<user><name>Lem</name><extra>123</extra></user>', XmlDocument)
+                print(partialXml.root().child('name').text())
             }
         }
     "#;
@@ -3547,7 +3547,7 @@ fn test_e2e_pure_ube_partial_parse_and_strict_modes() {
 #[test]
 fn test_e2e_nullable_declaration_and_null_assignment_valid() {
     let source_code = r#"
-        class User(string name = `Guest`)
+        class User(string name = 'Guest')
 
         class Application {
             main() {
@@ -3578,7 +3578,7 @@ fn test_e2e_nullable_declaration_and_null_assignment_valid() {
 #[test]
 fn test_e2e_non_nullable_declaration_default_constructor_valid() {
     let source_code = r#"
-        class User(string name = `Guest`)
+        class User(string name = 'Guest')
 
         class Application {
             main() {
@@ -3609,7 +3609,7 @@ fn test_e2e_non_nullable_declaration_default_constructor_valid() {
 #[test]
 fn test_e2e_non_nullable_declaration_null_assignment_invalid() {
     let source_code = r#"
-        class User(string name = `Guest`)
+        class User(string name = 'Guest')
 
         class Application {
             main() {
@@ -3671,16 +3671,16 @@ fn test_e2e_break_inside_try_cleans_up_loop_exit() {
             main() {
                 for (x in [1]) {
                     try {
-                        print(`Before break`)
+                        print('Before break')
                         break
-                        print(`Unreachable after break`)
+                        print('Unreachable after break')
         
                     }
                     finally {
-                        print(`Exit cleanup runs on break`)
+                        print('Exit cleanup runs on break')
                     }
                 }
-                print(`After try block`)
+                print('After try block')
             }
         }
     "#;
@@ -3719,9 +3719,9 @@ fn test_e2e_for_else_empty_collection_executes_else() {
             main() {
                 final emptyItems = []
                 for (item in emptyItems) {
-                    print(`Loop body executed`)
+                    print('Loop body executed')
                 } else {
-                    print(`Else block executed for 0 iterations`)
+                    print('Else block executed for 0 iterations')
                 }
             }
         }
@@ -3761,9 +3761,9 @@ fn test_e2e_for_else_non_empty_collection_skips_else() {
             main() {
                 final items = [10, 20, 30]
                 for (item in items) {
-                    print(`Loop body item ${item}`)
+                    print('Loop body item ${item}')
                 } else {
-                    print(`Else block should be skipped`)
+                    print('Else block should be skipped')
                 }
             }
         }
@@ -3803,11 +3803,11 @@ fn test_e2e_if_expression_with_braces_and_yield() {
             main() {
                 final score = 85
                 final status = if (score >= 50) {
-                    yield `Passed`
+                    yield 'Passed'
                 } else {
-                    yield `Failed`
+                    yield 'Failed'
                 }
-                print(`Status: ${status}`)
+                print('Status: ${status}')
             }
         }
     "#;
@@ -3848,7 +3848,7 @@ fn test_e2e_for_expression_comprehension_with_braces_and_yield() {
                 final doubled = for (x in numbers) {
                     yield x * 2
                 }
-                print(`Doubled list length: ${doubled.len()}`)
+                print('Doubled list length: ${doubled.len()}')
             }
         }
     "#;
@@ -3889,13 +3889,13 @@ fn test_e2e_full_expression_and_lambda_string_interpolation() {
                 final b = 20
 
                 // Arithmetic & Binary Operations
-                print(`Sum: ${a + b * 2}`)
+                print('Sum: ${a + b * 2}')
 
                 // Immediately-Invoked Anonymous Function (Lambda)
-                print(`Calculated: ${ { (x) -> x * 21 }(2) }`)
+                print('Calculated: ${ { (x) -> x * 21 }(2) }')
 
                 // Expression evaluation inside interpolation
-                print(`Status: ${if (a > 5) { yield \`High\` } else { yield \`Low\` }}`)
+                print('Status: ${if (a > 5) { yield `High` } else { yield `Low` }}')
             }
         }
     "#;

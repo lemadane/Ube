@@ -132,11 +132,10 @@ fn compiled_ube_server_stays_running_and_serves_http_requests() {
         class Application {{
             main() {{
                 final server = server()
-                final res = "
-                    Hello from Ube e2e!
-                    This is a captured multiline string.
-                    "
-                server.get("/", request -> response.ok(res))
+                final res = `Hello from Ube e2e!
+This is a captured multiline string.
+`
+                server.get('/', request -> response.ok(res))
                 server.start({port})
             }}
         }}

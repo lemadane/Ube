@@ -37,7 +37,20 @@ fn abi_channel_handles() -> &'static StdMutex<Vec<usize>> {
     HANDLES.get_or_init(|| StdMutex::new(Vec::new()))
 }
 
-fn track_abi_task(task: Task<i64>) -> *mut c_void {
+/// Inline transport value. Presence is independent of payload bits and task errors.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct AbiValue {
+    pub payload: i64,
+    pub meta: u64,
+}
+impl AbiValue {
+    fn present(payload: i64) -> Self {
+        Self { payload, meta: 1 }
+    }
+}
+
+fn track_abi_task(task: Task<AbiValue>) -> *mut c_void {
     let ptr = Box::into_raw(Box::new(task));
     abi_task_handles()
         .lock()
@@ -46,7 +59,7 @@ fn track_abi_task(task: Task<i64>) -> *mut c_void {
     ptr as *mut c_void
 }
 
-fn legacy_task_value(result: Result<i64, TaskError>) -> i64 {
+fn task_value(result: Result<AbiValue, TaskError>) -> AbiValue {
     match result {
         Ok(value) => {
             crate::exceptions::set_pending(0);
@@ -60,10 +73,12 @@ fn legacy_task_value(result: Result<i64, TaskError>) -> i64 {
                 other => crate::exceptions::generic(other.to_string()),
             };
             crate::exceptions::set_pending(record);
-            0
+            AbiValue::default()
         }
     }
 }
+
+fn legacy_task_value(result: Result<AbiValue, TaskError>) -> i64 { task_value(result).payload }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TaskError {
@@ -451,19 +466,19 @@ impl<T> Default for Channel<T> {
 }
 
 pub struct UbeChannel {
-    channel: Channel<i64>,
+    channel: Channel<AbiValue>,
 }
 
 #[repr(C)]
 struct UbeTaskContext {
-    values: Vec<i64>,
+    values: Vec<AbiValue>,
 }
 
 #[no_mangle]
 pub extern "C" fn ube_task_context_create(size: i64) -> *mut c_void {
     let capacity = usize::try_from(size).unwrap_or(0);
     Box::into_raw(Box::new(UbeTaskContext {
-        values: vec![0; capacity],
+        values: vec![AbiValue::default(); capacity],
     })) as *mut c_void
 }
 
@@ -474,7 +489,7 @@ pub extern "C" fn ube_task_context_set(ptr: *mut c_void, index: i64, value: i64)
     }
     let context = unsafe { &mut *(ptr as *mut UbeTaskContext) };
     if let Some(slot) = context.values.get_mut(index as usize) {
-        *slot = value;
+        *slot = AbiValue::present(value);
     }
 }
 
@@ -487,7 +502,7 @@ pub extern "C" fn ube_task_context_get(ptr: *mut c_void, index: i64) -> i64 {
         (&(*(ptr as *const UbeTaskContext)).values)
             .get(index as usize)
             .copied()
-            .unwrap_or(0)
+            .unwrap_or_default().payload
     }
 }
 
@@ -502,6 +517,27 @@ pub extern "C" fn ube_task_spawn(
         }
         return std::ptr::null_mut();
     };
+    spawn_abi_callback(move |context| AbiValue::present(callback(context)), context)
+}
+
+#[no_mangle]
+pub extern "C" fn ube_task_spawn_value(
+    callback: Option<extern "C" fn(*mut c_void) -> AbiValue>,
+    context: *mut c_void,
+) -> *mut c_void {
+    let Some(callback) = callback else {
+        if !context.is_null() {
+            unsafe { drop(Box::from_raw(context as *mut UbeTaskContext)) };
+        }
+        return std::ptr::null_mut();
+    };
+    spawn_abi_callback(move |context| callback(context), context)
+}
+
+fn spawn_abi_callback(
+    callback: impl FnOnce(*mut c_void) -> AbiValue + Send + 'static,
+    context: *mut c_void,
+) -> *mut c_void {
     let context = if context.is_null() {
         Box::new(UbeTaskContext { values: Vec::new() })
     } else {
@@ -530,16 +566,19 @@ pub extern "C" fn ube_task_spawn(
 
 #[no_mangle]
 pub extern "C" fn ube_task_create(val: i64) -> *mut c_void {
-    track_abi_task(spawn_task(move |_| async move { Ok(val) }))
+    track_abi_task(spawn_task(move |_| async move { Ok(AbiValue::present(val)) }))
 }
 
 #[no_mangle]
-pub extern "C" fn ube_task_await(ptr: *mut c_void) -> i64 {
+pub extern "C" fn ube_task_await(ptr: *mut c_void) -> i64 { ube_task_await_value(ptr).payload }
+
+#[no_mangle]
+pub extern "C" fn ube_task_await_value(ptr: *mut c_void) -> AbiValue {
     if ptr.is_null() {
         set_last_task_error("task handle is null".into());
-        return 0;
+        return task_value(Err(TaskError::Failed("task handle is null".into())));
     }
-    let task = unsafe { &*(ptr as *const Task<i64>) };
+    let task = unsafe { &*(ptr as *const Task<AbiValue>) };
     // Polling and awaiting share one cancellation delivery per callback. Once
     // delivered, cleanup awaits must not re-deliver the parent's cancellation;
     // errors from the awaited task itself still propagate normally.
@@ -557,7 +596,7 @@ pub extern "C" fn ube_task_await(ptr: *mut c_void) -> i64 {
             }
         })
     } else { task.await_result() };
-    legacy_task_value(result)
+    task_value(result)
 }
 
 #[no_mangle]
@@ -606,7 +645,7 @@ pub extern "C" fn ube_task_cancel(ptr: *mut c_void) -> bool {
     if ptr.is_null() {
         return false;
     }
-    unsafe { (&*(ptr as *const Task<i64>)).cancel() }
+    unsafe { (&*(ptr as *const Task<AbiValue>)).cancel() }
 }
 
 /// Returns a new task that fails with "task timed out" (and cancels `ptr`)
@@ -621,10 +660,10 @@ pub extern "C" fn ube_task_timeout(ptr: *mut c_void, timeout_ms: i64) -> *mut c_
             Err(TaskError::Failed("timeout must not be negative".into()))
         }));
     }
-    let inner = unsafe { (&*(ptr as *const Task<i64>)).clone() };
+    let inner = unsafe { (&*(ptr as *const Task<AbiValue>)).clone() };
     let duration = Duration::from_millis(timeout_ms as u64);
     track_abi_task(spawn_task(move |_| async move {
-        struct CancelOnDrop(Task<i64>);
+        struct CancelOnDrop(Task<AbiValue>);
         impl Drop for CancelOnDrop {
             fn drop(&mut self) {
                 self.0.cancel();
@@ -699,20 +738,23 @@ pub extern "C" fn ube_channel_send(ptr: *mut UbeChannel, val: i64) -> bool {
         return false;
     }
     let channel = unsafe { &(*ptr).channel };
-    block_on(channel.send(val)).is_ok()
+    block_on(channel.send(AbiValue::present(val))).is_ok()
 }
 
 #[no_mangle]
-pub extern "C" fn ube_channel_send_async(ptr: *mut UbeChannel, val: i64) -> *mut c_void {
+pub extern "C" fn ube_channel_send_async(ptr: *mut UbeChannel, val: i64) -> *mut c_void { ube_channel_send_value_async(ptr, val, 1) }
+
+#[no_mangle]
+pub extern "C" fn ube_channel_send_value_async(ptr: *mut UbeChannel, payload: i64, meta: u64) -> *mut c_void {
     if ptr.is_null() {
         set_last_task_error("channel handle is null".into());
         return std::ptr::null_mut();
     }
     let channel = unsafe { (*ptr).channel.clone() };
     track_abi_task(spawn_task(move |_| async move {
-        match channel.send(val).await {
-            Ok(()) => Ok(1),
-            Err(TaskError::ChannelClosed) => Ok(0),
+        match channel.send(AbiValue { payload, meta }).await {
+            Ok(()) => Ok(AbiValue::present(1)),
+            Err(TaskError::ChannelClosed) => Ok(AbiValue::present(0)),
             Err(error) => Err(error),
         }
     }))
@@ -728,7 +770,7 @@ pub extern "C" fn ube_channel_recv(ptr: *mut UbeChannel) -> i64 {
     match block_on(channel.receive()) {
         Ok(Some(value)) => {
             LAST_TASK_ERROR.with(|last_error| *last_error.borrow_mut() = None);
-            value
+            value.payload
         }
         Ok(None) => {
             set_last_task_error(TaskError::ChannelClosed.to_string());
@@ -783,7 +825,7 @@ pub extern "C" fn ube_task_all(list_ptr: *mut i8) -> *mut i8 {
     }
     let len = crate::collections::ube_list_len(task_list);
     for index in 0..len {
-        let task_ptr = crate::collections::ube_list_get(task_list, index) as *mut Task<i64>;
+        let task_ptr = crate::collections::ube_list_get(task_list, index) as *mut Task<AbiValue>;
         let value = if task_ptr.is_null() {
             0
         } else {
@@ -796,18 +838,18 @@ pub extern "C" fn ube_task_all(list_ptr: *mut i8) -> *mut i8 {
 
 #[no_mangle]
 pub extern "C" fn ube_task_any(list_ptr: *mut i8) -> i64 {
-    run_legacy_task_combinator(list_ptr, Task::<i64>::any)
+    run_legacy_task_combinator(list_ptr, Task::<AbiValue>::any)
 }
 
 #[no_mangle]
 pub extern "C" fn ube_task_race(list_ptr: *mut i8) -> i64 {
-    run_legacy_task_combinator(list_ptr, Task::<i64>::race)
+    run_legacy_task_combinator(list_ptr, Task::<AbiValue>::race)
 }
 
 fn run_legacy_task_combinator<F, Fut>(list_ptr: *mut i8, combinator: F) -> i64
 where
-    F: FnOnce(Vec<Task<i64>>) -> Fut,
-    Fut: Future<Output = Result<i64, TaskError>>,
+    F: FnOnce(Vec<Task<AbiValue>>) -> Fut,
+    Fut: Future<Output = Result<AbiValue, TaskError>>,
 {
     let task_list = list_ptr as *mut crate::collections::UbeList;
     if task_list.is_null() {
@@ -816,7 +858,7 @@ where
     let len = crate::collections::ube_list_len(task_list);
     let tasks = (0..len)
         .filter_map(|index| {
-            let ptr = crate::collections::ube_list_get(task_list, index) as *mut Task<i64>;
+            let ptr = crate::collections::ube_list_get(task_list, index) as *mut Task<AbiValue>;
             if ptr.is_null() {
                 None
             } else {
@@ -827,7 +869,7 @@ where
     legacy_task_value(block_on(combinator(tasks)))
 }
 
-fn clone_task_list(list_ptr: *mut i8) -> Vec<Task<i64>> {
+fn clone_task_list(list_ptr: *mut i8) -> Vec<Task<AbiValue>> {
     let task_list = list_ptr as *mut crate::collections::UbeList;
     if task_list.is_null() {
         return Vec::new();
@@ -835,7 +877,7 @@ fn clone_task_list(list_ptr: *mut i8) -> Vec<Task<i64>> {
     let len = crate::collections::ube_list_len(task_list);
     (0..len)
         .filter_map(|index| {
-            let ptr = crate::collections::ube_list_get(task_list, index) as *mut Task<i64>;
+            let ptr = crate::collections::ube_list_get(task_list, index) as *mut Task<AbiValue>;
             if ptr.is_null() {
                 None
             } else {
@@ -852,9 +894,9 @@ pub extern "C" fn ube_task_all_async(list_ptr: *mut i8) -> *mut c_void {
         let values = Task::all(tasks).await?;
         let list = crate::collections::ube_list_create();
         for value in values {
-            crate::collections::ube_list_add(list, value);
+            crate::collections::ube_list_add(list, value.payload);
         }
-        Ok(list as usize as i64)
+        Ok(AbiValue::present(list as usize as i64))
     });
     track_abi_task(task)
 }
@@ -882,7 +924,7 @@ pub extern "C" fn ube_task_all_settled_async(list_ptr: *mut i8) -> *mut c_void {
         for outcome in outcomes {
             crate::collections::ube_list_add(list, legacy_task_value(outcome));
         }
-        Ok(list as usize as i64)
+        Ok(AbiValue::present(list as usize as i64))
     });
     track_abi_task(task)
 }
@@ -896,7 +938,7 @@ pub extern "C" fn ube_task_all_settled(list_ptr: *mut i8) -> *mut i8 {
     }
     let len = crate::collections::ube_list_len(task_list);
     for index in 0..len {
-        let task_ptr = crate::collections::ube_list_get(task_list, index) as *mut Task<i64>;
+        let task_ptr = crate::collections::ube_list_get(task_list, index) as *mut Task<AbiValue>;
         let outcome = if task_ptr.is_null() {
             0
         } else {
@@ -915,7 +957,7 @@ pub extern "C" fn ube_task_dispose(ptr: *mut c_void) {
             .expect("Ube task handle registry was poisoned")
             .retain(|handle| *handle != ptr as usize);
         unsafe {
-            drop(Box::from_raw(ptr as *mut Task<i64>));
+            drop(Box::from_raw(ptr as *mut Task<AbiValue>));
         }
     }
 }
@@ -928,12 +970,12 @@ pub fn ube_concurrency_cleanup() {
     );
     for handle in &handles {
         unsafe {
-            (&*(*handle as *const Task<i64>)).cancel();
+            (&*(*handle as *const Task<AbiValue>)).cancel();
         }
     }
     for handle in handles {
         unsafe {
-            let task = Box::from_raw(handle as *mut Task<i64>);
+            let task = Box::from_raw(handle as *mut Task<AbiValue>);
             let _ = task.await_result();
         }
     }
@@ -948,6 +990,18 @@ pub fn ube_concurrency_cleanup() {
     }
 }
 
+
+#[no_mangle]
+pub extern "C" fn ube_task_context_set_value(ptr: *mut c_void, index: i64, payload: i64, meta: u64) {
+    if ptr.is_null() || index < 0 { return; }
+    let context = unsafe { &mut *(ptr as *mut UbeTaskContext) };
+    if let Some(slot) = context.values.get_mut(index as usize) { *slot = AbiValue { payload, meta }; }
+}
+#[no_mangle]
+pub extern "C" fn ube_task_context_get_value(ptr: *mut c_void, index: i64) -> AbiValue {
+    if ptr.is_null() || index < 0 { return AbiValue::default(); }
+    unsafe { (&(*(ptr as *const UbeTaskContext)).values).get(index as usize).copied().unwrap_or_default() }
+}
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -966,14 +1020,14 @@ mod tests {
 
             let task = spawn_task(|_| async {
                 tokio::time::sleep(Duration::from_millis(5)).await;
-                Ok(42_i64)
+                Ok(AbiValue::present(42))
             });
-            let handle = (&task as *const Task<i64>) as *mut c_void;
+            let handle = (&task as *const Task<AbiValue>) as *mut c_void;
             assert_eq!(ube_task_await(handle), 42);
             assert_eq!(crate::exceptions::take_pending(), 0);
 
-            let failed = spawn_task::<i64, _, _>(|_| async { Err(TaskError::Cancelled) });
-            let handle = (&failed as *const Task<i64>) as *mut c_void;
+            let failed = spawn_task::<AbiValue, _, _>(|_| async { Err(TaskError::Cancelled) });
+            let handle = (&failed as *const Task<AbiValue>) as *mut c_void;
             assert_eq!(ube_task_await(handle), 0);
             let record = crate::exceptions::take_pending();
             assert_ne!(record, 0);
@@ -1201,5 +1255,50 @@ mod tests {
         assert!(ube_task_last_error().is_null());
         assert!(!ube_task_propagate_error());
         ube_channel_close(channel);
+    }
+}
+
+#[cfg(test)]
+mod tagged_transport_tests {
+    use super::*;
+
+    extern "C" fn echo(context: *mut c_void) -> AbiValue {
+        ube_task_context_get_value(context, 0)
+    }
+
+    #[test]
+    fn tagged_ffi_preserves_presence_and_all_payload_bits() {
+        assert_eq!(std::mem::size_of::<AbiValue>(), 16);
+        // Includes signed limits, negative zero, infinity, and a NaN payload.
+        for payload in [0, 1, -1, i64::MIN, i64::MAX, 0x7ff0000000000000, 0x7ff8000000000042] {
+            for meta in [0, 1] {
+                let expected = AbiValue { payload, meta };
+                let context = ube_task_context_create(1);
+                ube_task_context_set_value(context, 0, payload, meta);
+                let task = ube_task_spawn_value(Some(echo), context);
+                assert_eq!(ube_task_await_value(task), expected);
+                assert_eq!(ube_task_await_value(task), expected);
+                assert_eq!(crate::exceptions::take_pending(), 0);
+                ube_task_dispose(task);
+                let channel = ube_channel_create_capacity(1);
+                let send = ube_channel_send_value_async(channel, payload, meta);
+                assert_eq!(ube_task_await_value(send), AbiValue::present(1));
+                let receive = ube_channel_recv_async(channel);
+                assert_eq!(ube_task_await_value(receive), expected);
+                assert_eq!(crate::exceptions::take_pending(), 0);
+                ube_task_dispose(send);
+                ube_task_dispose(receive);
+                ube_channel_dispose(channel);
+            }
+        }
+    }
+
+    #[test]
+    fn shared_nullable_results_reach_multiple_waiters() {
+        let task = spawn_task(|_| async { Ok(AbiValue::default()) });
+        let other = task.clone();
+        let waiter = std::thread::spawn(move || other.await_result().unwrap());
+        assert_eq!(task.await_result().unwrap(), AbiValue::default());
+        assert_eq!(waiter.join().unwrap(), AbiValue::default());
     }
 }

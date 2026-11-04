@@ -69,14 +69,14 @@ impl TextualLlvmEmitter {
         self.output.push_str("declare i64 @ube_map_len(i8*)\n");
         self.output.push_str("declare i8* @ube_task_create(i64)\n");
         self.output
-            .push_str("declare i8* @ube_task_spawn(i64, i8*)\n");
+            .push_str("declare i8* @ube_task_spawn_value(i64, i8*)\n");
         self.output
             .push_str("declare i8* @ube_task_context_create(i64)\n");
         self.output
-            .push_str("declare void @ube_task_context_set(i8*, i64, i64)\n");
+            .push_str("declare void @ube_task_context_set_value(i8*, i64, i64, i64)\n");
         self.output
-            .push_str("declare i64 @ube_task_context_get(i8*, i64)\n");
-        self.output.push_str("declare i64 @ube_task_await(i8*)\n");
+            .push_str("declare { i64, i64 } @ube_task_context_get_value(i8*, i64)\n");
+        self.output.push_str("declare { i64, i64 } @ube_task_await_value(i8*)\n");
         self.output
             .push_str("declare %Error* @ube_task_last_error()\n");
         self.output
@@ -112,7 +112,7 @@ impl TextualLlvmEmitter {
         self.output
             .push_str("declare i1 @ube_channel_send(i8*, i64)\n");
         self.output
-            .push_str("declare i8* @ube_channel_send_async(i8*, i64)\n");
+            .push_str("declare i8* @ube_channel_send_value_async(i8*, i64, i64)\n");
         self.output.push_str("declare i64 @ube_channel_recv(i8*)\n");
         self.output
             .push_str("declare i8* @ube_channel_recv_async(i8*)\n");
@@ -663,8 +663,13 @@ impl TextualLlvmEmitter {
         match instr {
             IrInstruction::Cast { dest, value, ty } => {
                 let (mut instructions, value) = self.coerce(value, ty);
-                // A same-type pointer cast is legal LLVM and gives this value its own SSA name.
-                instructions.push(format!("%{} = bitcast {} {} to {}", dest.0, self.type_to_llvm(ty), value, self.type_to_llvm(ty)));
+                if let Some(inner) = ty.nullable_scalar_inner() {
+                    let llvm = self.type_to_llvm(ty);
+                    instructions.push(format!("%cast_payload_{} = extractvalue {} {}, 1", dest.0, llvm, value));
+                    instructions.push(format!("%{} = insertvalue {} {}, {} %cast_payload_{}, 1", dest.0, llvm, value, self.type_to_llvm(inner), dest.0));
+                } else {
+                    instructions.push(format!("%{} = bitcast {} {} to {}", dest.0, self.type_to_llvm(ty), value, self.type_to_llvm(ty)));
+                }
                 instructions.join("\n  ")
             }
             IrInstruction::Alloca { dest, ty } => {
@@ -713,16 +718,19 @@ impl TextualLlvmEmitter {
                 val,
             } => {
                 let class_type = format!("%{}", class_name);
-                let val_ty = val.get_type();
+                let val_ty = self.class_map.get(class_name).and_then(|class| class.fields.get(*field_index)).map(|field| field.1.clone()).unwrap_or_else(|| val.get_type());
                 let val_ty_str = self.type_to_llvm(&val_ty);
-                let val_str = self.emit_operand(val);
+                let (casts, val_str) = self.coerce(val, &val_ty);
                 let gep_reg = format!("gep_store_{}_{}", ptr.0, self.string_counter);
                 self.string_counter += 1;
-                format!(
+                let store = format!(
                     "%{} = getelementptr inbounds {}, {}* %{}, i32 0, i32 {}\n  store {} {}, {}* %{}, align 8",
                     gep_reg, class_type, class_type, ptr.0, field_index,
                     val_ty_str, val_str, val_ty_str, gep_reg
-                )
+                );
+                let mut instructions = casts;
+                instructions.push(store);
+                instructions.join("\n  ")
             }
             IrInstruction::Binary {
                 dest,
@@ -732,6 +740,32 @@ impl TextualLlvmEmitter {
                 operand_ty,
                 result_ty: _,
             } => {
+                let comparison_ty = if left.get_type().nullable_scalar_inner().is_some() { left.get_type() }
+                    else if right.get_type().nullable_scalar_inner().is_some() { right.get_type() }
+                    else { operand_ty.clone() };
+                let operand_ty = &comparison_ty;
+                if let Some(inner) = operand_ty.nullable_scalar_inner() {
+                    if matches!(op, BinaryOp::Equal | BinaryOp::NotEqual) {
+                        let (mut instructions, lhs) = self.coerce(left, operand_ty);
+                        let (casts, rhs) = self.coerce(right, operand_ty);
+                        instructions.extend(casts);
+                        let name = format!("option_cmp_{}", self.string_counter);
+                        self.string_counter += 1;
+                        let llvm = self.type_to_llvm(operand_ty);
+                        instructions.push(format!("%{}_lp = extractvalue {} {}, 0", name, llvm, lhs));
+                        instructions.push(format!("%{}_rp = extractvalue {} {}, 0", name, llvm, rhs));
+                        instructions.push(format!("%{}_lv = extractvalue {} {}, 1", name, llvm, lhs));
+                        instructions.push(format!("%{}_rv = extractvalue {} {}, 1", name, llvm, rhs));
+                        instructions.push(format!("%{}_same_tag = icmp eq i1 %{}_lp, %{}_rp", name, name, name));
+                        let comparison = if *inner == Type::Decimal { "fcmp oeq" } else { "icmp eq" };
+                        instructions.push(format!("%{}_same_value = {} {} %{}_lv, %{}_rv", name, comparison, self.type_to_llvm(inner), name, name));
+                        instructions.push(format!("%{}_absent = xor i1 %{}_lp, true", name, name));
+                        instructions.push(format!("%{}_value_ok = or i1 %{}_absent, %{}_same_value", name, name, name));
+                        instructions.push(format!("%{}_eq = and i1 %{}_same_tag, %{}_value_ok", name, name, name));
+                        instructions.push(format!("%{} = xor i1 %{}_eq, {}", dest.0, name, if *op == BinaryOp::NotEqual { "true" } else { "false" }));
+                        return instructions.join("\n  ");
+                    }
+                }
                 let ty_str = self.type_to_llvm(operand_ty);
                 let l_str = self.emit_operand(left);
                 let r_str = self.emit_operand(right);
@@ -937,8 +971,27 @@ impl TextualLlvmEmitter {
                 ret_ty,
             } => {
                 let ret_ty_str = self.type_to_llvm(ret_ty);
+                let emitted_symbol = if symbol == "ube_channel_send_async" { "ube_channel_send_value_async" } else { symbol.as_str() };
                 let mut instrs = Vec::new();
                 let mut formatted_args = Vec::new();
+                if symbol.starts_with("ube_print_") {
+                    if let Some(value) = args.first() {
+                        if let Some(inner) = value.get_type().nullable_scalar_inner() {
+                            let llvm = self.type_to_llvm(&value.get_type());
+                            let operand = self.emit_operand(value);
+                            let name = format!("print_option_{}", self.string_counter);
+                            self.string_counter += 1;
+                            let null_text = self.emit_operand(&IrOperand::ConstantString("null".into()));
+                            let (print_symbol, print_ty, print_value, conversion) = match inner {
+                                Type::Int | Type::Byte => ("ube_print_i64", "i64", format!("%{name}_wide"), format!("%{name}_wide = {} {} %{name}_value to i64\n  ", if *inner == Type::Int { "sext" } else { "zext" }, self.type_to_llvm(inner))),
+                                Type::Long => ("ube_print_i64", "i64", format!("%{name}_value"), String::new()),
+                                Type::Bool => ("ube_print_bool", "i1", format!("%{name}_value"), String::new()),
+                                _ => ("ube_print_f64", "double", format!("%{name}_value"), String::new()),
+                            };
+                            return format!("%{name}_present = extractvalue {llvm} {operand}, 0\n  br i1 %{name}_present, label %{name}_some, label %{name}_null\n{name}_some:\n  %{name}_value = extractvalue {llvm} {operand}, 1\n  {conversion}call void @{print_symbol}({print_ty} {print_value})\n  br label %{name}_end\n{name}_null:\n  call void @ube_print_str(i8* {null_text})\n  br label %{name}_end\n{name}_end:");
+                        }
+                    }
+                }
                 if symbol == "ube_channel_recv" {
                     let channel = args
                         .first()
@@ -959,6 +1012,16 @@ impl TextualLlvmEmitter {
                 }
                 for (index, a) in args.iter().enumerate() {
                     let arg_ty = a.get_type();
+                    if symbol == "ube_channel_send_async" && index == 1 {
+                        let value = self.emit_operand(a);
+                        let encoded = self.encode_value(&arg_ty, &value, &format!("channel_value_{}", self.string_counter));
+                        self.string_counter += 1;
+                        instrs.extend(encoded.0);
+                        formatted_args.push(format!("i64 {}", encoded.1));
+                        formatted_args.push(format!("i64 {}", encoded.2));
+                        continue;
+                    }
+
                     if symbol == "ube_task_create"
                         || (symbol == "ube_list_add" && index == 1)
                         || (matches!(
@@ -1009,9 +1072,9 @@ impl TextualLlvmEmitter {
                 let call_str = if ret_ty == &Type::Void || ret_ty_str == "void" {
                     format!("call void @{}({})", symbol, args_str)
                 } else if let Some(r) = dest {
-                    format!("%{} = call {} @{}({})", r.0, ret_ty_str, symbol, args_str)
+                    format!("%{} = call {} @{}({})", r.0, ret_ty_str, emitted_symbol, args_str)
                 } else {
-                    format!("call {} @{}({})", ret_ty_str, symbol, args_str)
+                    format!("call {} @{}({})", ret_ty_str, emitted_symbol, args_str)
                 };
                 if instrs.is_empty() {
                     call_str
@@ -1108,10 +1171,10 @@ impl TextualLlvmEmitter {
                 self.string_counter += 1;
                 let mut instructions = Vec::new();
                 instructions.push(format!(
-                    "%{} = call i64 @ube_task_await(i8* {})",
+                    "%{} = call {{ i64, i64 }} @ube_task_await_value(i8* {})",
                     raw, task_value
                 ));
-                let decoded = self.decode_i64(result_ty, &format!("%{}", raw), &dest.0.to_string());
+                let decoded = self.decode_value(result_ty, &format!("%{}", raw), &dest.0.to_string());
                 instructions.extend(decoded.0);
                 instructions.push(format!(
                     "%{} = call i8* @ube_exception_take()",
@@ -1159,12 +1222,46 @@ impl TextualLlvmEmitter {
         let from = self.type_to_llvm(&value.get_type());
         let to = self.type_to_llvm(target);
         let operand = self.emit_operand(value);
-        if matches!(value, IrOperand::Null | IrOperand::NullOf(_)) || from == to { return (vec![], operand); }
+        if matches!(value, IrOperand::Null | IrOperand::NullOf(_)) {
+            return (vec![], if target.nullable_scalar_inner().is_some() { "zeroinitializer".into() } else { operand });
+        }
+        if from == to { return (vec![], operand); }
+        if let (Some(source), Some(inner)) = (value.get_type().nullable_scalar_inner(), target.nullable_scalar_inner()) {
+            let name = format!("nullable_convert_{}", self.string_counter);
+            self.string_counter += 1;
+            let source_llvm = self.type_to_llvm(source);
+            let inner_llvm = self.type_to_llvm(inner);
+            let mut lines = vec![format!("%{name}_present = extractvalue {from} {operand}, 0"), format!("%{name}_payload = extractvalue {from} {operand}, 1")];
+            let op = if source_llvm == "i32" && inner_llvm == "i64" { "sext" }
+                else if source_llvm == "i64" && inner_llvm == "i32" { "trunc" }
+                else if inner_llvm == "double" { "sitofp" } else { "bitcast" };
+            lines.push(format!("%{name}_converted = {op} {source_llvm} %{name}_payload to {inner_llvm}"));
+            lines.push(format!("%{name}_tagged = insertvalue {to} zeroinitializer, i1 %{name}_present, 0"));
+            lines.push(format!("%{name} = insertvalue {to} %{name}_tagged, {inner_llvm} %{name}_converted, 1"));
+            return (lines, format!("%{name}"));
+        }
+        if let Some(inner) = target.nullable_scalar_inner() {
+            let (mut instructions, payload) = self.coerce(value, inner);
+            let name = format!("nullable_{}", self.string_counter);
+            self.string_counter += 1;
+            instructions.push(format!("%{}_tag = insertvalue {} zeroinitializer, i1 true, 0", name, to));
+            instructions.push(format!("%{} = insertvalue {} %{}_tag, {} {}, 1", name, to, name, self.type_to_llvm(inner), payload));
+            return (instructions, format!("%{}", name));
+        }
+        if value.get_type().nullable_scalar_inner().is_some() {
+            let name = format!("unwrapped_{}", self.string_counter);
+            self.string_counter += 1;
+            return (vec![format!("%{} = extractvalue {} {}, 1", name, from, operand)], format!("%{}", name));
+        }
         let name = format!("coerce_{}", self.string_counter);
         self.string_counter += 1;
         let op = if from.ends_with('*') && to.ends_with('*') { "bitcast" }
             else if from == "i32" && to == "i64" { "sext" }
-            else if from == "i64" && to == "i32" { "trunc" }
+            else if from.starts_with('i') && to.starts_with('i') {
+                let source_bits = from[1..].parse::<u32>().unwrap_or(0);
+                let target_bits = to[1..].parse::<u32>().unwrap_or(0);
+                if source_bits > target_bits { "trunc" } else if from == "i32" || from == "i64" { "sext" } else { "zext" }
+            }
             else if (from == "i32" || from == "i64") && to == "double" { "sitofp" }
             else { "bitcast" };
         (vec![format!("%{} = {} {} {} to {}", name, op, from, operand, to)], format!("%{}", name))
@@ -1188,6 +1285,7 @@ impl TextualLlvmEmitter {
                 )
             }
             IrOperand::ConstantBool(v) => (if *v { "true" } else { "false" }).to_string(),
+            IrOperand::NullOf(ty) if ty.nullable_scalar_inner().is_some() => "zeroinitializer".into(),
             IrOperand::Null | IrOperand::NullOf(_) => "null".to_string(),
         }
     }
@@ -1213,6 +1311,9 @@ impl TextualLlvmEmitter {
             }
             Type::Class { name } => format!("%{}*", name),
             Type::Nullable(inner) => {
+                if ty.nullable_scalar_inner().is_some() {
+                    return format!("{{ i1, {} }}", self.type_to_llvm(inner));
+                }
                 let inner_str = self.type_to_llvm(inner);
                 if inner_str == "void" {
                     "i8*".to_string()
@@ -1280,7 +1381,7 @@ impl TextualLlvmEmitter {
                 format!("%{}", name),
             ),
             Type::Void => (Vec::new(), "0".to_string()),
-            Type::Long => (Vec::new(), value.to_string()),
+            Type::Long => (vec![format!("%{} = add i64 {}, 0", name, value)], format!("%{}", name)),
             Type::Channel(_) => (
                 vec![format!("%{} = inttoptr i64 {} to i8*", name, value)],
                 format!("%{}", name),
@@ -1294,6 +1395,38 @@ impl TextualLlvmEmitter {
                 )],
                 format!("%{}", name),
             ),
+        }
+    }
+
+    fn encode_value(&self, ty: &Type, value: &str, name: &str) -> (Vec<String>, String, String) {
+        if let Some(inner) = ty.nullable_scalar_inner() {
+            let llvm = self.type_to_llvm(ty);
+            let mut lines = vec![format!("%{name}_present = extractvalue {llvm} {value}, 0"), format!("%{name}_value = extractvalue {llvm} {value}, 1"), format!("%{name}_meta = zext i1 %{name}_present to i64")];
+            let encoded = self.encode_i64(inner, &format!("%{name}_value"), name);
+            lines.extend(encoded.0);
+            (lines, encoded.1, format!("%{name}_meta"))
+        } else {
+            let encoded = self.encode_i64(ty, value, name);
+            (encoded.0, encoded.1, "1".into())
+        }
+    }
+
+    fn decode_value(&self, ty: &Type, value: &str, name: &str) -> (Vec<String>, String) {
+        let temp = format!("transport_{name}");
+        let mut lines = vec![format!("%{temp}_payload = extractvalue {{ i64, i64 }} {value}, 0")];
+        if let Some(inner) = ty.nullable_scalar_inner() {
+            lines.push(format!("%{temp}_meta = extractvalue {{ i64, i64 }} {value}, 1"));
+            lines.push(format!("%{temp}_present = icmp ne i64 %{temp}_meta, 0"));
+            let decoded = self.decode_i64(inner, &format!("%{temp}_payload"), &format!("{temp}_value"));
+            lines.extend(decoded.0);
+            let llvm = self.type_to_llvm(ty);
+            lines.push(format!("%{temp}_tagged = insertvalue {llvm} zeroinitializer, i1 %{temp}_present, 0"));
+            lines.push(format!("%{name} = insertvalue {llvm} %{temp}_tagged, {} {}, 1", self.type_to_llvm(inner), decoded.1));
+            (lines, format!("%{name}"))
+        } else {
+            let decoded = self.decode_i64(ty, &format!("%{temp}_payload"), name);
+            lines.extend(decoded.0);
+            (lines, decoded.1)
         }
     }
 
@@ -1318,19 +1451,19 @@ impl TextualLlvmEmitter {
                 .map(|arg| (arg.get_type(), self.emit_operand(arg))),
         );
         for (index, (ty, value)) in captures.iter().enumerate() {
-            let encoded = self.encode_i64(ty, value, &format!("task_capture_{}_{}", dest.0, index));
+            let encoded = self.encode_value(ty, value, &format!("task_capture_{}_{}", dest.0, index));
             instructions.extend(encoded.0);
             instructions.push(format!(
-                "call void @ube_task_context_set(i8* %task_ctx_{}, i64 {}, i64 {})",
-                dest.0, index, encoded.1
+                "call void @ube_task_context_set_value(i8* %task_ctx_{}, i64 {}, i64 {}, i64 {})",
+                dest.0, index, encoded.1, encoded.2
             ));
         }
         instructions.push(format!(
-            "%task_fn_{} = ptrtoint i64 (i8*)* @{} to i64",
+            "%task_fn_{} = ptrtoint {{ i64, i64 }} (i8*)* @{} to i64",
             dest.0, callback
         ));
         instructions.push(format!(
-            "%{} = call i8* @ube_task_spawn(i64 %task_fn_{}, i8* %task_ctx_{})",
+            "%{} = call i8* @ube_task_spawn_value(i64 %task_fn_{}, i8* %task_ctx_{})",
             dest.0, dest.0, dest.0
         ));
         self.task_thunks.push(self.emit_async_thunk(
@@ -1364,19 +1497,19 @@ impl TextualLlvmEmitter {
                 .map(|capture| (capture.get_type(), self.emit_operand(capture))),
         );
         for (index, (ty, value)) in encoded_captures.iter().enumerate() {
-            let encoded = self.encode_i64(ty, value, &format!("task_capture_{}_{}", dest.0, index));
+            let encoded = self.encode_value(ty, value, &format!("task_capture_{}_{}", dest.0, index));
             instructions.extend(encoded.0);
             instructions.push(format!(
-                "call void @ube_task_context_set(i8* %task_ctx_{}, i64 {}, i64 {})",
-                dest.0, index, encoded.1
+                "call void @ube_task_context_set_value(i8* %task_ctx_{}, i64 {}, i64 {}, i64 {})",
+                dest.0, index, encoded.1, encoded.2
             ));
         }
         instructions.push(format!(
-            "%task_fn_{} = ptrtoint i64 (i8*)* @{} to i64",
+            "%task_fn_{} = ptrtoint {{ i64, i64 }} (i8*)* @{} to i64",
             dest.0, callback
         ));
         instructions.push(format!(
-            "%{} = call i8* @ube_task_spawn(i64 %task_fn_{}, i8* %task_ctx_{})",
+            "%{} = call i8* @ube_task_spawn_value(i64 %task_fn_{}, i8* %task_ctx_{})",
             dest.0, dest.0, dest.0
         ));
         self.task_thunks.push(self.emit_async_thunk(
@@ -1402,10 +1535,10 @@ impl TextualLlvmEmitter {
         for (index, (ty, _)) in captures.iter().enumerate() {
             let raw = format!("%{}_raw_{}", callback, index);
             body.push(format!(
-                "  {} = call i64 @ube_task_context_get(i8* %ctx, i64 {})",
+                "  {} = call {{ i64, i64 }} @ube_task_context_get_value(i8* %ctx, i64 {})",
                 raw, index
             ));
-            let decoded = self.decode_i64(ty, &raw, &format!("{}_capture_{}", callback, index));
+            let decoded = self.decode_value(ty, &raw, &format!("{}_capture_{}", callback, index));
             body.extend(decoded.0.into_iter().map(|line| format!("  {}", line)));
             arguments.push(format!("{} {}", self.type_to_llvm(ty), decoded.1));
         }
@@ -1418,19 +1551,21 @@ impl TextualLlvmEmitter {
         );
         if *result_ty == Type::Void {
             body.push(format!("  {}", call));
-            body.push("  ret i64 0".to_string());
+            body.push("  ret { i64, i64 } zeroinitializer".to_string());
         } else {
             body.push(format!("  %{}_result = {}", callback, call));
-            let encoded = self.encode_i64(
+            let encoded = self.encode_value(
                 result_ty,
                 &format!("%{}_result", callback),
                 &format!("{}_encoded", callback),
             );
             body.extend(encoded.0.into_iter().map(|line| format!("  {}", line)));
-            body.push(format!("  ret i64 {}", encoded.1));
+            body.push(format!("  %{}_payload = insertvalue {{ i64, i64 }} zeroinitializer, i64 {}, 0", callback, encoded.1));
+            body.push(format!("  %{}_transport = insertvalue {{ i64, i64 }} %{}_payload, i64 {}, 1", callback, callback, encoded.2));
+            body.push(format!("  ret {{ i64, i64 }} %{}_transport", callback));
         }
         format!(
-            "define internal i64 @{}(i8* %ctx) {{\n{}\n}}\n",
+            "define internal {{ i64, i64 }} @{}(i8* %ctx) {{\n{}\n}}\n",
             callback,
             body.join("\n")
         )

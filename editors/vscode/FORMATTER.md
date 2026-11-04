@@ -8,7 +8,7 @@ The formatter follows the starter program's formatting needs:
 - Put every argument of a call with two or more arguments on its own line, indented two spaces inside the call.
 - Put multiline-call closing parentheses on their own lines, aligned with the beginning of the line where the call starts.
 - Apply indentation consistently to comment-only lines.
-- Preserve string literals, comments, and source tokens. One-line strings use single quotes, text blocks use double quotes followed by a newline, and character literals use backticks.
+- Preserve string literals, comments, and source tokens. One-line strings and characters use single quotes; text blocks use raw backticks. Preserve their whitespace, backslashes, and line endings exactly. Double quotes are reserved for JSON content.
 - Preserve `field()` getters, `field(value)` setters, and private `this._field` access. Formatting does not add constructors to zero-initialized declarations or evaluate constructor defaults.
 - Preserve the newline after a bare `return`; moving a following expression onto that line changes its meaning.
 - Ube prohibits statement semicolons. The formatter preserves invalid source tokens for compiler diagnostics and never inserts semicolons.

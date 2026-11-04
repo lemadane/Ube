@@ -29,6 +29,15 @@ pub enum Type {
     },
 }
 
+impl Type {
+    pub fn nullable_scalar_inner(&self) -> Option<&Type> {
+        match self {
+            Type::Nullable(inner) if matches!(inner.as_ref(), Type::Int | Type::Long | Type::Byte | Type::Bool | Type::Decimal) => Some(inner),
+            _ => None,
+        }
+    }
+}
+
 impl fmt::Display for Type {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {

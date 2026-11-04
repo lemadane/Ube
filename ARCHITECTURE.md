@@ -51,7 +51,7 @@ Ube/
 │       ├── main.rs                 # ube CLI driver (check, emit-ir, emit-llvm, build)
 │       ├── lib.rs                  # Compiler library exports
 │       ├── diagnostics/            # Span tracking & colorized diagnostic emitter
-│       ├── lexer/                  # Single-quoted strings, double-quoted text blocks, backtick characters
+│       ├── lexer/                  # Single-quoted strings/characters & raw backtick text blocks
 │       ├── parser/                 # Unified class Pratt parser & AST nodes
 │       ├── resolver/               # Scope & symbol resolution
 │       ├── types/                  # Type system representations
@@ -72,6 +72,26 @@ Ube/
 └── standard-library/               # Core Ube standard library packages
     └── prelude.ube               # Standard library prelude definitions
 ```
+
+---
+
+## Nullable Payload ABI
+
+The compiler/runtime task and channel bridge uses `#[repr(C)] AbiValue { payload: i64, meta: u64 }`, represented in LLVM as `{ i64, i64 }`. Nullable scalar values use metadata 0 for absent and 1 for present; non-null scalar/pointer values use metadata 1. Nullable references retain their null-pointer representation. Static types determine how payload bits are decoded; metadata is not a dynamic type ID.
+
+Within generated code, nullable scalars use `{ i1, T }` with explicit presence and an inline scalar payload. Locals, fields, accessors, calls/returns, async captures, and awaited results use this representation. Boundary encoding preserves integer and floating-point bits independently of presence. The tagged C entry points return the two-word aggregate and accept payload/metadata as separate arguments. Rebuild compiler and runtime together; single-word legacy exports remain adapters for non-null payload consumers.
+
+Tasks and channels hold inline `AbiValue` copies. Captures are owned by the callback context; cloning a task or repeatedly awaiting it retains the same shared result. Sending, buffering, cancelling, timing out, and discarding scalar payloads require no separate payload allocation or deallocation. Existing pointer/object retention rules remain in force. Task failures, cancellation, and channel closure use `TaskError` and pending exceptions, independently of payload presence.
+
+Untyped `List`/`Map` elements still use single-word storage. Nullable scalars and tasks returning nullable scalars are diagnosed at collection insertion, including task-combinator input lists. Typed collection/combinator support, wider target validation, and ownership/leak baselines remain [Phase 1 follow-ups](MILESTONES.md#phase-1-blocker-nullable-scalars-across-async-boundaries).
+
+## Proposed Core and Package Boundary
+
+The proposed three-phase scope is in [Roadmap v2](MILESTONES.md). The current compiler still has a Cargo dependency on `ube-runtime` and domain-specific registrations and lowering for financial, JSON, and server APIs. The runtime currently includes optional-domain dependencies such as TLS and QUIC libraries; the dependency boundary below has not been implemented.
+
+The target is a compiler that understands ordinary language constructs and a documented native ABI, with `Money`, `Json`, and `Server` provided by separately linked packages. A minimal local module/package loader, type metadata, symbol resolution, and native linking must exist before those APIs can be extracted. Moving files or repositories alone is insufficient.
+
+The core runtime would retain only required allocation, string/collection, exception, and task primitives. Proposed `ube-money`, `ube-json`, `ube-io`, and `ube-http` packages would supply domain behavior; `ube-std` could aggregate them. Compiler bootstrap and core-only application builds should avoid linking these optional packages. Names and distribution layout remain proposed until the extraction path is exercised.
 
 ---
 
@@ -143,9 +163,13 @@ The IR builder generates `__ube.internal_zero` for startup using the same zero-v
 
 Numbers become `0`, booleans `false`, strings `''`, and nullable references `null`. Non-nullable user-class fields are recursively zero-initialized without default evaluation. Non-nullable cycles are diagnosed; nullable links terminate recursion. Runtime-only types and traits require explicit initializers unless nullable. These are allocated class objects, not allocation-free embedded values.
 
+### Loop Fallback State
+
+Each `for` / `else` lowering allocates a boolean body-entry flag initialized to false and sets it to true at the start of the body, before user statements. The fallback checks this flag when the initial collection or condition permits no iterations. Normal completion after body entry skips `else`; `break` exits directly and `continue` still counts as an entered iteration. Each nested loop owns an independent flag. This tracks zero iterations, not search success or absence of `break`.
+
 ### Field Access, Syntax & Errors
 
-Generated backing fields such as `_age` are class-private. Public access requires `user.age()`; a `var` field also accepts `user.age(value)`. Direct `user.age` reads and assignments are rejected. One-line strings use single quotes, text blocks use double quotes followed by a line break, and character literals use backticks. Semicolons in code are errors; literals and comments may contain them.
+Generated backing fields such as `_age` are class-private. Public access requires `user.age()`; a `var` field also accepts `user.age(value)`. Direct `user.age` reads and assignments are rejected. One-line strings and characters use single quotes; backticks delimit raw text blocks with literal content. Double quotes are reserved for JSON content. Semicolons in code are errors; literals and comments may contain them.
 
 The compiler lowers `try` / typed `catch` / `finally` / `throw` into explicit control flow and a runtime pending-error channel, without unwinding through Rust. Cleanup runs across returns, loop exits, and propagated exceptions. Cleanup failures preserve pending errors as suppressed. Awaited failures retain their error objects. Cancellation is delivered once per worker so later cleanup awaits can complete; those awaits can still fail or time out.
 

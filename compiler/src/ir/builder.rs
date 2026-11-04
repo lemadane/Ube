@@ -1727,6 +1727,7 @@ impl IrBuilder {
             ExprKind::IntLiteral(v) => IrOperand::ConstantInt(*v),
             ExprKind::LongLiteral(v) => IrOperand::ConstantLong(*v),
             ExprKind::DecimalLiteral(v) => IrOperand::ConstantDecimal(*v),
+            ExprKind::TextBlock(value) => IrOperand::ConstantString(value.clone()),
             ExprKind::StringLiteral(v) => {
                 if v.contains("${") {
                     let mut parts = Vec::new();
@@ -1918,6 +1919,10 @@ impl IrBuilder {
                             .filter(|method| method.is_async)
                             .cloned();
                         if let Some(method) = async_method {
+                            let arg_ops = arg_ops.into_iter().zip(&method.params).map(|(value, param)| {
+                                self.cast(value, self.type_spec_to_type(&param.type_spec))
+                            }).collect();
+                            let dest = self.fresh_reg();
                             let result_ty = method
                                 .return_type
                                 .as_ref()
@@ -2019,6 +2024,11 @@ impl IrBuilder {
                             };
                         }
                         if class_name == "Channel" {
+                            let arg_ops = if member == "send" {
+                                if let Type::Channel(element) = obj_op.get_type() {
+                                    arg_ops.into_iter().map(|value| self.cast(value, (*element).clone())).collect()
+                                } else { arg_ops }
+                            } else { arg_ops };
                             let symbol = match member.as_str() {
                                 "send" => "ube_channel_send_async",
                                 "close" => "ube_channel_close",
@@ -3453,6 +3463,7 @@ impl IrBuilder {
             }
             ExprKind::Unary { op, operand } => {
                 let op_val = self.build_expr(operand);
+                let op_val = if matches!(op, UnaryOp::Not) { self.condition_to_bool(op_val) } else { op_val };
                 let dest = self.fresh_reg();
                 let ty = op_val.get_type();
                 match op {
