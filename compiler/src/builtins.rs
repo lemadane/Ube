@@ -450,7 +450,11 @@ mod capitalization_tests {
             let canonical = format!("class Application {{ main() {{ final value = {name}() }} }}");
             let mut parser = Parser::new(Lexer::new(&canonical));
             parser.parse_program();
-            assert!(parser.diagnostics.is_empty(), "{name}: {:?}", parser.diagnostics);
+            if name == "Log" {
+                assert!(parser.diagnostics.iter().any(|d| d.message.contains("Use log(value)")));
+            } else {
+                assert!(parser.diagnostics.is_empty(), "{name}: {:?}", parser.diagnostics);
+            }
             let lower = name.to_ascii_lowercase();
             for source in [
                 format!("class Application {{ main() {{ final value = {lower}() }} }}"),
@@ -458,7 +462,11 @@ mod capitalization_tests {
             ] {
                 let mut parser = Parser::new(Lexer::new(&source));
                 parser.parse_program();
-                assert!(parser.diagnostics.iter().any(|d| d.message.contains("capitalization")), "{source}: {:?}", parser.diagnostics);
+                if name == "Log" && source.contains("log()") {
+                    assert!(parser.diagnostics.is_empty(), "{source}: {:?}", parser.diagnostics);
+                } else {
+                    assert!(parser.diagnostics.iter().any(|d| d.message.contains("capitalization")), "{source}: {:?}", parser.diagnostics);
+                }
             }
             let source = format!("class Application {{ main() {{ {lower}.method() }} }}");
             let mut parser = Parser::new(Lexer::new(&source));

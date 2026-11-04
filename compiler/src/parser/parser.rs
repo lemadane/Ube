@@ -988,6 +988,16 @@ impl<'a> Parser<'a> {
                 span: tok.span,
             }),
             TokenKind::Identifier(name) => {
+                if (name == "log" || name == "print") && self.check(&TokenKind::OpenParen) {
+                    return self.parse_class_instantiation(tok.span, name, None);
+                }
+                if name == "Log" && self.check(&TokenKind::OpenParen) {
+                    self.diagnostics.push(Diagnostic::error(
+                        "Use log(value) for shorthand logging or Log.info(value)",
+                        Some(tok.span),
+                    ));
+                    return Err(());
+                }
                 if self.check(&TokenKind::OpenParen) {
                     if let Some(canonical) = crate::builtins::builtin_class_case_suggestion(&name) {
                         self.diagnostics.push(Diagnostic::error(
@@ -996,13 +1006,6 @@ impl<'a> Parser<'a> {
                         ));
                         return Err(());
                     }
-                }
-                if name == "print" && self.check(&TokenKind::OpenParen) {
-                    self.diagnostics.push(Diagnostic::error(
-                        "print() was removed; use Log() for logging or Console.writeLine() for stdout",
-                        Some(tok.span),
-                    ));
-                    return Err(());
                 }
                 if self.check(&TokenKind::Arrow) {
                     self.advance();
@@ -1298,13 +1301,14 @@ impl<'a> Parser<'a> {
             }
         }
         let end = self.expect(&TokenKind::CloseParen, ")")?.span;
-        if class_name == "Log" && generic_type.is_none() {
+        if (class_name == "log" || class_name == "print") && generic_type.is_none() {
+            let (receiver, method) = if class_name == "log" { ("Log", "info") } else { ("Console", "printLine") };
             return Ok(Expr {
                 kind: ExprKind::Call {
                     callee: Box::new(Expr {
                         kind: ExprKind::MemberAccess {
-                            object: Box::new(Expr { kind: ExprKind::Identifier("Log".into()), span: start }),
-                            member: "info".into(), is_optional: false,
+                            object: Box::new(Expr { kind: ExprKind::Identifier(receiver.into()), span: start }),
+                            member: method.into(), is_optional: false,
                         }, span: start,
                     }), args,
                 }, span: Span::combine(start, end),

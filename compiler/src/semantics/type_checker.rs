@@ -50,12 +50,18 @@ impl TypeChecker {
     }
 
     fn register_builtins(&mut self) {
-        for (name, methods) in [("Log", vec!["info", "warn", "debug", "error", "setLevel"]), ("Console", vec!["write", "writeLine"])] {
+        for (name, methods) in [("Log", vec!["info", "warn", "debug", "error", "setLevel"]), ("Console", vec!["print", "printLine"])] {
             self.classes.insert(name.into(), ClassInfo {
                 name: name.into(), fields: HashMap::new(),
                 methods: methods.into_iter().map(|name| (name.into(), (vec![Type::String], Type::Void))).collect(),
                 param_types: vec![], min_constructor_args: 0, max_constructor_args: 0,
             });
+        }
+
+        for method in ["read", "readLine"] {
+            self.classes.get_mut("Console").unwrap().methods.insert(
+                method.into(), (vec![], Type::Nullable(Box::new(Type::String))),
+            );
         }
 
         if let Some(log) = self.classes.get_mut("Log") {
@@ -2366,6 +2372,13 @@ impl TypeChecker {
                                 }
                                 if name == "Log" || name == "Console" {
                                     let static_call = matches!(&object.kind, ExprKind::Identifier(n) if self.symbol_table.lookup(n).is_none() && canonical_builtin_class_name(n).is_some());
+                                    if name == "Console" && ["read", "readLine"].contains(&member.as_str()) {
+                                        if !static_call || !args.is_empty() {
+                                            self.diagnostics.push(Diagnostic::error(format!("Console.{} requires a class call with no arguments", member), Some(expr.span)));
+                                            return None;
+                                        }
+                                        return Some(Type::Nullable(Box::new(Type::String)));
+                                    }
                                     if name == "Log" && ["put", "get", "remove", "clear"].contains(&member.as_str()) {
                                         let (params, result) = self.classes["Log"].methods[member].clone();
                                         if !static_call || args.len() != params.len() {
@@ -2377,7 +2390,7 @@ impl TypeChecker {
                                         }
                                         return Some(result);
                                     }
-                                    let known = if name == "Log" { ["info", "warn", "debug", "error", "setLevel"].contains(&member.as_str()) } else { ["write", "writeLine"].contains(&member.as_str()) };
+                                    let known = if name == "Log" { ["info", "warn", "debug", "error", "setLevel"].contains(&member.as_str()) } else { ["print", "printLine"].contains(&member.as_str()) };
                                     if !static_call || !known || args.len() != 1 {
                                         self.diagnostics.push(Diagnostic::error(format!("{}.{} requires a class call with exactly one value", name, member), Some(expr.span)));
                                         return None;
@@ -2599,7 +2612,7 @@ impl TypeChecker {
             } => {
                 let class_name = canonical_builtin_class_name(class_name).unwrap_or(class_name);
                 if class_name == "Log" || class_name == "Console" {
-                    self.diagnostics.push(Diagnostic::error("Use Log(value), Log.info(value), or Console.writeLine(value); these built-ins do not create instances", Some(expr.span)));
+                    self.diagnostics.push(Diagnostic::error("Use log(value), Log.info(value), or Console.printLine(value); these built-ins do not create instances", Some(expr.span)));
                     return None;
                 }
                 if crate::builtins::SQLITE_CLASSES.contains(&class_name) {

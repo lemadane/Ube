@@ -3,7 +3,7 @@ use std::{
     cell::RefCell,
     collections::BTreeMap,
     ffi::{c_char, CStr},
-    io::{self, Write},
+    io::{self, BufRead, Write},
     sync::atomic::{AtomicU8, Ordering},
 };
 
@@ -286,5 +286,77 @@ mod context_tests {
             assert_ne!(crate::exceptions::take_pending(), 0);
             assert_eq!(crate::exceptions::take_pending(), 0);
         });
+    }
+}
+
+// Both operations use the same stdin buffer so mixed character/line reads
+// preserve input already buffered by a previous call.
+fn read_console(input: &mut impl BufRead, line: bool) -> io::Result<Option<String>> {
+    let mut bytes = Vec::new();
+    if line {
+        if input.read_until(b'\n', &mut bytes)? == 0 { return Ok(None); }
+        if bytes.last() == Some(&b'\n') {
+            bytes.pop();
+            if bytes.last() == Some(&b'\r') { bytes.pop(); }
+        }
+    } else {
+        let mut first = [0u8];
+        if input.read(&mut first)? == 0 { return Ok(None); }
+        let size = match first[0] {
+            0..=0x7f => 1, 0xc2..=0xdf => 2, 0xe0..=0xef => 3, 0xf0..=0xf4 => 4,
+            _ => return Err(io::Error::new(io::ErrorKind::InvalidData, "Invalid UTF-8 input")),
+        };
+        bytes.resize(size, 0);
+        bytes[0] = first[0];
+        input.read_exact(&mut bytes[1..])?;
+    }
+    if bytes.contains(&0) {
+        return Err(io::Error::new(io::ErrorKind::InvalidData, "Console input contains a null byte"));
+    }
+    String::from_utf8(bytes).map(Some).map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))
+}
+fn console_input(line: bool) -> *mut c_char {
+    match read_console(&mut io::stdin().lock(), line) {
+        Ok(Some(text)) => {
+            let ptr = crate::memory::ube_alloc(text.len() + 1, 1) as *mut c_char;
+            if !ptr.is_null() {
+                unsafe {
+                    std::ptr::copy_nonoverlapping(text.as_ptr(), ptr as *mut u8, text.len());
+                    *ptr.add(text.len()) = 0;
+                }
+            }
+            ptr
+        }
+        Ok(None) => std::ptr::null_mut(),
+        Err(error) => {
+            crate::exceptions::set_pending(crate::exceptions::generic(format!("Console input failed: {error}")));
+            std::ptr::null_mut()
+        }
+    }
+}
+#[no_mangle]
+pub extern "C" fn ube_console_read() -> *mut c_char { console_input(false) }
+#[no_mangle]
+pub extern "C" fn ube_console_read_line() -> *mut c_char { console_input(true) }
+
+#[cfg(test)]
+mod console_input_tests {
+    use super::*;
+    #[test]
+    fn mixed_reads_preserve_unicode_lines_and_eof() {
+        let mut input = io::Cursor::new("🍠hello\r\n\nlast".as_bytes());
+        assert_eq!(read_console(&mut input, false).unwrap().as_deref(), Some("🍠"));
+        for expected in [Some("hello"), Some(""), Some("last"), None] {
+            assert_eq!(read_console(&mut input, true).unwrap().as_deref(), expected);
+        }
+        assert_eq!(read_console(&mut input, false).unwrap(), None);
+    }
+    #[test]
+    fn input_errors_are_reported() {
+        for bytes in [vec![0xff], vec![0xf0, 0x9f], vec![0]] {
+            assert!(read_console(&mut io::Cursor::new(bytes), false).is_err());
+        }
+        assert!(read_console(&mut io::Cursor::new(vec![0xff, b'\n']), true).is_err());
+        assert!(read_console(&mut io::Cursor::new(vec![0, b'\n']), true).is_err());
     }
 }

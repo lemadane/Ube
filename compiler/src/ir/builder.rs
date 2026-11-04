@@ -317,7 +317,7 @@ impl IrBuilder {
     fn emit(&mut self, instr: IrInstruction) {
         let check = matches!(instr, IrInstruction::CallMethod { .. } | IrInstruction::CallTrait { .. })
             || matches!(&instr, IrInstruction::CallRuntime { symbol, .. }
-                if symbol.starts_with("ube_output_") || symbol.starts_with("ube_log_") || symbol.starts_with("ube_sqlite_") || symbol.starts_with("ube_file_") || symbol.starts_with("ube_directory_")
+                if symbol.starts_with("ube_console_") || symbol.starts_with("ube_output_") || symbol.starts_with("ube_log_") || symbol.starts_with("ube_sqlite_") || symbol.starts_with("ube_file_") || symbol.starts_with("ube_directory_")
                     || symbol.starts_with("ube_stream_") || symbol.starts_with("ube_server_"));
         self.current_instructions.push(instr);
         if check {
@@ -1904,6 +1904,10 @@ impl IrBuilder {
                                 _ => "Application".into(),
                             });
                         if class_name == "Log" || class_name == "Console" {
+                            if class_name == "Console" && ["read", "readLine"].contains(&member.as_str()) {
+                                let symbol = if member == "read" { "ube_console_read" } else { "ube_console_read_line" };
+                                return self.runtime(symbol, arg_ops, Type::Nullable(Box::new(Type::String)));
+                            }
                             if class_name == "Log" && ["put", "get", "remove", "clear"].contains(&member.as_str()) {
                                 let result = if member == "get" { Type::Nullable(Box::new(Type::String)) } else { Type::Void };
                                 return self.runtime(&format!("ube_log_{}", member), arg_ops, result);
@@ -1913,7 +1917,7 @@ impl IrBuilder {
                             }
                             let mode = match member.as_str() {
                                 "debug" => 0, "info" => 1, "warn" => 2, "error" => 3,
-                                "write" => 4, "writeLine" => 5, _ => 1,
+                                "print" => 4, "printLine" => 5, _ => 1,
                             };
                             let mut value = arg_ops.into_iter().next().unwrap_or(IrOperand::Null);
                             if matches!(value.get_type(), Type::Class { .. }) {

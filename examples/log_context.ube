@@ -2,9 +2,9 @@ class Application {
     main() {
         Log.put('requestId', 'req-42')
         try {
-            Log('Processing request')
+            log('Processing request')
             string? requestId = Log.get('requestId')
-            Console.writeLine(requestId ?? 'unknown')
+            Console.printLine(requestId ?? 'unknown')
 
             Log.put('user', 'alice')
             Log.warn('Retrying operation')

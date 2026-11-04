@@ -110,13 +110,13 @@ test("formats the commented src/main.ube example without changing its comments",
 test("preserves braces and commas inside strings and comments", () => {
   const source = `class Application {
 main() {
-Log('},')
+log('},')
 // } , remains a comment
 }
 }`;
   const expected = `class Application {
     main() {
-        Log('},')
+        log('},')
         // } , remains a comment
     }
 }
@@ -128,14 +128,14 @@ Log('},')
 test("preserves multiline string contents", () => {
   const source = `class Application {
 main() {
-Log(\`first line
+log(\`first line
   {second, line}
 third line\`)
 }
 }`;
   const expected = `class Application {
     main() {
-        Log(\`first line
+        log(\`first line
   {second, line}
 third line\`)
     }
@@ -248,15 +248,15 @@ test("is idempotent", () => {
 });
 
 test("ignores punctuation inside single-quoted arguments", () => {
-  const source = "class App {\nmain() {\nLog('hello { (, world')\nLog('done')\n}\n}\n";
-  const expected = "class App {\n    main() {\n        Log('hello { (, world')\n        Log('done')\n    }\n}\n";
+  const source = "class App {\nmain() {\nlog('hello { (, world')\nlog('done')\n}\n}\n";
+  const expected = "class App {\n    main() {\n        log('hello { (, world')\n        log('done')\n    }\n}\n";
   assert.equal(formatUbeDocument(source), expected);
   assert.equal(formatUbeDocument(expected), expected);
 });
 
 test("tracks braces after a text block and preserves its contents", () => {
-  const source = 'class App {\nmain() {\nLog("\n    hello { world\n    ")}\nnext() {\nLog("x")\n}\n}\n';
-  const expected = 'class App {\n    main() {\n        Log("\n    hello { world\n    ")}\n    next() {\n        Log("x")\n    }\n}\n';
+  const source = 'class App {\nmain() {\nlog("\n    hello { world\n    ")}\nnext() {\nlog("x")\n}\n}\n';
+  const expected = 'class App {\n    main() {\n        log("\n    hello { world\n    ")}\n    next() {\n        log("x")\n    }\n}\n';
   assert.equal(formatUbeDocument(source), expected);
   assert.equal(formatUbeDocument(expected), expected);
 });
@@ -265,14 +265,14 @@ test("raw text blocks close after a backslash and preserve JSON content", () => 
   const source = [
     "class Application {",
     "main() {",
-    "Log(`C:\\tmp\\`, '{\"ok\":true}')",
+    "log(`C:\\tmp\\`, '{\"ok\":true}')",
     "}",
     "}"
   ].join("\n");
   const expected = [
     "class Application {",
     "    main() {",
-    "        Log(",
+    "        log(",
     "          `C:\\tmp\\`,",
     "          '{\"ok\":true}'",
     "        )",

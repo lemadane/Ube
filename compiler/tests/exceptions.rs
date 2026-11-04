@@ -13,7 +13,8 @@ fn diagnostics(source: &str) -> Vec<String> {
 
 struct Scratch(PathBuf);
 impl Drop for Scratch { fn drop(&mut self) { let _ = fs::remove_dir_all(&self.0); } }
-fn native(source: &str) -> Output {
+fn native(source: &str) -> Output { native_with_input(source, b"") }
+fn native_with_input(source: &str, input: &[u8]) -> Output {
     let mut parser = Parser::new(Lexer::new(source));
     let program = parser.parse_program();
     assert!(parser.diagnostics.is_empty(), "{:?}", parser.diagnostics);
@@ -34,7 +35,12 @@ fn native(source: &str) -> Output {
     let compiled = Command::new("clang").arg("-Wno-override-module").arg("-O1").arg(&ll).arg(runtime)
         .args(["-ldl", "-lpthread", "-lm"]).arg("-o").arg(&exe).output().expect("clang is required for native tests");
     assert!(compiled.status.success(), "{}", String::from_utf8_lossy(&compiled.stderr));
-    Command::new("timeout").arg("15s").arg(exe).output().unwrap()
+    use std::io::Write;
+    use std::process::Stdio;
+    let mut child = Command::new("timeout").arg("15s").arg(exe)
+        .stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().unwrap();
+    child.stdin.take().unwrap().write_all(input).unwrap();
+    child.wait_with_output().unwrap()
 }
 fn runs(source: &str, expected: &str) {
     let output = native(source);
@@ -50,21 +56,21 @@ fn rejects(source: &str, expected: &str) {
 fn concrete_catch_preserves_object_fields_and_exact_identity() {
     runs(r#"class A(string message, int code) {} class B(string message) {}
     class Application { main() { try { throw A('bad', 42) }
-      catch (B err) { Console.writeLine('wrong') } catch (A err) { Console.writeLine(err.message()) Console.writeLine(err.code()) }
-      catch (Error err) { Console.writeLine('wrong general') } } }"#, "bad\n42\n");
+      catch (B err) { Console.printLine('wrong') } catch (A err) { Console.printLine(err.message()) Console.printLine(err.code()) }
+      catch (Error err) { Console.printLine('wrong general') } } }"#, "bad\n42\n");
 }
 #[test]
 fn strings_are_boxed_once_and_error_trait_dispatches() {
-    runs(r#"class Application { string message() { Console.writeLine('called') return 'boom' }
-    main() { try { throw this.message() } catch (Error err) { Console.writeLine(err.message()) } } }"#, "called\nboom\n");
+    runs(r#"class Application { string message() { Console.printLine('called') return 'boom' }
+    main() { try { throw this.message() } catch (Error err) { Console.printLine(err.message()) } } }"#, "called\nboom\n");
 }
 #[test]
 fn structural_category_matches_independent_classes() {
     runs(r#"trait Retryable { string message() bool retryable() }
     class A(string message, bool retryable) {} class B(string message) { bool retryable() { return true } }
     class Application { main() {
-      try { throw A('a', false) } catch (Retryable err) { Console.writeLine(err.message()) Console.writeLine(err.retryable()) }
-      try { throw B('b') } catch (Retryable err) { Console.writeLine(err.message()) Console.writeLine(err.retryable()) }
+      try { throw A('a', false) } catch (Retryable err) { Console.printLine(err.message()) Console.printLine(err.retryable()) }
+      try { throw B('b') } catch (Retryable err) { Console.printLine(err.message()) Console.printLine(err.retryable()) }
     } }"#, "a\nfalse\nb\ntrue\n");
 }
 #[test]
@@ -73,54 +79,54 @@ fn independent_traits_match_in_source_order() {
     trait Security { string message() string securityCode() }
     class Both(string message, bool retryable, string securityCode) {}
     class Application { main() { try { throw Both('both', true, 'AUTH') }
-      catch (Security err) { Console.writeLine(err.securityCode()) }
-      catch (Retryable err) { Console.writeLine('wrong') } } }"#, "AUTH\n");
+      catch (Security err) { Console.printLine(err.securityCode()) }
+      catch (Retryable err) { Console.printLine('wrong') } } }"#, "AUTH\n");
 }
 #[test]
 fn unmatched_errors_propagate_through_calls_and_cleanup_only_try() {
     runs(r#"class A(string message) {} class B(string message) {}
     class Application { fail() { throw A('boom') } relay() { this.fail() }
-    main() { try { try { this.relay() } catch (B err) { Console.writeLine('wrong') } finally { Console.writeLine('inner') } }
-      catch (A err) { Console.writeLine(err.message()) } finally { Console.writeLine('outer') } } }"#, "inner\nboom\nouter\n");
+    main() { try { try { this.relay() } catch (B err) { Console.printLine('wrong') } finally { Console.printLine('inner') } }
+      catch (A err) { Console.printLine(err.message()) } finally { Console.printLine('outer') } } }"#, "inner\nboom\nouter\n");
 }
 #[test]
 fn try_finally_does_not_swallow_errors() {
-    runs(r#"class Application { main() { try { try { throw 'boom' } finally { Console.writeLine('cleanup') } }
-      catch (Error err) { Console.writeLine(err.message()) } } }"#, "cleanup\nboom\n");
+    runs(r#"class Application { main() { try { try { throw 'boom' } finally { Console.printLine('cleanup') } }
+      catch (Error err) { Console.printLine(err.message()) } } }"#, "cleanup\nboom\n");
 }
 #[test]
 fn accidental_conformance_requires_explicit_throw() {
     runs(r#"class Customer(string message) {} class Application { main() {
-      final customer = Customer('hello') Console.writeLine('normal')
-      try { throw customer } catch (Customer err) { Console.writeLine(err.message()) } } }"#, "normal\nhello\n");
+      final customer = Customer('hello') Console.printLine('normal')
+      try { throw customer } catch (Customer err) { Console.printLine(err.message()) } } }"#, "normal\nhello\n");
 }
 #[test]
 fn finally_runs_on_normal_completion_and_matching_catch() {
     runs(r#"class Application { main() {
-      try { Console.writeLine('normal') } finally { Console.writeLine('first') }
-      try { throw 'boom' } catch (Error err) { Console.writeLine('handled') } finally { Console.writeLine('second') }
+      try { Console.printLine('normal') } finally { Console.printLine('first') }
+      try { throw 'boom' } catch (Error err) { Console.printLine('handled') } finally { Console.printLine('second') }
     } }"#, "normal\nfirst\nhandled\nsecond\n");
 }
 #[test]
 fn nested_finally_runs_once_for_return_and_catch_return() {
     runs(r#"class Application {
-      int value() { try { try { return 42 } finally { Console.writeLine('inner') } } finally { Console.writeLine('outer') } }
-      int handled() { try { throw 'boom' } catch (Error err) { return 7 } finally { Console.writeLine('catch cleanup') } }
-      main() { Console.writeLine(this.value()) Console.writeLine(this.handled()) }
+      int value() { try { try { return 42 } finally { Console.printLine('inner') } } finally { Console.printLine('outer') } }
+      int handled() { try { throw 'boom' } catch (Error err) { return 7 } finally { Console.printLine('catch cleanup') } }
+      main() { Console.printLine(this.value()) Console.printLine(this.handled()) }
     }"#, "inner\nouter\n42\ncatch cleanup\n7\n");
 }
 #[test]
 fn loop_exits_cleanup_only_regions_being_exited() {
     runs(r#"class Application { main() {
-      try { for (x in [1,2]) { try { if (x == 1) { continue } break } finally { Console.writeLine(x) } } Console.writeLine('done') }
-      finally { Console.writeLine('outer') }
+      try { for (x in [1,2]) { try { if (x == 1) { continue } break } finally { Console.printLine(x) } } Console.printLine('done') }
+      finally { Console.printLine('outer') }
     } }"#, "1\n2\ndone\nouter\n");
 }
 #[test]
 fn exception_from_handler_runs_finally_before_outer_handler() {
     runs(r#"class Application { main() { try {
-      try { throw 'first' } catch (Error err) { throw 'second' } finally { Console.writeLine('inner') }
-    } catch (Error err) { Console.writeLine(err.message()) } } }"#, "inner\nsecond\n");
+      try { throw 'first' } catch (Error err) { throw 'second' } finally { Console.printLine('inner') }
+    } catch (Error err) { Console.printLine(err.message()) } } }"#, "inner\nsecond\n");
 }
 #[test]
 fn cleanup_error_replaces_pending_error_and_preserves_it_as_suppressed() {
@@ -133,7 +139,7 @@ fn cleanup_error_replaces_pending_error_and_preserves_it_as_suppressed() {
 #[test]
 fn cleanup_return_overrides_pending_return() {
     runs(r#"class Application { int value() { try { return 1 } finally { return 2 } }
-      main() { Console.writeLine(this.value()) } }"#, "2\n");
+      main() { Console.printLine(this.value()) } }"#, "2\n");
 }
 #[test]
 fn composition_and_optional_causes_keep_original_concrete_objects() {
@@ -147,8 +153,8 @@ fn composition_and_optional_causes_keep_original_concrete_objects() {
         final root = Root('root')
         try { throw PaymentError(Details('payment', 'PAY'), root) }
         catch (PaymentError err) {
-          Console.writeLine(err.message()) Console.writeLine(err.code())
-          try { throw (err.cause() ?? GenericError('missing')) } catch (Root cause) { Console.writeLine(cause.message()) }
+          Console.printLine(err.message()) Console.printLine(err.code())
+          try { throw (err.cause() ?? GenericError('missing')) } catch (Root cause) { Console.printLine(cause.message()) }
         }
       } }"#, "payment\nPAY\nroot\n");
 }
@@ -157,32 +163,32 @@ fn guarded_catches_narrow_before_condition_and_continue_on_false() {
     runs(r#"trait Retryable { string message() bool retryable() }
       class A(string message, bool retryable) {}
       class Application { main() { try { throw A('boom', false) }
-        catch (Retryable err) if (err.retryable()) { Console.writeLine('wrong') }
-        catch (A err) { Console.writeLine(err.message()) }
+        catch (Retryable err) if (err.retryable()) { Console.printLine('wrong') }
+        catch (A err) { Console.printLine(err.message()) }
       } }"#, "boom\n");
 }
 #[test]
 fn throwing_catch_condition_propagates_after_cleanup() {
     runs(r#"class A(string message) { bool test() { throw 'condition' } }
       class Application { main() { try { try { throw A('original') }
-        catch (A err) if (err.test()) { Console.writeLine('wrong') } finally { Console.writeLine('cleanup') }
-      } catch (Error err) { Console.writeLine(err.message()) } } }"#, "cleanup\ncondition\n");
+        catch (A err) if (err.test()) { Console.printLine('wrong') } finally { Console.printLine('cleanup') }
+      } catch (Error err) { Console.printLine(err.message()) } } }"#, "cleanup\ncondition\n");
 }
 #[test]
 fn async_failures_keep_type_fields_causes_and_finally_order() {
     runs(r#"class DbError(string message, int code) {}
-      class Application { async int fail() { try { throw DbError('db', 99) } finally { Console.writeLine('worker cleanup') } }
+      class Application { async int fail() { try { throw DbError('db', 99) } finally { Console.printLine('worker cleanup') } }
         async int relay() { return await this.fail() }
-        main() { try { final value = await this.relay() } catch (DbError err) { Console.writeLine(err.message()) Console.writeLine(err.code()) } finally { Console.writeLine('awaiter cleanup') } }
+        main() { try { final value = await this.relay() } catch (DbError err) { Console.printLine(err.message()) Console.printLine(err.code()) } finally { Console.printLine('awaiter cleanup') } }
       }"#, "worker cleanup\ndb\n99\nawaiter cleanup\n");
 }
 #[test]
 fn timeout_and_closed_channel_failures_are_generic_errors() {
     runs(r#"class Application { main() {
       final ch = Channel<int>(1)
-      try { final value = await ch.receive().timeout(5) } catch (GenericError err) { Console.writeLine(err.message()) }
+      try { final value = await ch.receive().timeout(5) } catch (GenericError err) { Console.printLine(err.message()) }
       ch.close()
-      try { final value = await ch.receive() } catch (Error err) { Console.writeLine(err.message()) }
+      try { final value = await ch.receive() } catch (Error err) { Console.printLine(err.message()) }
     } }"#, "task timed out\nchannel is closed\n");
 }
 #[test]
@@ -190,12 +196,12 @@ fn cancellation_unblocks_await_and_runs_worker_cleanup() {
     runs(r#"class Application {
       async wait(Channel<int> ready, Channel<int> blocked) {
         try { final sent = await ready.send(1) final value = await blocked.receive() }
-        finally { Console.writeLine('worker cleanup') }
+        finally { Console.printLine('worker cleanup') }
       }
       main() { final ready = Channel<int>(1) final blocked = Channel<int>(1)
         final task = this.wait(ready, blocked) final started = await ready.receive()
         final cancelled = task.cancel()
-        try { final value = await task } catch (Error err) { Console.writeLine(err.message()) }
+        try { final value = await task } catch (Error err) { Console.printLine(err.message()) }
       }
     }"#, "worker cleanup\ntask was cancelled\n");
 }
@@ -208,11 +214,11 @@ fn cancellation_allows_async_cleanup_and_preserves_original_failure() {
           final sent = await ready.send(1)
           final value = await blocked.receive()
         } finally {
-          Console.writeLine('cleanup started')
+          Console.printLine('cleanup started')
           try { final value = await blocked.receive().timeout(5) }
-          catch (Error err) { Console.writeLine(err.message()) }
+          catch (Error err) { Console.printLine(err.message()) }
           final sent = await completed.send(7)
-          Console.writeLine('cleanup completed')
+          Console.printLine('cleanup completed')
         }
       }
       main() {
@@ -223,8 +229,8 @@ fn cancellation_allows_async_cleanup_and_preserves_original_failure() {
         final started = await ready.receive()
         final cancelled = task.cancel()
         try { final value = await task }
-        catch (Error err) { Console.writeLine(err.message()) }
-        Console.writeLine(await completed.receive().timeout(1000))
+        catch (Error err) { Console.printLine(err.message()) }
+        Console.printLine(await completed.receive().timeout(1000))
       }
     }"#, "cleanup started\ntask timed out\ncleanup completed\ntask was cancelled\n7\n");
 }
@@ -248,7 +254,7 @@ fn invalid_throw_operands_are_rejected() {
 #[test]
 fn invalid_and_unreachable_catch_types_are_rejected() {
     for ty in ["Missing", "Potato", "NotError"] {
-        rejects(&format!("trait NotError {{ bool retryable() }} class Potato(int value) {{}} class Application {{ main() {{ try {{ Console.writeLine(1) }} catch ({ty} err) {{}} }} }}"), "catch type");
+        rejects(&format!("trait NotError {{ bool retryable() }} class Potato(int value) {{}} class Application {{ main() {{ try {{ Console.printLine(1) }} catch ({ty} err) {{}} }} }}"), "catch type");
     }
     rejects(r#"class A(string message) {} class Application { main() { try { throw A('x') } catch (Error err) {} catch (A err) {} } }"#, "Unreachable catch");
     rejects(r#"trait R { string message() bool retryable() } class A(string message, bool retryable) {}
@@ -256,9 +262,9 @@ fn invalid_and_unreachable_catch_types_are_rejected() {
 }
 #[test]
 fn catch_scopes_and_static_types_are_checked() {
-    rejects(r#"class A(string message, int code) {} class Application { main() { try { throw A('x',1) } catch (A err) { Console.writeLine(err.missing()) } } }"#, "Member");
-    rejects(r#"class Application { main() { try { throw 'x' } catch (Error err) {} Console.writeLine(err) } }"#, "err");
-    rejects(r#"class Application { main() { try { final local = 1 } finally { Console.writeLine(local) } } }"#, "local");
+    rejects(r#"class A(string message, int code) {} class Application { main() { try { throw A('x',1) } catch (A err) { Console.printLine(err.missing()) } } }"#, "Member");
+    rejects(r#"class Application { main() { try { throw 'x' } catch (Error err) {} Console.printLine(err) } }"#, "err");
+    rejects(r#"class Application { main() { try { final local = 1 } finally { Console.printLine(local) } } }"#, "local");
     rejects(r#"class Application { main() { try { throw 'x' } catch (Error err) if (1) {} } }"#, "catch condition");
 }
 #[test]
@@ -274,15 +280,15 @@ fn runtime_file_and_directory_failures_are_catchable_and_run_cleanup() {
     let missing = std::env::temp_dir().join(format!("ube-missing-{}", std::process::id())).join("file");
     let path = missing.to_string_lossy();
     runs(&format!(r#"class Application {{ main() {{
-      try {{ final value = File.read('{path}') Console.writeLine('wrong') }}
-      catch (FileNotFoundError err) {{ Console.writeLine('read') }} finally {{ Console.writeLine('cleanup') }}
-      try {{ File.write('{path}', 'data') Console.writeLine('wrong') }} catch (Error err) {{ Console.writeLine('write') }}
-      try {{ File.append('{path}', 'data') }} catch (Error err) {{ Console.writeLine('append') }}
-      try {{ File.delete('{path}') }} catch (FileNotFoundError err) {{ Console.writeLine('delete') }}
-      try {{ final info = File.info('{path}') }} catch (FileNotFoundError err) {{ Console.writeLine('info') }}
-      try {{ final entries = Directory.list('{path}') }} catch (FileNotFoundError err) {{ Console.writeLine('list') }}
-      try {{ Directory.delete('{path}') }} catch (FileNotFoundError err) {{ Console.writeLine('directory delete') }}
-      Console.writeLine(File.exists('{path}'))
+      try {{ final value = File.read('{path}') Console.printLine('wrong') }}
+      catch (FileNotFoundError err) {{ Console.printLine('read') }} finally {{ Console.printLine('cleanup') }}
+      try {{ File.write('{path}', 'data') Console.printLine('wrong') }} catch (Error err) {{ Console.printLine('write') }}
+      try {{ File.append('{path}', 'data') }} catch (Error err) {{ Console.printLine('append') }}
+      try {{ File.delete('{path}') }} catch (FileNotFoundError err) {{ Console.printLine('delete') }}
+      try {{ final info = File.info('{path}') }} catch (FileNotFoundError err) {{ Console.printLine('info') }}
+      try {{ final entries = Directory.list('{path}') }} catch (FileNotFoundError err) {{ Console.printLine('list') }}
+      try {{ Directory.delete('{path}') }} catch (FileNotFoundError err) {{ Console.printLine('directory delete') }}
+      Console.printLine(File.exists('{path}'))
     }} }}"#), "read\ncleanup\nwrite\nappend\ndelete\ninfo\nlist\ndirectory delete\nfalse\n");
 }
 
@@ -292,18 +298,18 @@ fn runtime_file_handles_distinguish_empty_content_closed_handles_and_binary_data
     let path = path.to_string_lossy();
     runs(&format!(r#"class Application {{ main() {{
       File.write('{path}', '')
-      Console.writeLine(File.read('{path}'))
+      Console.printLine(File.read('{path}'))
       File.write('{path}', 'hello')
       final file = File.open('{path}')
-      Console.writeLine(file.read())
+      Console.printLine(file.read())
       file.close()
-      try {{ Console.writeLine(file.read()) }} catch (Error err) {{ Console.writeLine('closed') }}
+      try {{ Console.printLine(file.read()) }} catch (Error err) {{ Console.printLine('closed') }}
       File.delete('{path}')
     }} }}"#), "\nhello\nclosed\n");
     let binary = std::env::temp_dir().join(format!("ube-binary-{}", std::process::id()));
     fs::write(&binary, b"hello\0world").unwrap();
     runs(&format!(r#"class Application {{ main() {{
-      try {{ Console.writeLine(File.read('{}')) }} catch (Error err) {{ Console.writeLine('binary rejected') }}
+      try {{ Console.printLine(File.read('{}')) }} catch (Error err) {{ Console.printLine('binary rejected') }}
     }} }}"#, binary.display()), "binary rejected\n");
     fs::remove_file(binary).unwrap();
 }
@@ -314,16 +320,16 @@ fn runtime_server_startup_failures_are_catchable() {
     let port = reserved.as_ref().map(|listener| listener.local_addr().unwrap().port()).unwrap_or(8080);
     runs(&format!(r#"class Application {{ main() {{
       final app = Server()
-      try {{ app.start(-1) Console.writeLine('wrong') }} catch (Error err) {{ Console.writeLine('invalid port') }}
-      try {{ app.start({port}) Console.writeLine('wrong') }} catch (Error err) {{ Console.writeLine('bind failed') }}
-      finally {{ Console.writeLine('cleanup') }}
-      Console.writeLine('recovered')
+      try {{ app.start(-1) Console.printLine('wrong') }} catch (Error err) {{ Console.printLine('invalid port') }}
+      try {{ app.start({port}) Console.printLine('wrong') }} catch (Error err) {{ Console.printLine('bind failed') }}
+      finally {{ Console.printLine('cleanup') }}
+      Console.printLine('recovered')
     }} }}"#), "invalid port\nbind failed\ncleanup\nrecovered\n");
 }
 
 #[test]
 fn unhandled_runtime_io_errors_exit_unsuccessfully() {
-    let output = native(r#"class Application { main() { File.read('/ube-nonexistent-directory/file') Console.writeLine('wrong') } }"#);
+    let output = native(r#"class Application { main() { File.read('/ube-nonexistent-directory/file') Console.printLine('wrong') } }"#);
     assert_eq!(output.status.code(), Some(1));
     assert!(output.stdout.is_empty());
     assert!(String::from_utf8_lossy(&output.stderr).contains("FileNotFoundError"));
@@ -334,11 +340,11 @@ fn native_list_indexing_compiles_with_and_without_handlers() {
     runs(r#"class Application {
       int first() { final values = [42] return values[0] }
       main() {
-        Console.writeLine(this.first())
+        Console.printLine(this.first())
         final values = [10, 20]
-        try { Console.writeLine(values[0]) Console.writeLine(values[1]) }
-        catch (Error err) { Console.writeLine('unexpected error') }
-        finally { Console.writeLine('cleanup') }
+        try { Console.printLine(values[0]) Console.printLine(values[1]) }
+        catch (Error err) { Console.printLine('unexpected error') }
+        finally { Console.printLine('cleanup') }
       }
     }"#, "42\n10\n20\ncleanup\n");
 }
@@ -347,13 +353,13 @@ fn native_list_indexing_compiles_with_and_without_handlers() {
 fn native_list_bounds_errors_are_caught_and_run_cleanup() {
     runs(r#"class Application { main() {
       final values = [42]
-      try { Console.writeLine(values[-1]) Console.writeLine('unreachable') }
-      catch (Error err) { Console.writeLine('negative index') }
-      finally { Console.writeLine('negative cleanup') }
-      try { Console.writeLine(values[1]) Console.writeLine('unreachable') }
-      catch (Error err) { Console.writeLine('past end') }
-      finally { Console.writeLine('past end cleanup') }
-      Console.writeLine(values[0])
+      try { Console.printLine(values[-1]) Console.printLine('unreachable') }
+      catch (Error err) { Console.printLine('negative index') }
+      finally { Console.printLine('negative cleanup') }
+      try { Console.printLine(values[1]) Console.printLine('unreachable') }
+      catch (Error err) { Console.printLine('past end') }
+      finally { Console.printLine('past end cleanup') }
+      Console.printLine(values[0])
     } }"#, "negative index\nnegative cleanup\npast end\npast end cleanup\n42\n");
 }
 
@@ -362,21 +368,21 @@ fn native_bare_return_needs_no_semicolon_and_runs_cleanup() {
     runs(r#"class Application {
       stop() {
         try {
-          Console.writeLine('before')
+          Console.printLine('before')
           return
-          Console.writeLine('unreachable')
-        } finally { Console.writeLine('cleanup') }
+          Console.printLine('unreachable')
+        } finally { Console.printLine('cleanup') }
       }
       int value() { return (
         42
       ) }
-      main() { this.stop() Console.writeLine(this.value()) }
+      main() { this.stop() Console.printLine(this.value()) }
     }"#, "before\ncleanup\n42\n");
 }
 
 #[test]
 fn backing_fields_are_private_to_the_declaring_class() {
-    for statement in ["Console.writeLine(user._age)", "user._age = 2", "Console.writeLine(user._name)", "user._name = 'B'"] {
+    for statement in ["Console.printLine(user._age)", "user._age = 2", "Console.printLine(user._name)", "user._name = 'B'"] {
         rejects(&format!("class User(string name, var int age) {{}} class Application {{ main() {{ final user = User('A', 1) {statement} }} }}"), "is private to class 'User'");
     }
 }
@@ -390,19 +396,19 @@ fn public_fields_use_getter_and_setter_calls() {
     class Application { main() {
       final user = User('A', 1)
       final shared = user
-      Console.writeLine(user.name())
-      Console.writeLine(user.age())
+      Console.printLine(user.name())
+      Console.printLine(user.age())
       user.age(2)
       user.birthday()
-      Console.writeLine(user.read())
-      Console.writeLine(shared.age())
+      Console.printLine(user.read())
+      Console.printLine(shared.age())
     } }"#, "A\n1\n3\n3\n");
 }
 
 #[test]
 fn public_field_access_and_setter_arguments_are_checked() {
     for (statement, expected) in [
-        ("Console.writeLine(user.age)", "must be read using 'age()'"),
+        ("Console.printLine(user.age)", "must be read using 'age()'"),
         ("user.age = 2", "must be written using 'age(value)'"),
         ("user.age('bad')", "setter 'age' expects"),
         ("user.age(1, 2)", "requires exactly one argument"),
@@ -417,18 +423,18 @@ fn public_field_access_and_setter_arguments_are_checked() {
 #[test]
 fn native_declarations_zero_initialize_without_constructor_defaults() {
     runs(r#"class Defaults {
-      int load() { Console.writeLine('default evaluated') return 99 }
+      int load() { Console.printLine('default evaluated') return 99 }
     }
     class Record(int count = Defaults().load(), string label = 'configured') {}
     class Application { main() {
       Record zero
-      Console.writeLine(zero.count())
-      Console.writeLine(zero.label())
+      Console.printLine(zero.count())
+      Console.printLine(zero.label())
       final explicit = Record()
-      Console.writeLine(explicit.count())
-      Console.writeLine(explicit.label())
+      Console.printLine(explicit.count())
+      Console.printLine(explicit.label())
       Record? absent
-      Console.writeLine(absent == null)
+      Console.printLine(absent == null)
     } }"#, "0\n\ndefault evaluated\n99\nconfigured\ntrue\n");
 }
 
@@ -440,13 +446,13 @@ fn native_zero_initialization_recurses_without_sharing_or_defaults() {
     class Application { main() {
       Pair pair
       pair.left().x(7)
-      Console.writeLine(pair.left().x())
-      Console.writeLine(pair.right().x())
+      Console.printLine(pair.left().x())
+      Console.printLine(pair.right().x())
       Pair other
-      Console.writeLine(other.left().x())
+      Console.printLine(other.left().x())
       Node node
-      Console.writeLine(node.value())
-      Console.writeLine(node.next() == null)
+      Console.printLine(node.value())
+      Console.printLine(node.next() == null)
     } }"#, "7\n0\n0\n0\ntrue\n");
 }
 
@@ -460,10 +466,10 @@ fn native_primitive_declarations_keep_zero_values() {
       decimal ratio
       bool enabled
       string text
-      Console.writeLine(count) Console.writeLine(id) Console.writeLine(ratio) Console.writeLine(enabled) Console.writeLine(text)
+      Console.printLine(count) Console.printLine(id) Console.printLine(ratio) Console.printLine(enabled) Console.printLine(text)
       Settings settings
-      Console.writeLine(settings.count()) Console.writeLine(settings.id()) Console.writeLine(settings.ratio())
-      Console.writeLine(settings.enabled()) Console.writeLine(settings.text())
+      Console.printLine(settings.count()) Console.printLine(settings.id()) Console.printLine(settings.ratio())
+      Console.printLine(settings.enabled()) Console.printLine(settings.text())
     } }"#, "0\n0\n0\nfalse\n\n0\n0\n0\nfalse\n\n");
 }
 
@@ -479,21 +485,21 @@ fn unsafe_zero_initialization_requires_nullable_links_or_explicit_initializers()
 #[test]
 fn native_startup_uses_the_same_zero_values_as_local_declarations() {
     runs(r#"class Defaults {
-      int load() { Console.writeLine('unexpected default evaluation') return 123 }
+      int load() { Console.printLine('unexpected default evaluation') return 123 }
     }
     class Child(int count = 77) {}
     class Application(int count = Defaults().load(), long support = 44L,
       string caption = 'configured', Child child = Child(), Child? absent = Child()) {
       main() {
-        Console.writeLine(this.count())
-        Console.writeLine(this.support())
-        Console.writeLine(this.caption())
-        Console.writeLine(this.child().count())
-        Console.writeLine(this.absent() == null)
+        Console.printLine(this.count())
+        Console.printLine(this.support())
+        Console.printLine(this.caption())
+        Console.printLine(this.child().count())
+        Console.printLine(this.absent() == null)
         Application other
-        Console.writeLine(other.child().count())
+        Console.printLine(other.child().count())
         final configured = Child()
-        Console.writeLine(configured.count())
+        Console.printLine(configured.count())
       }
     }"#, "0\n0\n\n0\ntrue\n0\n77\n");
 }
@@ -507,7 +513,7 @@ fn unsafe_startup_layouts_are_rejected_before_codegen() {
 #[test]
 fn removed_boolean_operators_are_rejected_in_expressions() {
     for operator in ["nand", "nor", "xor", "xnor"] {
-        let source = format!("class Application {{ main() {{ Console.writeLine(true {operator} false) }} }}");
+        let source = format!("class Application {{ main() {{ Console.printLine(true {operator} false) }} }}");
         let mut parser = Parser::new(Lexer::new(&source));
         parser.parse_program();
         assert!(!parser.diagnostics.is_empty(), "Accepted removed operator {operator}");
@@ -517,18 +523,18 @@ fn removed_boolean_operators_are_rejected_in_expressions() {
 #[test]
 fn native_boolean_logic_keeps_not_and_or_precedence() {
     runs(r#"class Application { main() {
-      Console.writeLine(not true) Console.writeLine(not false)
-      Console.writeLine(true and true) Console.writeLine(true and false)
-      Console.writeLine(false or true) Console.writeLine(false or false)
-      Console.writeLine(true or false and false)
-      Console.writeLine((true or false) and false)
-      Console.writeLine(not (true and false))
-      Console.writeLine(not (true or false))
+      Console.printLine(not true) Console.printLine(not false)
+      Console.printLine(true and true) Console.printLine(true and false)
+      Console.printLine(false or true) Console.printLine(false or false)
+      Console.printLine(true or false and false)
+      Console.printLine((true or false) and false)
+      Console.printLine(not (true and false))
+      Console.printLine(not (true or false))
       final nand = 1
       final nor = 2
       final xor = 3
       final xnor = 4
-      Console.writeLine(nand + nor + xor + xnor)
+      Console.printLine(nand + nor + xor + xnor)
     } }"#, "false\ntrue\ntrue\nfalse\ntrue\nfalse\ntrue\nfalse\ntrue\nfalse\n10\n");
 }
 
@@ -536,23 +542,23 @@ fn native_boolean_logic_keeps_not_and_or_precedence() {
 fn native_backtick_text_blocks_preserve_json_and_do_not_interpolate() {
     runs(r#"class Consumer { string echo(string value) { return value } }
     class Application { main() {
-      Console.writeLine('A')
-      Console.writeLine('one line')
-      Console.writeLine(`{"name":"Ube","value":"${notDeclared}","line":"\n"}`)
-      Console.writeLine(`first
+      Console.printLine('A')
+      Console.printLine('one line')
+      Console.printLine(`{"name":"Ube","value":"${notDeclared}","line":"\n"}`)
+      Console.printLine(`first
   second`)
-      Console.writeLine(`trailing\`)
-      Console.writeLine('after')
+      Console.printLine(`trailing\`)
+      Console.printLine('after')
       final consumer = Consumer()
-      Console.writeLine(consumer.echo(`{"message":"hello","active":true}`))
+      Console.printLine(consumer.echo(`{"message":"hello","active":true}`))
     } }"#, "A\none line\n{\"name\":\"Ube\",\"value\":\"${notDeclared}\",\"line\":\"\\n\"}\nfirst\n  second\ntrailing\\\nafter\n{\"message\":\"hello\",\"active\":true}\n");
 }
 
 #[test]
 fn double_quotes_are_reserved_and_single_quotes_cannot_span_lines() {
-    rejects("class Application { main() { Console.writeLine(\"reserved\") } }", "Double quotes are reserved for JSON");
-    rejects("class Application { main() { Console.writeLine('first\nsecond') } }", "Unescaped line break");
-    rejects("class Application { main() { Console.writeLine(`unfinished) } }", "Unterminated backtick text block");
+    rejects("class Application { main() { Console.printLine(\"reserved\") } }", "Double quotes are reserved for JSON");
+    rejects("class Application { main() { Console.printLine('first\nsecond') } }", "Unescaped line break");
+    rejects("class Application { main() { Console.printLine(`unfinished) } }", "Unterminated backtick text block");
 }
 
 #[test]
@@ -563,18 +569,18 @@ fn nullable_scalars_survive_tasks_channels_and_captures() {
         final ch = Channel<int?>(2)
         int? missing = await this.score(null)
         int? zero = await this.score(0)
-        Console.writeLine(missing == null)
-        Console.writeLine(zero == null)
-        Console.writeLine(zero ?? 99)
+        Console.printLine(missing == null)
+        Console.printLine(zero == null)
+        Console.printLine(zero ?? 99)
         await ch.send(missing)
         await ch.send(zero)
         int? first = await ch.receive()
         int? second = await ch.receive()
-        Console.writeLine(first == null)
-        Console.writeLine(second ?? 99)
+        Console.printLine(first == null)
+        Console.printLine(second ?? 99)
         final task = async (missing)
         int? captured = await task
-        Console.writeLine(captured == null)
+        Console.printLine(captured == null)
       }
     }"#, "true\nfalse\n0\ntrue\n0\ntrue\n");
 }
@@ -590,17 +596,17 @@ fn nullable_false_and_decimal_zero_are_present() {
         await ch.send(await this.truth(false))
         bool? missing = await ch.receive()
         bool? present = await ch.receive()
-        Console.writeLine(missing == null)
-        Console.writeLine(present == null)
-        Console.writeLine(present ?? true)
+        Console.printLine(missing == null)
+        Console.printLine(present == null)
+        Console.printLine(present ?? true)
         final amounts = Channel<decimal?>(2)
         await amounts.send(await this.amount(null))
         await amounts.send(await this.amount(0.0))
         decimal? a = await amounts.receive()
         decimal? b = await amounts.receive()
-        Console.writeLine(a == null)
-        Console.writeLine(b == null)
-        Console.writeLine(b ?? 99.0)
+        Console.printLine(a == null)
+        Console.printLine(b == null)
+        Console.printLine(b ?? 99.0)
       }
     }"#, "true\nfalse\nfalse\ntrue\nfalse\n0\n");
 }
@@ -613,30 +619,30 @@ fn nullable_fields_calls_and_presence_conditions_work_natively() {
         async long? wide(long? value) { return value }
         main() {
           final user = User(null)
-          Console.writeLine(user.age())
+          Console.printLine(user.age())
           user.age(0)
-          Console.writeLine(user.age())
-          Console.writeLine(null == user.age())
+          Console.printLine(user.age())
+          Console.printLine(null == user.age())
           int? empty
-          if (empty) { Console.writeLine('wrong') } else { Console.writeLine('empty') }
+          if (empty) { Console.printLine('wrong') } else { Console.printLine('empty') }
           int? zero = this.echo(0)
-          if (zero) { Console.writeLine('present') }
-          Console.writeLine(this.echo(null))
+          if (zero) { Console.printLine('present') }
+          Console.printLine(this.echo(null))
           final wide = Channel<long?>(2)
           await wide.send(await this.wide(null))
           await wide.send(await this.wide(9223372036854775807L))
           long? a = await wide.receive()
           long? b = await wide.receive()
-          Console.writeLine(a)
-          Console.writeLine(b)
+          Console.printLine(a)
+          Console.printLine(b)
           final bytes = Channel<byte?>(2)
           byte value
           await bytes.send(null)
           await bytes.send(value)
           byte? c = await bytes.receive()
           byte? d = await bytes.receive()
-          Console.writeLine(c)
-          Console.writeLine(d)
+          Console.printLine(c)
+          Console.printLine(d)
         }
       }"#, "null\n0\nfalse\nempty\npresent\nnull\nnull\n9223372036854775807\nnull\n0\n");
 }
@@ -651,16 +657,16 @@ fn nullable_payloads_do_not_hide_closure_failure_or_repeat_awaits() {
         await ch.send(null)
         ch.close()
         int? value = await ch.receive()
-        Console.writeLine(value == null)
-        try { int? closed = await ch.receive() Console.writeLine('wrong') }
-        catch (Error err) { Console.writeLine('closed') }
-        try { int? failed = await this.fail() Console.writeLine('wrong') }
-        catch (Error err) { Console.writeLine(err.message()) }
+        Console.printLine(value == null)
+        try { int? closed = await ch.receive() Console.printLine('wrong') }
+        catch (Error err) { Console.printLine('closed') }
+        try { int? failed = await this.fail() Console.printLine('wrong') }
+        catch (Error err) { Console.printLine(err.message()) }
         final task = this.absent().timeout(1000)
         int? first = await task
         int? second = await task
-        Console.writeLine(first == null)
-        Console.writeLine(second == null)
+        Console.printLine(first == null)
+        Console.printLine(second == null)
       }
     }"#, "true\nclosed\nfailed\ntrue\ntrue\n");
 }
@@ -676,14 +682,14 @@ fn sqlite_native_queries_and_errors() {
     runs(r#"class Application { main() {
         final db = SQLite.open(':memory:')
         db.execute('CREATE TABLE items (id INTEGER, name TEXT, price REAL, extra TEXT)')
-        Console.writeLine(db.execute('INSERT INTO items VALUES (7, \'ube\', 2.5, NULL)'))
+        Console.printLine(db.execute('INSERT INTO items VALUES (7, \'ube\', 2.5, NULL)'))
         final rows = db.query('SELECT * FROM items')
-        Console.writeLine(rows.next()) Console.writeLine(rows.getLong(0)) Console.writeLine(rows.getString(1))
-        Console.writeLine(rows.getDecimal(2)) Console.writeLine(rows.isNull(3)) Console.writeLine(rows.next())
+        Console.printLine(rows.next()) Console.printLine(rows.getLong(0)) Console.printLine(rows.getString(1))
+        Console.printLine(rows.getDecimal(2)) Console.printLine(rows.isNull(3)) Console.printLine(rows.next())
         rows.close()
-        try { db.execute('invalid SQL') } catch (Error err) { Console.writeLine('invalid SQL caught') }
+        try { db.execute('invalid SQL') } catch (Error err) { Console.printLine('invalid SQL caught') }
         db.close() db.close()
-        try { db.query('SELECT 1') } catch (Error err) { Console.writeLine('closed caught') }
+        try { db.query('SELECT 1') } catch (Error err) { Console.printLine('closed caught') }
     } }"#, "1\ntrue\n7\nube\n2.5\ntrue\nfalse\ninvalid SQL caught\nclosed caught\n");
 }
 
@@ -705,26 +711,26 @@ fn sqlite_prepared_bindings_transactions_and_metadata() {
         db.busyTimeout(50)
         db.executeBatch('PRAGMA foreign_keys = ON; CREATE TABLE items (id INTEGER PRIMARY KEY, name TEXT UNIQUE, price REAL, active INTEGER, payload BLOB, extra TEXT);')
         final insert = db.prepare('INSERT INTO items VALUES (?1, :name, ?3, ?4, ?5, ?6)')
-        Console.writeLine(insert.parameterCount()) Console.writeLine(insert.parameterName(2)) Console.writeLine(insert.parameterIndex(':name'))
+        Console.printLine(insert.parameterCount()) Console.printLine(insert.parameterName(2)) Console.printLine(insert.parameterIndex(':name'))
         insert.bindLong(1, 4294967296L)
         insert.bindString(insert.parameterIndex(':name'), 'hello\' ; DROP TABLE items; --')
         insert.bindDecimal(3, 2.5) insert.bindBool(4, true) insert.bindBlobHex(5, '00ff80') insert.bindNull(6)
-        db.begin() Console.writeLine(db.inTransaction()) Console.writeLine(insert.execute()) Console.writeLine(db.changes()) Console.writeLine(db.lastInsertRowId())
-        db.commit() Console.writeLine(db.inTransaction())
+        db.begin() Console.printLine(db.inTransaction()) Console.printLine(insert.execute()) Console.printLine(db.changes()) Console.printLine(db.lastInsertRowId())
+        db.commit() Console.printLine(db.inTransaction())
         final select = db.prepare('SELECT * FROM items WHERE id = ?')
         select.bindLong(1, 4294967296L)
         final rows = select.query()
-        Console.writeLine(rows.rowCount()) Console.writeLine(rows.columnCount()) Console.writeLine(rows.columnName(1)) Console.writeLine(rows.columnIndex('NAME'))
-        Console.writeLine(rows.next()) Console.writeLine(rows.getLong(0)) Console.writeLine(rows.getString(rows.columnIndex('name')))
-        Console.writeLine(rows.getDecimal(2)) Console.writeLine(rows.getBool(3)) Console.writeLine(rows.getBlobHex(4)) Console.writeLine(rows.isNull(5)) Console.writeLine(rows.columnType(4))
-        try { Console.writeLine(rows.getInt(0)) } catch (SQLiteError err) { Console.writeLine('overflow') }
-        rows.reset() Console.writeLine(rows.next())
+        Console.printLine(rows.rowCount()) Console.printLine(rows.columnCount()) Console.printLine(rows.columnName(1)) Console.printLine(rows.columnIndex('NAME'))
+        Console.printLine(rows.next()) Console.printLine(rows.getLong(0)) Console.printLine(rows.getString(rows.columnIndex('name')))
+        Console.printLine(rows.getDecimal(2)) Console.printLine(rows.getBool(3)) Console.printLine(rows.getBlobHex(4)) Console.printLine(rows.isNull(5)) Console.printLine(rows.columnType(4))
+        try { Console.printLine(rows.getInt(0)) } catch (SQLiteError err) { Console.printLine('overflow') }
+        rows.reset() Console.printLine(rows.next())
         db.begin() db.execute('DELETE FROM items') db.rollback()
-        select.clearBindings() final empty = select.query() Console.writeLine(empty.rowCount()) empty.close()
-        insert.clearBindings() insert.bindInt(1, 2) insert.bindString(2, 'second') Console.writeLine(insert.execute())
+        select.clearBindings() final empty = select.query() Console.printLine(empty.rowCount()) empty.close()
+        insert.clearBindings() insert.bindInt(1, 2) insert.bindString(2, 'second') Console.printLine(insert.execute())
         db.begin() db.execute('DELETE FROM items') db.close()
-        Console.writeLine(rows.getLong(0))
-        try { select.execute() } catch (SQLiteError err) { Console.writeLine('closed statement') }
+        Console.printLine(rows.getLong(0))
+        try { select.execute() } catch (SQLiteError err) { Console.printLine('closed statement') }
         select.close() insert.close() rows.close()
     } }"#, "6\n:name\n2\ntrue\n1\n1\n4294967296\nfalse\n1\n6\nname\n1\ntrue\n4294967296\nhello' ; DROP TABLE items; --\n2.5\ntrue\n00ff80\ntrue\nblob\noverflow\ntrue\n0\n1\n4294967296\nclosed statement\n");
 }
@@ -736,17 +742,17 @@ fn sqlite_returning_nulls_errors_and_parameter_validation() {
         db.execute('CREATE TABLE items (id INTEGER PRIMARY KEY, value TEXT NOT NULL UNIQUE)')
         final returning = db.prepare('INSERT INTO items(value) VALUES (?) RETURNING id, value')
         returning.bindString(1, 'first') final rows = returning.query()
-        Console.writeLine(rows.next()) Console.writeLine(rows.getInt(0)) Console.writeLine(rows.getString(1)) rows.close()
-        try { returning.query() } catch (SQLiteError err) { Console.writeLine('unique') }
-        try { returning.bindInt(0, 1) } catch (SQLiteError err) { Console.writeLine('index') }
-        try { returning.bindBlobHex(1, '0x') } catch (SQLiteError err) { Console.writeLine('hex') }
-        try { db.execute('DELETE FROM items; DROP TABLE items') } catch (SQLiteError err) { Console.writeLine('multiple') }
-        try { db.query('SELECT 1; SELECT 2') } catch (SQLiteError err) { Console.writeLine('multiple query') }
-        final count = db.query('SELECT count(*) FROM items') Console.writeLine(count.next()) Console.writeLine(count.getInt(0)) count.close()
-        try { db.execute('SELECT 1') } catch (SQLiteError err) { Console.writeLine('use query') }
-        try { db.query('DELETE FROM items') } catch (SQLiteError err) { Console.writeLine('use execute') }
-        try { db.busyTimeout(-1) } catch (SQLiteError err) { Console.writeLine('timeout') }
-        final empty = db.query('SELECT id AS number FROM items WHERE 0') Console.writeLine(empty.columnName(0)) Console.writeLine(empty.next()) empty.close()
+        Console.printLine(rows.next()) Console.printLine(rows.getInt(0)) Console.printLine(rows.getString(1)) rows.close()
+        try { returning.query() } catch (SQLiteError err) { Console.printLine('unique') }
+        try { returning.bindInt(0, 1) } catch (SQLiteError err) { Console.printLine('index') }
+        try { returning.bindBlobHex(1, '0x') } catch (SQLiteError err) { Console.printLine('hex') }
+        try { db.execute('DELETE FROM items; DROP TABLE items') } catch (SQLiteError err) { Console.printLine('multiple') }
+        try { db.query('SELECT 1; SELECT 2') } catch (SQLiteError err) { Console.printLine('multiple query') }
+        final count = db.query('SELECT count(*) FROM items') Console.printLine(count.next()) Console.printLine(count.getInt(0)) count.close()
+        try { db.execute('SELECT 1') } catch (SQLiteError err) { Console.printLine('use query') }
+        try { db.query('DELETE FROM items') } catch (SQLiteError err) { Console.printLine('use execute') }
+        try { db.busyTimeout(-1) } catch (SQLiteError err) { Console.printLine('timeout') }
+        final empty = db.query('SELECT id AS number FROM items WHERE 0') Console.printLine(empty.columnName(0)) Console.printLine(empty.next()) empty.close()
         returning.close() db.close()
     } }"#, "true\n1\nfirst\nunique\nindex\nhex\nmultiple\nmultiple query\ntrue\n1\nuse query\nuse execute\ntimeout\nnumber\nfalse\n");
     rejects("class Application { main() { final db = SQLite.open() } }", "expects 1 arguments");
@@ -760,18 +766,18 @@ fn sqlite_native_file_backup_restore_and_read_only() {
     let dir = Scratch(std::env::temp_dir().join(format!("ube-sqlite-native-{}", std::process::id())));
     fs::create_dir_all(&dir.0).unwrap();
     let source = r#"class Application { main() {
-        Console.writeLine(SQLite.version() != '')
+        Console.printLine(SQLite.version() != '')
         final db = SQLite.open('$ROOT/source.db')
-        Console.writeLine(db.readOnly())
+        Console.printLine(db.readOnly())
         db.executeBatch('CREATE TABLE t(id INTEGER); INSERT INTO t VALUES (7);')
         db.backup('$ROOT/backup.db')
         db.execute('UPDATE t SET id = 9')
         db.restore('$ROOT/backup.db')
         db.close()
         final ro = SQLite.openReadOnly('$ROOT/source.db')
-        Console.writeLine(ro.readOnly())
-        final rows = ro.query('SELECT id FROM t') Console.writeLine(rows.next()) Console.writeLine(rows.getInt(0)) rows.close()
-        try { ro.execute('DELETE FROM t') } catch (SQLiteError err) { Console.writeLine('read only') }
+        Console.printLine(ro.readOnly())
+        final rows = ro.query('SELECT id FROM t') Console.printLine(rows.next()) Console.printLine(rows.getInt(0)) rows.close()
+        try { ro.execute('DELETE FROM t') } catch (SQLiteError err) { Console.printLine('read only') }
         ro.close()
     } }"#.replace("$ROOT", dir.0.to_str().unwrap());
     runs(&source, "true\nfalse\ntrue\ntrue\n7\nread only\n");
@@ -780,7 +786,7 @@ fn sqlite_native_file_backup_restore_and_read_only() {
 
 #[test]
 fn server_builtin_uses_capitalized_name() {
-    runs("class Application { main() { final server = Server() Console.writeLine(server.port()) server.stop() } }", "8080\n");
+    runs("class Application { main() { final server = Server() Console.printLine(server.port()) server.stop() } }", "8080\n");
     rejects("class Application { main() { final app = server() } }", "use Server()");
 }
 
@@ -790,8 +796,8 @@ fn lowercase_variables_and_console_output_remain_valid() {
         final math = 4
         final json = 'data'
         final response = 'ok'
-        if (math < 5) { Console.writeLine(math) }
-        Console.writeLine(json) Console.writeLine(response)
+        if (math < 5) { Console.printLine(math) }
+        Console.printLine(json) Console.printLine(response)
         final sqlite = SQLite.open(':memory:') sqlite.close()
     } }"#, "4\ndata\nok\n");
 }
@@ -799,15 +805,15 @@ fn lowercase_variables_and_console_output_remain_valid() {
 #[test]
 fn log_shorthand_levels_filtering_and_console_streams() {
     let output = native(r#"class Application { main() {
-        Log('hello') Log.info('hello')
+        log('hello') Log.info('hello')
         Log.debug('hidden') Log.warn('warning') Log.error('failure')
         Log.setLevel('debug') Log.debug(42) Log.info(true)
-        Log.setLevel('warn') Log('hidden') Log.warn(2.5) Log.error(false)
+        Log.setLevel('warn') log('hidden') Log.warn(2.5) Log.error(false)
         Log.setLevel('off') Log.error('hidden')
-        Console.write('plain ') Console.writeLine(7)
-        Log.setLevel('INFO') Log('back')
-        try { Log.setLevel('invalid') } catch (Error err) { Console.writeLine('invalid level') }
-        Log('still info')
+        Console.print('plain ') Console.printLine(7)
+        Log.setLevel('INFO') log('back')
+        try { Log.setLevel('invalid') } catch (Error err) { Console.printLine('invalid level') }
+        log('still info')
     } }"#);
     assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
     assert_eq!(String::from_utf8_lossy(&output.stdout), "plain 7\ninvalid level\n");
@@ -824,12 +830,12 @@ fn log_nullable_values_interpolation_and_error_messages() {
             bool? flag = false
             decimal? real = 0.0
             string? text = null
-            Log(number) Log.warn(flag) Log.error(real) Log.info(text) Log(null)
-            int? missing = null Log(missing)
-            Log('scalars ${4294967296L} ${true} ${2.5} ${missing}')
-            Log('value ${this.value()}') Console.writeLine(this._calls)
+            log(number) Log.warn(flag) Log.error(real) Log.info(text) log(null)
+            int? missing = null log(missing)
+            log('scalars ${4294967296L} ${true} ${2.5} ${missing}')
+            log('value ${this.value()}') Console.printLine(this._calls)
             try { throw Failure('boom') } catch (Error err) { Log.error(err) }
-            Console.writeLine('recovered')
+            Console.printLine('recovered')
         }
     }"#);
     assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
@@ -838,16 +844,15 @@ fn log_nullable_values_interpolation_and_error_messages() {
 }
 
 #[test]
-fn log_checks_arity_types_capitalization_and_removed_print() {
-    rejects("class Application { main() { print('old') } }", "print() was removed");
-    rejects("class Application { main() { Log() } }", "exactly one value");
+fn log_checks_arity_types_and_capitalization() {
+    rejects("class Application { main() { log() } }", "exactly one value");
     rejects("class Application { main() { Log.info('a', 'b') } }", "exactly one value");
     rejects("class Application { main() { Log.warn() } }", "exactly one value");
     rejects("class Application { main() { Log.setLevel(1) } }", "setLevel requires a string");
-    rejects("class Application { main() { log('wrong case') } }", "use Log()");
+    rejects("class Application { main() { Log('wrong case') } }", "Use log(value)");
     rejects("class Application { main() { log.info('wrong case') } }", "use Log");
-    rejects("class Item {} class Application { main() { Log(Item()) } }", "Output requires");
-    rejects("class Application { main() { Console.writeLine() } }", "exactly one value");
+    rejects("class Item {} class Application { main() { log(Item()) } }", "Output requires");
+    rejects("class Application { main() { Console.printLine() } }", "exactly one value");
     rejects("class Application { main() { Console() } }", "do not create instances");
 }
 
@@ -857,8 +862,8 @@ fn log_threshold_is_shared_with_tasks_and_filtering_keeps_argument_evaluation() 
         int next() { this._calls = this._calls + 1 return this._calls }
         async worker() { Log.debug('from worker') }
         main() {
-            Log.setLevel('off') Log(this.next())
-            Console.writeLine(this.calls())
+            Log.setLevel('off') log(this.next())
+            Console.printLine(this.calls())
             Log.setLevel('debug') await this.worker()
         }
     }"#);
@@ -871,19 +876,19 @@ fn log_threshold_is_shared_with_tasks_and_filtering_keeps_argument_evaluation() 
 fn log_context_values_records_and_cleanup() {
     let output = native(r#"class Application { main() {
         Log.clear()
-        Console.writeLine(Log.get('absent') == null)
+        Console.printLine(Log.get('absent') == null)
         Log.put('user', 'alice') Log.put('requestId', 'req-42')
         string? original = Log.get('user')
-        Log('processing')
+        log('processing')
         Log.put('user', 'bob') Log.warn('retry')
-        Console.writeLine(Log.get('user'))
+        Console.printLine(Log.get('user'))
         Log.remove('requestId') Log.remove('absent')
         Log.error('failed')
-        try { throw 'oops' } catch (Error err) { Log(err) } finally { Log.clear() }
-        Console.writeLine(original)
-        Console.writeLine(Log.get('user') == null)
+        try { throw 'oops' } catch (Error err) { log(err) } finally { Log.clear() }
+        Console.printLine(original)
+        Console.printLine(Log.get('user') == null)
         Log.info('clean')
-        Log.put('empty', '') Console.writeLine(Log.get('empty') == '') Log.clear()
+        Log.put('empty', '') Console.printLine(Log.get('empty') == '') Log.clear()
     } }"#);
     assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
     assert_eq!(String::from_utf8_lossy(&output.stdout), "true\nbob\nalice\ntrue\ntrue\n");
@@ -898,7 +903,7 @@ fn log_context_task_snapshots_and_sibling_isolation() {
             Log.put('request', name)
             await ready.send(1)
             await release.receive()
-            Log('child')
+            log('child')
             return Log.get('request') ?? 'missing'
         }
         async fail() { Log.put('request', 'failed task') throw 'failure' }
@@ -910,12 +915,12 @@ fn log_context_task_snapshots_and_sibling_isolation() {
             await ready.receive() await ready.receive()
             Log.put('request', 'changed parent')
             await release.send(1) await release.send(1)
-            Console.writeLine(await first) Console.writeLine(await second)
-            Console.writeLine(Log.get('request'))
-            try { await this.fail() } catch (Error err) { Console.writeLine(Log.get('request')) }
+            Console.printLine(await first) Console.printLine(await second)
+            Console.printLine(Log.get('request'))
+            try { await this.fail() } catch (Error err) { Console.printLine(Log.get('request')) }
             Log.clear()
             final inherited = async Log.get('request')
-            Console.writeLine(await inherited == null)
+            Console.printLine(await inherited == null)
         }
     }"#);
     assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
@@ -933,7 +938,7 @@ fn log_context_argument_validation() {
     rejects("class Application { main() { Log.get(null) } }", "must be non-null strings");
     rejects("class Application { main() { Log.get('key', 'extra') } }", "1 arguments");
     rejects("class Application { main() { Log.clear('key') } }", "0 arguments");
-    rejects("class Application { main() { Log.put('key', Log('message')) } }", "must be non-null strings");
+    rejects("class Application { main() { Log.put('key', log('message')) } }", "must be non-null strings");
     rejects("class Application { main() { string value = Log.get('key') } }", "Mismatched initializer type");
 }
 
@@ -943,4 +948,59 @@ fn log_context_example_runs() {
     assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
     assert_eq!(String::from_utf8_lossy(&output.stdout), "req-42\n");
     assert_eq!(String::from_utf8_lossy(&output.stderr), "[INFO] {\"requestId\":\"req-42\"} Processing request\n[WARN] {\"requestId\":\"req-42\",\"user\":\"alice\"} Retrying operation\n[INFO] Context cleared\n");
+}
+
+#[test]
+fn console_reads_unicode_lines_and_eof() {
+    let source = r#"class Application { main() {
+        string? character = Console.read()
+        string? line = Console.readLine()
+        Console.printLine(character ?? 'EOF')
+        Console.printLine(line ?? 'EOF')
+        Console.printLine(Console.readLine() ?? 'EOF')
+        Console.printLine(Console.readLine() ?? 'EOF')
+        Console.printLine(Console.read() ?? 'EOF')
+        Console.printLine(Console.readLine() ?? 'EOF')
+    } }"#;
+    let output = native_with_input(source, "🍠hello\r\n\nlast".as_bytes());
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    assert_eq!(String::from_utf8_lossy(&output.stdout), "🍠\nhello\n\nlast\nEOF\nEOF\n");
+    rejects("class Application { main() { Console.read(1) } }", "no arguments");
+    rejects("class Application { main() { Console.readLine('x') } }", "no arguments");
+}
+#[test]
+fn console_input_failures_can_be_caught() {
+    let output = native_with_input(r#"class Application { main() {
+        try { Console.read() } catch (GenericError err) { Console.printLine('caught') }
+    } }"#, &[0xff]);
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    assert_eq!(String::from_utf8_lossy(&output.stdout), "caught\n");
+}
+
+#[test]
+fn console_print_methods_and_shorthand() {
+    let output = native(r#"class Application {
+        int next() { Console.print('evaluated:') return 42 }
+        main() {
+            Log.setLevel('off')
+            Console.print('hello ')
+            Console.printLine('world')
+            print(this.next())
+            print(true)
+            int? missing = null
+            print(missing)
+            print(GenericError('oops'))
+            print('')
+        }
+    }"#);
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    assert_eq!(String::from_utf8_lossy(&output.stdout), "hello world\nevaluated:42\ntrue\nnull\noops\n\n");
+    assert!(output.stderr.is_empty());
+    for call in ["print()", "print(1, 2)", "Console.print()", "Console.printLine(1, 2)"] {
+        rejects(&format!("class Application {{ main() {{ {call} }} }}"), "exactly one value");
+    }
+    for call in ["Console.write('old')", "Console.writeLine('old')"] {
+        rejects(&format!("class Application {{ main() {{ {call} }} }}"), "requires a class call");
+    }
+    rejects("class Item {} class Application { main() { print(Item()) } }", "Output requires");
 }

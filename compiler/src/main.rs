@@ -90,7 +90,7 @@ edition = "2026"
     // 3. Create src/main.ube
     let main_ube_content = r#"class Application {
     main() {
-        Log('Hello from Ube!')
+        log('Hello from Ube!')
     }
 }
 "#;

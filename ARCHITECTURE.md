@@ -176,9 +176,9 @@ The compiler lowers `try` / typed `catch` / `finally` / `throw` into explicit co
 
 ### 4.2 Built-in Logging and Console Output
 
-The parser rewrites `Log(value)` into `Log.info(value)`. `Log` and `Console`
+The parser rewrites `log(value)` into `Log.info(value)`. `Log` and `Console`
 are compiler-recognized built-ins, with static call, arity, and value-type checks.
-The old `print()` directive is rejected. The compiler lowers supported values to
+The parser also rewrites `print(value)` into `Console.printLine(value)`. The compiler lowers supported values to
 one of the runtime output functions:
 
 - `ube_output_str(i32 mode, i8* value)`
@@ -187,7 +187,7 @@ one of the runtime output functions:
 - `ube_output_bool(i32 mode, i1 value)`
 
 Modes 0–3 are DEBUG, INFO, WARN, and ERROR, written to stderr with a severity
-label and newline. Modes 4–5 implement `Console.write` and `Console.writeLine`
+label and newline. Modes 4–5 implement `Console.print` and `Console.printLine`
 on stdout, independently of logging filters. Nullable scalar output branches on
 presence; `Error` values dispatch through `message()`. Arguments are evaluated
 once even when a message is filtered out.

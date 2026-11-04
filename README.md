@@ -46,23 +46,24 @@
 - Underscore-prefixed backing fields are class-private: only code inside `User` can read or write `user._age`. There are no `public`, `private`, or `protected` keywords.
 
 ### 8. Built-in Logging & Console Output
-- `Log(value)` and `Log.info(value)` are equivalent. `Log.warn(value)`, `Log.debug(value)`, and `Log.error(value)` record the corresponding severity.
+- `log(value)` and `Log.info(value)` are equivalent. `Log.warn(value)`, `Log.debug(value)`, and `Log.error(value)` record the corresponding severity.
 - Logs go to **stderr** with a level label and a newline, for example `[INFO] Ready`. Logging an error does not throw or stop the program.
 - The default threshold is `info`: debug messages are hidden. `Log.setLevel('debug')` enables every level; `info`, `warn`, `error`, and `off` select higher thresholds. The setting is shared across tasks.
-- `Console.write(value)` writes plain **stdout** without a newline; `Console.writeLine(value)` adds one. Console output is never filtered.
+- `Console.read()` reads one Unicode character; `Console.readLine()` reads a line, removing its LF or CRLF terminator. Both take no arguments and return `string?`: `null` at EOF, and an empty string for an empty line. Input failures raise `GenericError`. Reads use buffered stdin and may wait for Enter in an interactive terminal.
+- `Console.print(value)` writes plain **stdout** without a newline; `Console.printLine(value)` adds one. Console output is never filtered.
 - Values can be strings, numbers, booleans, nullable scalars/strings, or objects satisfying `Error` (their `message()` is logged). NULL is written as `null`.
-- The old `print()` built-in has been removed. Use `Log(...)` for diagnostics or `Console.writeLine(...)` for user-facing output.
+- `print(value)` is shorthand for `Console.printLine(value)`. Use `log(...)` for diagnostics.
 
 ```ube
 class Application {
     main() {
-        Log('Application started')
+        log('Application started')
         Log.info('Ready')
         Log.warn('Retrying connection')
         Log.setLevel('debug')
         Log.debug('Detailed diagnostics')
         Log.error('Connection failed')
-        Console.writeLine('User-facing result')
+        Console.printLine('User-facing result')
     }
 }
 ```
@@ -290,19 +291,19 @@ trait Printable {
 // Class definitions — NO 'implements' keyword needed!
 class User(long id, string name) {
     printDetails() {
-        Log('User #${this._id}: ${this._name}')
+        log('User #${this._id}: ${this._name}')
     }
 }
 
 class Invoice(long id, decimal total) {
     printDetails() {
-        Log('Invoice #${this._id}: \$${this._total}')
+        log('Invoice #${this._id}: \$${this._total}')
     }
 }
 
 class Application {
     render(Printable item) {
-        Log(item.getHeader())
+        log(item.getHeader())
         item.printDetails()
     }
 
@@ -330,17 +331,17 @@ class Application {
 
         // 1. Logical negation of boolean values
         if (not isConnected) {
-            Log('System is disconnected') // Executes because not false is true
+            log('System is disconnected') // Executes because not false is true
         }
 
         // 2. Truthiness negation (falsy check)
         if (not input) {
-            Log('No input provided') // Executes because empty string is falsy
+            log('No input provided') // Executes because empty string is falsy
         }
 
         // 3. Negated type check ('is not')
         if (data is not string) {
-            Log('Data is not a text string') // Executes because data is an int
+            log('Data is not a text string') // Executes because data is an int
         }
     }
 }
@@ -354,14 +355,14 @@ Because Ube has **no `extends` keyword**, code reuse and polymorphism are achiev
 // Component Class 1: Engine
 class Engine(int horsepower) {
     start() {
-        Log('Engine started (${this._horsepower} HP)')
+        log('Engine started (${this._horsepower} HP)')
     }
 }
 
 // Component Class 2: Logger
 class Logger(string prefix) {
     info(string message) {
-        Log('[${this._prefix}] ${message}')
+        log('[${this._prefix}] ${message}')
     }
 }
 
@@ -403,7 +404,7 @@ Create a shared instance explicitly at startup and pass it into dependent servic
 ```java
 class DatabaseConnection(string connectionUrl) {
     query(string sql) {
-        Log('Executing query on ${this._connectionUrl}: ${sql}')
+        log('Executing query on ${this._connectionUrl}: ${sql}')
     }
 }
 
@@ -486,7 +487,7 @@ class Application {
             case East  -> 'Heading East'
             case West  -> 'Heading West'
         }
-        Log(dirName)
+        log(dirName)
 
         // 2. Destructuring Payload Variant
         final status = OrderStatus.Approved(10042L, 250.00)
@@ -495,12 +496,12 @@ class Application {
             case Approved(id, amount) -> 'Order #${id} Approved for \$${amount}'
             case Rejected(reason) -> 'Order Rejected: ${reason}'
         }
-        Log(statusText)
+        log(statusText)
 
         // 3. Enum Method Call
         final level = LogLevel.Error
         if (level.isCritical()) {
-            Log('Critical log level detected!')
+            log('Critical log level detected!')
         }
     }
 }
@@ -521,7 +522,7 @@ class Application {
             case 500 -> 'Internal Error'
             default -> 'Unknown Code'
         }
-        Log(statusText)
+        log(statusText)
 
         // Case 2: Variant Matching with Payload Destructuring
         final status = OrderStatus.Approved(10042L, 99.99)
@@ -530,7 +531,7 @@ class Application {
             case Approved(id, amt) -> 'Approved ID: ${id}'
             case Rejected(r) -> 'Rejected: ${r}'
         }
-        Log(orderMessage)
+        log(orderMessage)
 
         // Case 3: Type Pattern Matching ('is')
         final Object val = 'Hello World'
@@ -539,7 +540,7 @@ class Application {
             case is int -> '32-bit Integer'
             default -> 'Other Type'
         }
-        Log(typeDesc)
+        log(typeDesc)
 
         // Case 4: Guard Clauses ('if' guards)
         final score = 85
@@ -549,7 +550,7 @@ class Application {
             case s if (s >= 70) -> 'Grade C'
             default -> 'Grade F'
         }
-        Log(grade)
+        log(grade)
 
         // Case 5: Multiple Value Or-Patterns (Comma-separated)
         final day = 'Saturday'
@@ -557,7 +558,7 @@ class Application {
             case 'Saturday', 'Sunday' -> true
             default -> false
         }
-        Log('Is Weekend: ${isWeekend}')
+        log('Is Weekend: ${isWeekend}')
 
         // Case 6: Anonymous Object Structural Matching
         final userObj = { id: 1000, role: 'Admin' }
@@ -566,7 +567,7 @@ class Application {
             case { id: uid } if (uid > 0) -> 'Standard User Access'
             default -> 'Guest Access'
         }
-        Log(accessLevel)
+        log(accessLevel)
     }
 }
 ```
@@ -588,13 +589,13 @@ class Application {
             if (counter > 4) {
                 break // Exit loop
             }
-            Log('Infinite loop step: ${counter}')
+            log('Infinite loop step: ${counter}')
         }
 
         // Case 2: Conditional Condition Loop (Replaces while(condition))
         var remaining = 3
         for (remaining) {
-            Log('Remaining: ${remaining}')
+            log('Remaining: ${remaining}')
             remaining = remaining - 1
         }
 
@@ -604,18 +605,18 @@ class Application {
             if (name == 'Rhea') {
                 continue
             }
-            Log('Name: ${name}')
+            log('Name: ${name}')
         }
 
         // Case 4: Index & Item Destructuring Iteration
         for (index, name in names) {
-            Log('${index}: ${name}')
+            log('${index}: ${name}')
         }
 
         // Case 5: Map Key-Value Destructuring Iteration
         final scores = [1000L: 95, 1001L: 88]
         for (id, score in scores) {
-            Log('ID ${id} -> Score ${score}')
+            log('ID ${id} -> Score ${score}')
         }
 
         // Case 6: Numeric Range Iteration
@@ -623,15 +624,15 @@ class Application {
             if (i == 3) {
                 break
             }
-            Log('Range index: ${i}')
+            log('Range index: ${i}')
         }
 
         // Case 7: for / else 0-Iteration Fallback Clause
         final List<string> emptyItems = []
         for (item in emptyItems) {
-            Log('Item: ${item}')
+            log('Item: ${item}')
         } else {
-            Log('No items found (else executed for 0 iterations)')
+            log('No items found (else executed for 0 iterations)')
         }
     }
 }
@@ -657,9 +658,9 @@ Each example below can be placed inside `Application.main()`.
 ```ube
 final items = []
 for (item in items) {
-    Log(item)
+    log(item)
 } else {
-    Log('no items')
+    log('no items')
 }
 ```
 
@@ -674,9 +675,9 @@ no items
 ```ube
 final items = [10, 20]
 for (item in items) {
-    Log(item)
+    log(item)
 } else {
-    Log('no items')
+    log('no items')
 }
 ```
 
@@ -691,12 +692,12 @@ Output:
 
 ```ube
 for (item in [10, 20]) {
-    Log(item)
+    log(item)
     break
 } else {
-    Log('no items')
+    log('no items')
 }
-Log('after loop')
+log('after loop')
 ```
 
 Output:
@@ -714,9 +715,9 @@ The first iteration has already started when `break` executes. There is no fallb
 for (item in [10, 20]) {
     continue
 } else {
-    Log('no items')
+    log('no items')
 }
-Log('done')
+log('done')
 ```
 
 Output:
@@ -731,19 +732,19 @@ Skipping the remaining statements with `continue` still counts as entering the b
 
 ```ube
 for (false) {
-    Log('body')
+    log('body')
 } else {
-    Log('initially false')
+    log('initially false')
 }
 
 var remaining = 1
 for (remaining > 0) {
-    Log(remaining)
+    log(remaining)
     remaining = remaining - 1
 } else {
-    Log('never entered')
+    log('never entered')
 }
-Log('finished')
+log('finished')
 ```
 
 Output:
@@ -765,7 +766,7 @@ for (item in [1, 3, 5]) {
     }
 }
 if (not found) {
-    Log('no match')
+    log('no match')
 }
 ```
 
@@ -792,12 +793,12 @@ class Application {
         // 1. Truthy object evaluation & flow-sensitive narrowing
         if (optionalUser) {
             // Inside this block, 'optionalUser' is automatically narrowed from User? to non-null User
-            Log('User loaded: ${optionalUser.name()}')
+            log('User loaded: ${optionalUser.name()}')
         }
 
         // 2. Non-zero number (truthy) & empty string (falsy) using word booleans
         if (attempts and not input) {
-            Log('System ready: ${attempts} attempts remaining and no pending input.')
+            log('System ready: ${attempts} attempts remaining and no pending input.')
         }
     }
 }
@@ -814,16 +815,16 @@ class Application {
         final bool isConnected = false
 
         if (not isConnected) {
-            Log('System is currently disconnected')
+            log('System is currently disconnected')
         }
 
         final bool bothActive = isReady and isConnected // false
         final bool eitherActive = isReady or isConnected // true
         final bool neitherActive = not (isReady or isConnected) // false
 
-        Log(bothActive)
-        Log(eitherActive)
-        Log(neitherActive)
+        log(bothActive)
+        log(eitherActive)
+        log(neitherActive)
     }
 }
 ```
@@ -872,17 +873,17 @@ class Application {
         // 1. List literal, indexing, and methods
         final numbers = [10, 20, 30]
         numbers.add(40)
-        Log('List len: ${numbers.len()}, first element: ${numbers[0]}')
+        log('List len: ${numbers.len()}, first element: ${numbers[0]}')
 
         // 2. Map literal, key lookup, and methods
         final scores = [1000L: 95, 1001L: 88]
-        Log('Map len: ${scores.len()}, score for 1000L: ${scores[1000L]}')
+        log('Map len: ${scores.len()}, score for 1000L: ${scores[1000L]}')
 
         // 3. Out-of-bounds error handling
         try {
-            Log(numbers[10]) // Out of bounds!
+            log(numbers[10]) // Out of bounds!
         } catch (Error err) {
-            Log('Caught error: ${err.message()}')
+            log('Caught error: ${err.message()}')
         }
     }
 }
@@ -900,12 +901,12 @@ class Application {
         try {
             throw RequestError('Invalid user request', 400)
         } catch (RequestError err) if (err.code() == 400) {
-            Log(err.message())
-            Log(err.code())
+            log(err.message())
+            log(err.code())
         } catch (Error err) {
-            Log(err.message())
+            log(err.message())
         } finally {
-            Log('Cleanup executed')
+            log('Cleanup executed')
         }
     }
 }
@@ -924,11 +925,11 @@ class Application {
     main() {
         final file = File.open('data.csv')
         try {
-            Log(file.read())
+            log(file.read())
         } catch (FileNotFoundError err) {
-            Log('File does not exist')
+            log('File does not exist')
         } catch (Error err) {
-            Log(err.message())
+            log(err.message())
         } finally {
             file.close()
         }
@@ -946,18 +947,18 @@ class Application {
         final tokyo = manila.in('Asia/Tokyo')
 
         // 2. Instant Invariance (Timestamps match 100%, displayed clock hours differ)
-        Log('Timestamps equal: ${manila.timestamp() == tokyo.timestamp()}') // true!
-        Log('Manila hour: ${manila.hour()}, Tokyo hour: ${tokyo.hour()}')     // 17 vs 18
+        log('Timestamps equal: ${manila.timestamp() == tokyo.timestamp()}') // true!
+        log('Manila hour: ${manila.hour()}, Tokyo hour: ${tokyo.hour()}')     // 17 vs 18
 
         // 3. Unix Timestamps & Formatting
         final dt = DateTime.fromUnix(1788159600)
-        Log('Formatted: ${dt.format('yyyy-MM-dd HH:mm:ss')}')
+        log('Formatted: ${dt.format('yyyy-MM-dd HH:mm:ss')}')
 
         // 4. Time Amounts with Duration
         final start = DateTime.now()
         final timeout = Duration.seconds(30)
         final expires = start.addDuration(timeout)
-        Log('Expires in: ${expires.diffSeconds(start)} seconds')
+        log('Expires in: ${expires.diffSeconds(start)} seconds')
     }
 }
 ```
@@ -970,21 +971,21 @@ class Application {
         // 1. Immutable Financial Money Creation
         final price = Money.php(1250.75)
         final dollar = Money.usd(100.00)
-        Log('Price amount: ${price.amount()}, Currency: ${price.currency().code()}')
+        log('Price amount: ${price.amount()}, Currency: ${price.currency().code()}')
 
         // 2. Currency-Safe Arithmetic
         final shipping = Money.php(100.00)
         final total = price.add(shipping)
-        Log('Total PHP amount: ${total.amount()}')
+        log('Total PHP amount: ${total.amount()}')
 
         // 3. Explicit Currency Conversion via Exchange
         final converted = Exchange.convert(dollar, Currency.PHP, 58.50)
-        Log('100 USD converted to PHP: ${converted.amount()}')
+        log('100 USD converted to PHP: ${converted.amount()}')
 
         // 4. Financial Percentages & Taxes
         final vat = Percent(12)
         final tax = total.multiply(vat)
-        Log('VAT Tax amount: ${tax.amount()}')
+        log('VAT Tax amount: ${tax.amount()}')
     }
 }
 ```
@@ -997,15 +998,15 @@ class Application {
         // 1. One-shot static conveniences
         File.write('logs/app.txt', 'Server initialized\n')
         final content = File.read('logs/app.txt')
-        Log('Log content: ${content}')
+        log('Log content: ${content}')
 
         // 2. Object-oriented handle with cleanup
         final file = File.open('data.csv')
         try {
             final data = file.read()
-            Log('Read ${data.len()} bytes')
+            log('Read ${data.len()} bytes')
         } catch (Error err) {
-            Log('File error: ${err.message()}')
+            log('File error: ${err.message()}')
         } finally {
             file.close()
         }
@@ -1041,18 +1042,18 @@ class Application {
         final jsonText = '{"restaurantID": "0603", "orderType": "DineIn"}'
         final json = Json.parse(jsonText)
         final restaurantId = json.getString('restaurantID')
-        Log('Restaurant ID: ${restaurantId}')
+        log('Restaurant ID: ${restaurantId}')
 
         // 2. Strongly-Typed Record Mapping & Stringification
         final scan = Json.partialParse(jsonText, KitchenOrderScan)
         final formattedJson = Json.stringify(scan)
-        Log('JSON Stringified: ${formattedJson}')
+        log('JSON Stringified: ${formattedJson}')
 
         // 3. XML Traversal & Generation
         final doc = Xml.create('user')
         doc.root().element('name').text('Lem')
         doc.root().element('age').text('40')
-        Log('Generated XML:\n${doc.toString()}')
+        log('Generated XML:\n${doc.toString()}')
     }
 }
 ```
@@ -1067,15 +1068,15 @@ class User(string name = 'Guest', var int age = 18) {}
 class Application {
     main() {
         User zero
-        Log(zero.name()) // Empty string
-        Log(zero.age())  // 0
+        log(zero.name()) // Empty string
+        log(zero.age())  // 0
 
         final configured = User()
-        Log(configured.name()) // Guest
-        Log(configured.age())  // 18
+        log(configured.name()) // Guest
+        log(configured.age())  // 18
 
         User? absent
-        Log(absent == null) // true
+        log(absent == null) // true
     }
 }
 ```
@@ -1190,8 +1191,8 @@ class Application {
                 final rows = read.query()
                 try {
                     for (rows.next()) {
-                        Log(rows.getLong(0))
-                        Log(rows.getString(1)) // Ube
+                        log(rows.getLong(0))
+                        log(rows.getString(1)) // Ube
                     }
                 } finally {
                     rows.close()
@@ -1205,7 +1206,7 @@ class Application {
             try {
                 update.bindString(1, 'Purple yam')
                 update.bindLong(2, id)
-                Log(update.execute()) // 1 affected row
+                log(update.execute()) // 1 affected row
             } finally {
                 update.close()
             }
@@ -1214,7 +1215,7 @@ class Application {
             final delete = db.prepare('DELETE FROM items WHERE id = ?')
             try {
                 delete.bindLong(1, id)
-                Log(delete.execute()) // 1 affected row
+                log(delete.execute()) // 1 affected row
             } finally {
                 delete.close()
             }

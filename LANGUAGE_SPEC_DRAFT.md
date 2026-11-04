@@ -28,7 +28,7 @@ Ube is positioned between Go and Java:
 
 ## 2. Built-in Logging and Console Output
 
-`Log(value)` is shorthand for `Log.info(value)`. `Log.debug(value)`,
+`log(value)` is shorthand for `Log.info(value)`. `Log.debug(value)`,
 `Log.warn(value)`, and `Log.error(value)` select the other severity levels.
 Each emitted record goes to stderr as `[LEVEL] message` followed by a newline.
 Error logging does not throw or terminate execution.
@@ -39,23 +39,23 @@ The process-wide threshold defaults to `info`, hiding debug messages.
 previous threshold unchanged. Argument expressions are evaluated once, including
 when a message is filtered out.
 
-`Console.write(value)` writes plain stdout without adding a newline;
-`Console.writeLine(value)` adds one. Console output is independent of log levels.
+`Console.print(value)` writes plain stdout without adding a newline;
+`Console.printLine(value)` adds one. Console output is independent of log levels.
 Both Console methods and all logging methods require exactly one value.
 Supported values are strings, numeric and boolean scalars, nullable scalars and
 strings, and values satisfying `Error` (formatted using `message()`). NULL is
 formatted as `null`. Arbitrary objects and collections must be formatted explicitly.
-The old `print()` built-in is rejected with a migration diagnostic.
+`print(value)` is shorthand for `Console.printLine(value)` and has the same argument rules.
 
 ```ube
 class Application {
     main() {
-        Log('Application started')
+        log('Application started')
         Log.warn('Retrying connection')
         Log.setLevel('debug')
         Log.debug('Detailed diagnostics')
         Log.error('Connection failed')
-        Console.writeLine('User-facing result')
+        Console.printLine('User-facing result')
     }
 }
 ```
@@ -139,19 +139,19 @@ trait Printable {
 // Class definitions — NO 'implements' keyword needed!
 class User(long id, string name) {
     printDetails() {
-        Log('User #${this._id}: ${this._name}')
+        log('User #${this._id}: ${this._name}')
     }
 }
 
 class Invoice(long id, decimal total) {
     printDetails() {
-        Log('Invoice #${this._id}: \$${this._total}')
+        log('Invoice #${this._id}: \$${this._total}')
     }
 }
 
 class Application {
     render(Printable item) {
-        Log(item.getHeader())
+        log(item.getHeader())
         item.printDetails()
     }
 
@@ -174,7 +174,7 @@ Create shared objects explicitly inside `Application.main()` and inject them thr
 ```java
 class DatabaseConnection(string url) {
     query(string sql) {
-        Log('Querying ${this._url}: ${sql}')
+        log('Querying ${this._url}: ${sql}')
     }
 }
 
@@ -218,7 +218,7 @@ class Application {
         final first = calculator.compute(10)
         final second = calculator.compute(20)
         final result = await Task.all([first, second])
-        Log(result[0] + result[1])
+        log(result[0] + result[1])
     }
 }
 ```
@@ -239,9 +239,9 @@ events.close()
 ```java
 try {
     final message = await inbox.receive().timeout(1000)
-    Log(message)
+    log(message)
 } catch (Error err) {
-    Log(err.message())   // "task timed out"
+    log(err.message())   // "task timed out"
 }
 ```
 
@@ -262,13 +262,13 @@ Ube has **no class inheritance** (`extends` is prohibited). Code reuse and polym
 ```java
 class Engine(int horsepower) {
     start() {
-        Log('Engine started (${this._horsepower} HP)')
+        log('Engine started (${this._horsepower} HP)')
     }
 }
 
 class Logger(string prefix) {
     info(string message) {
-        Log('[${this._prefix}] ${message}')
+        log('[${this._prefix}] ${message}')
     }
 }
 
@@ -345,7 +345,7 @@ class Application {
             case Rejected(reason) -> 'Order rejected: ${reason}'
         }
 
-        Log(message)
+        log(message)
     }
 }
 ```
@@ -362,15 +362,15 @@ Ube uses `for` as its **sole loop keyword**. There is no `while` or `do-while` k
 class Application {
     main() {
         for (item in []) {
-            Log(item)
+            log(item)
         } else {
-            Log('empty') // Runs: zero iterations
+            log('empty') // Runs: zero iterations
         }
 
         for (item in [1]) {
             break
         } else {
-            Log('empty') // Does not run: the body was entered
+            log('empty') // Does not run: the body was entered
         }
     }
 }
@@ -399,23 +399,23 @@ class Application {
         // 3. Collection Element Iteration
         final names = ['Lem', 'Rhea', 'Alex']
         for (name in names) {
-            Log('Name: ${name}')
+            log('Name: ${name}')
         }
 
         // 4. Index & Item Destructuring Iteration
         for (index, name in names) {
-            Log('${index}: ${name}')
+            log('${index}: ${name}')
         }
 
         // 5. Map Key-Value Destructuring Iteration
         final userScores = [1000L: 95, 1001L: 88]
         for (id, score in userScores) {
-            Log('ID ${id} -> Score ${score}')
+            log('ID ${id} -> Score ${score}')
         }
 
         // 6. Numeric Range Iteration
         for (i in 0..5) {
-            Log('Index: ${i}')
+            log('Index: ${i}')
         }
     }
 }
@@ -510,17 +510,17 @@ class Application {
 
         // 1. Logical negation of boolean
         if (not isConnected) {
-            Log('System disconnected')
+            log('System disconnected')
         }
 
         // 2. Falsiness check
         if (not input) {
-            Log('No input provided')
+            log('No input provided')
         }
 
         // 3. Negated type check ('is not')
         if (data is not string) {
-            Log('Data is not a text string')
+            log('Data is not a text string')
         }
     }
 }
