@@ -543,9 +543,10 @@ fn spawn_abi_callback(
     } else {
         unsafe { Box::from_raw(context as *mut UbeTaskContext) }
     };
+    let log_context = crate::logging::snapshot();
     let task = spawn_task_impl(move |token| async move {
         let flag = token.flag();
-        let value = tokio::task::spawn_blocking(move || {
+        let value = tokio::task::spawn_blocking(move || crate::logging::with_context(log_context, || {
             CURRENT_TASK_ERROR.with(|error| *error.borrow_mut() = None);
             crate::exceptions::set_pending(0);
             crate::exceptions::reset_cancellation();
@@ -556,7 +557,7 @@ fn spawn_abi_callback(
             let pending = crate::exceptions::take_pending();
             if pending != 0 { Err(TaskError::Exception(pending)) }
             else { error.map_or(Ok(value), |message| Err(TaskError::Failed(message))) }
-        })
+        }))
         .await
         .map_err(|error| TaskError::Panicked(error.to_string()))?;
         value

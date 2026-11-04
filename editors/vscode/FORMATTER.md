@@ -19,10 +19,10 @@ For example:
 ```ube
 class Application {
     main() {
-        final server = server()
+        final server = Server()
         server.get(
           '/',
-          request -> response.ok(
+          request -> Response.ok(
             'Hello from my Ube server!'
           )
         )

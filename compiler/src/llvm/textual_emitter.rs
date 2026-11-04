@@ -49,11 +49,17 @@ impl TextualLlvmEmitter {
         self.output
             .push_str("declare void @ube_runtime_cleanup()\n");
         self.output.push_str("declare i8* @ube_alloc(i64, i64)\n");
-        self.output.push_str("declare void @ube_print_str(i8*)\n");
-        self.output.push_str("declare void @ube_print_i64(i64)\n");
-        self.output
-            .push_str("declare void @ube_print_f64(double)\n");
-        self.output.push_str("declare void @ube_print_bool(i1)\n");
+        self.output.push_str("declare void @ube_output_str(i32, i8*)\n");
+        self.output.push_str("declare void @ube_output_i64(i32, i64)\n");
+        self.output.push_str("declare void @ube_output_f64(i32, double)\n");
+        self.output.push_str("declare void @ube_output_bool(i32, i1)\n");
+        self.output.push_str("declare void @ube_log_set_level(i8*)\n");
+        self.output.push_str("declare void @ube_log_put(i8*, i8*)\n");
+        self.output.push_str("declare i8* @ube_log_get(i8*)\n");
+        self.output.push_str("declare void @ube_log_remove(i8*)\n");
+        self.output.push_str("declare void @ube_log_clear()\n");
+        self.output.push_str("declare i8* @ube_format_value(i32, i64, i64)\n");
+        self.output.push_str("declare i1 @ube_string_equal(i8*, i8*)\n");
         self.output
             .push_str("declare i8* @ube_string_concat(i8*, i8*)\n");
         self.output.push_str("declare i8* @ube_list_create()\n");
@@ -781,6 +787,12 @@ impl TextualLlvmEmitter {
                 let ty_str = self.type_to_llvm(operand_ty);
                 let l_str = self.emit_operand(left);
                 let r_str = self.emit_operand(right);
+                if matches!(op, BinaryOp::Equal | BinaryOp::NotEqual)
+                    && (operand_ty == &Type::String || matches!(operand_ty, Type::Nullable(inner) if inner.as_ref() == &Type::String)) {
+                    let equal = format!("string_equal_{}", self.string_counter);
+                    self.string_counter += 1;
+                    return format!("%{} = call i1 @ube_string_equal(i8* {}, i8* {})\n  %{} = xor i1 %{}, {}", equal, l_str, r_str, dest.0, equal, if *op == BinaryOp::NotEqual { "true" } else { "false" });
+                }
                 match op {
                     BinaryOp::NullCoalescing => {
                         let tmp_cond = format!("tmp_nc_{}", self.string_counter);
@@ -986,21 +998,37 @@ impl TextualLlvmEmitter {
                 let emitted_symbol = if symbol == "ube_channel_send_async" { "ube_channel_send_value_async" } else { symbol.as_str() };
                 let mut instrs = Vec::new();
                 let mut formatted_args = Vec::new();
-                if symbol.starts_with("ube_print_") {
-                    if let Some(value) = args.first() {
+                if symbol == "ube_format_value" {
+                    let value = &args[0];
+                    let ty = value.get_type();
+                    let inner = ty.nullable_scalar_inner().unwrap_or(&ty);
+                    let tag = match inner { Type::Int | Type::Long | Type::Byte => 0, Type::Decimal => 1, Type::Bool => 2, _ => 3 };
+                    let name = format!("format_value_{}", self.string_counter);
+                    self.string_counter += 1;
+                    let operand = self.emit_operand(value);
+                    let encoded = self.encode_value(&ty, &operand, &name);
+                    instrs.extend(encoded.0);
+                    if let Some(dest) = dest {
+                        instrs.push(format!("%{} = call i8* @ube_format_value(i32 {}, i64 {}, i64 {})", dest.0, tag, encoded.1, encoded.2));
+                    }
+                    return instrs.join("\n  ");
+                }
+                if symbol.starts_with("ube_output_") {
+                    if let Some(value) = args.get(1) {
+                        let mode = self.emit_operand(&args[0]);
                         if let Some(inner) = value.get_type().nullable_scalar_inner() {
                             let llvm = self.type_to_llvm(&value.get_type());
                             let operand = self.emit_operand(value);
-                            let name = format!("print_option_{}", self.string_counter);
+                            let name = format!("output_option_{}", self.string_counter);
                             self.string_counter += 1;
                             let null_text = self.emit_operand(&IrOperand::ConstantString("null".into()));
-                            let (print_symbol, print_ty, print_value, conversion) = match inner {
-                                Type::Int | Type::Byte => ("ube_print_i64", "i64", format!("%{name}_wide"), format!("%{name}_wide = {} {} %{name}_value to i64\n  ", if *inner == Type::Int { "sext" } else { "zext" }, self.type_to_llvm(inner))),
-                                Type::Long => ("ube_print_i64", "i64", format!("%{name}_value"), String::new()),
-                                Type::Bool => ("ube_print_bool", "i1", format!("%{name}_value"), String::new()),
-                                _ => ("ube_print_f64", "double", format!("%{name}_value"), String::new()),
+                            let (output_symbol, output_ty, output_value, conversion) = match inner {
+                                Type::Int | Type::Byte => ("ube_output_i64", "i64", format!("%{name}_wide"), format!("%{name}_wide = {} {} %{name}_value to i64\n  ", if *inner == Type::Int { "sext" } else { "zext" }, self.type_to_llvm(inner))),
+                                Type::Long => ("ube_output_i64", "i64", format!("%{name}_value"), String::new()),
+                                Type::Bool => ("ube_output_bool", "i1", format!("%{name}_value"), String::new()),
+                                _ => ("ube_output_f64", "double", format!("%{name}_value"), String::new()),
                             };
-                            return format!("%{name}_present = extractvalue {llvm} {operand}, 0\n  br i1 %{name}_present, label %{name}_some, label %{name}_null\n{name}_some:\n  %{name}_value = extractvalue {llvm} {operand}, 1\n  {conversion}call void @{print_symbol}({print_ty} {print_value})\n  br label %{name}_end\n{name}_null:\n  call void @ube_print_str(i8* {null_text})\n  br label %{name}_end\n{name}_end:");
+                            return format!("%{name}_present = extractvalue {llvm} {operand}, 0\n  br i1 %{name}_present, label %{name}_some, label %{name}_null\n{name}_some:\n  %{name}_value = extractvalue {llvm} {operand}, 1\n  {conversion}call void @{output_symbol}(i32 {mode}, {output_ty} {output_value})\n  br label %{name}_end\n{name}_null:\n  call void @ube_output_str(i32 {mode}, i8* {null_text})\n  br label %{name}_end\n{name}_end:");
                         }
                     }
                 }
@@ -1066,11 +1094,11 @@ impl TextualLlvmEmitter {
                         formatted_args.push(format!("i64 %{}", ext_reg));
                         continue;
                     }
-                    if symbol == "ube_print_i64" && arg_ty == Type::Int {
+                    if symbol == "ube_output_i64" && index == 1 && matches!(arg_ty, Type::Int | Type::Byte) {
                         let ext_reg = format!("ext_{}", self.string_counter);
                         self.string_counter += 1;
                         let val_str = self.emit_operand(a);
-                        instrs.push(format!("%{} = sext i32 {} to i64", ext_reg, val_str));
+                        instrs.push(format!("%{} = {} {} {} to i64", ext_reg, if arg_ty == Type::Byte { "zext" } else { "sext" }, self.type_to_llvm(&arg_ty), val_str));
                         formatted_args.push(format!("i64 %{}", ext_reg));
                     } else {
                         formatted_args.push(format!(

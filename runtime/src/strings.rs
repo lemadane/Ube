@@ -72,3 +72,10 @@ pub extern "C" fn ube_string_concat(a: *const c_char, b: *const c_char) -> *cons
         std::ptr::null()
     }
 }
+
+/// String equality compares contents; NULL equals only NULL, never empty text.
+#[no_mangle]
+pub extern "C" fn ube_string_equal(left: *const c_char, right: *const c_char) -> bool {
+    if left.is_null() || right.is_null() { return left == right; }
+    unsafe { CStr::from_ptr(left) == CStr::from_ptr(right) }
+}

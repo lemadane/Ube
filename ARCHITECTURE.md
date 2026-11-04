@@ -64,7 +64,8 @@ Ube/
 │       ├── lib.rs                  # C-ABI runtime init & cleanup
 │       ├── memory.rs               # Tracked heap allocations & shutdown cleanup
 │       ├── strings.rs              # UTF-8 string runtime primitives
-│       ├── io.rs                   # System I/O wrappers (@ube_print_str, etc.)
+│       ├── io.rs                   # File, stream, and server I/O wrappers
+│       ├── logging.rs              # Severity filtering and Console/Log output
 │       ├── exceptions.rs           # Pending errors, structural identity & suppression
 │       ├── concurrency.rs          # Tokio tasks/channels & one-shot cancellation
 │       ├── gc.rs                   # Precise incremental GC stubs
@@ -173,23 +174,41 @@ Generated backing fields such as `_age` are class-private. Public access require
 
 The compiler lowers `try` / typed `catch` / `finally` / `throw` into explicit control flow and a runtime pending-error channel, without unwinding through Rust. Cleanup runs across returns, loop exits, and propagated exceptions. Cleanup failures preserve pending errors as suppressed. Awaited failures retain their error objects. Cancellation is delivered once per worker so later cleanup awaits can complete; those awaits can still fail or time out.
 
-### 4.2 Built-in `print` Directive
-Ube provides `print(...)` as the sole built-in output directive (always appends a newline, equivalent to Java's `System.out.println` or Python's `print()`). There is no separate `println` keyword in Ube.
+### 4.2 Built-in Logging and Console Output
 
-```java
-class Application {
-    main() {
-        final user = User(1000, 'Lem', 35)
-        print('Hello, ${user.name()}!') // Built-in print directive (always includes newline)
-    }
-}
-```
+The parser rewrites `Log(value)` into `Log.info(value)`. `Log` and `Console`
+are compiler-recognized built-ins, with static call, arity, and value-type checks.
+The old `print()` directive is rejected. The compiler lowers supported values to
+one of the runtime output functions:
 
-System intrinsics for `print` are wired directly to native runtime static library symbols (`ube_runtime.a`):
-- `ube_print_str(i8*)`
-- `ube_print_i64(i64)`
-- `ube_print_f64(double)`
-- `ube_print_bool(i1)`
+- `ube_output_str(i32 mode, i8* value)`
+- `ube_output_i64(i32 mode, i64 value)`
+- `ube_output_f64(i32 mode, double value)`
+- `ube_output_bool(i32 mode, i1 value)`
+
+Modes 0–3 are DEBUG, INFO, WARN, and ERROR, written to stderr with a severity
+label and newline. Modes 4–5 implement `Console.write` and `Console.writeLine`
+on stdout, independently of logging filters. Nullable scalar output branches on
+presence; `Error` values dispatch through `message()`. Arguments are evaluated
+once even when a message is filtered out.
+
+`ube_log_set_level(i8*)` updates a process-wide atomic threshold, defaulting to
+INFO. Invalid settings and output failures use the pending-exception channel.
+Each output call locks its stream to avoid interleaved records across tasks.
+This API implements console severity logging, without Java's handler hierarchy,
+file rotation, or automatic exception stack-trace formatting.
+
+MDC operations lower to `ube_log_put`, `ube_log_get`, `ube_log_remove`, and
+`ube_log_clear`. The runtime stores context in a thread-local ordered string map.
+`get` returns a tracked copy or NULL, matching Ube's `string?` ABI. Log records
+include a JSON-escaped context object when the map is nonempty.
+
+The native task bridge captures a context snapshot before scheduling a callback.
+Each blocking worker installs that snapshot with an RAII guard, which restores
+its previous context when the callback exits. This isolates child and sibling
+tasks while supporting inheritance across nested task creation. The map is not
+installed on Tokio's shared async worker threads. Context is released at runtime
+cleanup; the process-wide severity threshold is independent of context.
 
 ---
 

@@ -50,20 +50,20 @@ impl TypeChecker {
     }
 
     fn register_builtins(&mut self) {
-        let mut console_methods = HashMap::new();
-        console_methods.insert("print".into(), (vec![Type::String], Type::Void));
+        for (name, methods) in [("Log", vec!["info", "warn", "debug", "error", "setLevel"]), ("Console", vec!["write", "writeLine"])] {
+            self.classes.insert(name.into(), ClassInfo {
+                name: name.into(), fields: HashMap::new(),
+                methods: methods.into_iter().map(|name| (name.into(), (vec![Type::String], Type::Void))).collect(),
+                param_types: vec![], min_constructor_args: 0, max_constructor_args: 0,
+            });
+        }
 
-        self.classes.insert(
-            "Console".into(),
-            ClassInfo {
-                name: "Console".into(),
-                fields: HashMap::new(),
-                methods: console_methods,
-                param_types: Vec::new(),
-                min_constructor_args: 0,
-                max_constructor_args: 0,
-            },
-        );
+        if let Some(log) = self.classes.get_mut("Log") {
+            log.methods.insert("put".into(), (vec![Type::String, Type::String], Type::Void));
+            log.methods.insert("get".into(), (vec![Type::String], Type::Nullable(Box::new(Type::String))));
+            log.methods.insert("remove".into(), (vec![Type::String], Type::Void));
+            log.methods.insert("clear".into(), (vec![], Type::Void));
+        }
 
         let mut error_trait_methods = HashMap::new();
         error_trait_methods.insert("message".into(), (Vec::new(), Type::String));
@@ -2244,12 +2244,6 @@ impl TypeChecker {
 
     fn check_expr(&mut self, cls: &ClassDecl, expr: &Expr) -> Option<Type> {
         match &expr.kind {
-            ExprKind::Print {
-                expr: inner_expr, ..
-            } => {
-                self.check_expr(cls, inner_expr);
-                Some(Type::Void)
-            }
             ExprKind::IntLiteral(_) => Some(Type::Int),
             ExprKind::LongLiteral(_) => Some(Type::Long),
             ExprKind::DecimalLiteral(_) => Some(Type::Decimal),
@@ -2285,7 +2279,9 @@ impl TypeChecker {
                     Some(Type::Class { name: name.clone() })
                 } else {
                     self.diagnostics.push(Diagnostic::error(
-                        format!("Undeclared identifier '{}'", name),
+                        crate::builtins::builtin_class_case_suggestion(name)
+                            .map(|canonical| format!("Built-in classes require capitalization; use {}", canonical))
+                            .unwrap_or_else(|| format!("Undeclared identifier '{}'", name)),
                         Some(expr.span),
                     ));
                     None
@@ -2356,6 +2352,43 @@ impl TypeChecker {
                     ExprKind::MemberAccess { object, member, .. } => {
                         if let Some(obj_ty) = self.check_expr(cls, object) {
                             if let Type::Class { name } = &obj_ty {
+                                if (name == "List" || name == "Map") && member == "len" && args.is_empty() {
+                                    return Some(Type::Int);
+                                }
+                                let class_receiver = matches!(&object.kind, ExprKind::Identifier(n) if self.symbol_table.lookup(n).is_none() && canonical_builtin_class_name(n).is_some());
+                                if !class_receiver && args.is_empty() {
+                                    if name == "Distance" && ["meters", "kilometers", "miles"].contains(&member.as_str()) {
+                                        return Some(Type::Decimal);
+                                    }
+                                    if name == "XmlElement" && member == "text" {
+                                        return Some(Type::String);
+                                    }
+                                }
+                                if name == "Log" || name == "Console" {
+                                    let static_call = matches!(&object.kind, ExprKind::Identifier(n) if self.symbol_table.lookup(n).is_none() && canonical_builtin_class_name(n).is_some());
+                                    if name == "Log" && ["put", "get", "remove", "clear"].contains(&member.as_str()) {
+                                        let (params, result) = self.classes["Log"].methods[member].clone();
+                                        if !static_call || args.len() != params.len() {
+                                            self.diagnostics.push(Diagnostic::error(format!("Log.{} requires a class call with {} arguments", member, params.len()), Some(expr.span)));
+                                            return None;
+                                        }
+                                        if !arg_types.iter().zip(&params).all(|(actual, expected)| actual == expected) {
+                                            self.diagnostics.push(Diagnostic::error("Log context keys and values must be non-null strings", Some(expr.span)));
+                                        }
+                                        return Some(result);
+                                    }
+                                    let known = if name == "Log" { ["info", "warn", "debug", "error", "setLevel"].contains(&member.as_str()) } else { ["write", "writeLine"].contains(&member.as_str()) };
+                                    if !static_call || !known || args.len() != 1 {
+                                        self.diagnostics.push(Diagnostic::error(format!("{}.{} requires a class call with exactly one value", name, member), Some(expr.span)));
+                                        return None;
+                                    }
+                                    if let Some(ty) = arg_types.first() {
+                                        if (member == "setLevel" && *ty != Type::String) || (member != "setLevel" && !self.is_output_type(ty)) {
+                                            self.diagnostics.push(Diagnostic::error("Output requires a scalar, nullable scalar, string, or Error value; setLevel requires a string", Some(expr.span)));
+                                        }
+                                    }
+                                    return Some(Type::Void);
+                                }
                                 if crate::builtins::SQLITE_CLASSES.contains(&name.as_str()) {
                                     if let Some(method) = crate::builtins::sqlite_methods(name).into_iter().find(|m| m.name == member) {
                                         let static_call = matches!(&object.kind, ExprKind::Identifier(n) if self.symbol_table.lookup(n).is_none() && canonical_builtin_class_name(n).is_some());
@@ -2565,6 +2598,10 @@ impl TypeChecker {
                 args,
             } => {
                 let class_name = canonical_builtin_class_name(class_name).unwrap_or(class_name);
+                if class_name == "Log" || class_name == "Console" {
+                    self.diagnostics.push(Diagnostic::error("Use Log(value), Log.info(value), or Console.writeLine(value); these built-ins do not create instances", Some(expr.span)));
+                    return None;
+                }
                 if crate::builtins::SQLITE_CLASSES.contains(&class_name) {
                     self.diagnostics.push(Diagnostic::error("Use SQLite.open(path) or connection.query(sql) to create SQLite handles", Some(expr.span)));
                     return None;
@@ -2939,6 +2976,15 @@ impl TypeChecker {
         let methods = self.classes.get(source).map(|c| &c.methods)
             .or_else(|| self.traits.get(source).map(|t| &t.methods));
         methods.is_some_and(|methods| required.methods.iter().all(|(name, signature)| methods.get(name).map_or_else(|| required.defaults.contains(name), |actual| actual == signature)))
+    }
+
+    fn is_output_type(&self, ty: &Type) -> bool {
+        match ty {
+            Type::String | Type::Int | Type::Long | Type::Byte | Type::Decimal | Type::Bool => true,
+            Type::Nullable(inner) => matches!(inner.as_ref(), Type::Void | Type::String | Type::Int | Type::Long | Type::Byte | Type::Decimal | Type::Bool),
+            Type::Class { name } => self.satisfies_trait(name, "Error"),
+            _ => false,
+        }
     }
 
     fn is_valid_condition_type(&self, ty: &Type) -> bool {

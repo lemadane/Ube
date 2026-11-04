@@ -15,7 +15,7 @@ Ube is positioned between Go and Java:
 * Native performance and simple single-binary deployment like Go.
 * Familiar, readable, brace-delimited syntax like Java.
 * Pure object-oriented programming model (everything is an instance method of a class).
-* Built-in `print(...)` directive for output (always appends a newline, equivalent to Java `System.out.println` or Python `print()`).
+* Built-in `Log` for severity-filtered diagnostics on stderr and `Console` for plain stdout output.
 * Implicit void return types: methods without an explicit return type default to void. The `void` keyword does not exist in Ube.
 * Immutable by default (fields, parameters, local variables).
 * No semicolons in code: statement terminators and separators using `;` are compile errors. Semicolons inside literals and comments are permitted. A return value must begin on the same line as `return`; a newline ends a bare return.
@@ -26,18 +26,60 @@ Ube is positioned between Go and Java:
 
 ---
 
-## 2. Built-in I/O Directive (`print`)
+## 2. Built-in Logging and Console Output
 
-Ube provides `print(...)` as the sole built-in output directive. `print` **always appends a newline** upon execution (equivalent to Java's `System.out.println` or Python's `print()`).
+`Log(value)` is shorthand for `Log.info(value)`. `Log.debug(value)`,
+`Log.warn(value)`, and `Log.error(value)` select the other severity levels.
+Each emitted record goes to stderr as `[LEVEL] message` followed by a newline.
+Error logging does not throw or terminate execution.
 
-```java
+The process-wide threshold defaults to `info`, hiding debug messages.
+`Log.setLevel(level)` accepts case-insensitive strings `debug`, `info`, `warn`,
+`error`, and `off`. Invalid levels raise a catchable `Error` and leave the
+previous threshold unchanged. Argument expressions are evaluated once, including
+when a message is filtered out.
+
+`Console.write(value)` writes plain stdout without adding a newline;
+`Console.writeLine(value)` adds one. Console output is independent of log levels.
+Both Console methods and all logging methods require exactly one value.
+Supported values are strings, numeric and boolean scalars, nullable scalars and
+strings, and values satisfying `Error` (formatted using `message()`). NULL is
+formatted as `null`. Arbitrary objects and collections must be formatted explicitly.
+The old `print()` built-in is rejected with a migration diagnostic.
+
+```ube
 class Application {
     main() {
-    final name = 'Lem'
-        print('Hello, ${name}!')
+        Log('Application started')
+        Log.warn('Retrying connection')
+        Log.setLevel('debug')
+        Log.debug('Detailed diagnostics')
+        Log.error('Connection failed')
+        Console.writeLine('User-facing result')
     }
 }
 ```
+
+### Mapped Diagnostic Context
+
+`Log.put(string key, string value)` adds or replaces a field in the current
+logging context. `Log.get(string key)` returns `string?`, with `null` for absent
+keys. `Log.remove(string key)` removes a field; `Log.clear()` removes all fields.
+Keys and values must be non-null strings. Returned values are stable copies.
+
+Nonempty context is included in every emitted log record as a JSON object
+between the severity label and message. Keys are sorted; keys and values are
+escaped, including quotes, backslashes, and control characters. Context does not
+change Console output or filtering.
+
+Context is local to the current execution thread. A newly created native Ube
+task inherits an isolated copy at creation time, including nested tasks.
+Worker threads restore their prior contexts on task completion, errors, or
+cancellation. No context changes are merged back into a parent or sibling.
+Operations and requests reusing an execution thread must clear their context
+explicitly, normally in `finally`. `Log.setLevel` remains process-wide.
+String equality compares contents, including strings obtained through `Log.get`;
+NULL equals only NULL, not an empty string.
 
 ---
 
@@ -97,19 +139,19 @@ trait Printable {
 // Class definitions — NO 'implements' keyword needed!
 class User(long id, string name) {
     printDetails() {
-        print('User #${this._id}: ${this._name}')
+        Log('User #${this._id}: ${this._name}')
     }
 }
 
 class Invoice(long id, decimal total) {
     printDetails() {
-        print('Invoice #${this._id}: \$${this._total}')
+        Log('Invoice #${this._id}: \$${this._total}')
     }
 }
 
 class Application {
     render(Printable item) {
-        print(item.getHeader())
+        Log(item.getHeader())
         item.printDetails()
     }
 
@@ -132,7 +174,7 @@ Create shared objects explicitly inside `Application.main()` and inject them thr
 ```java
 class DatabaseConnection(string url) {
     query(string sql) {
-        print('Querying ${this._url}: ${sql}')
+        Log('Querying ${this._url}: ${sql}')
     }
 }
 
@@ -176,7 +218,7 @@ class Application {
         final first = calculator.compute(10)
         final second = calculator.compute(20)
         final result = await Task.all([first, second])
-        print(result[0] + result[1])
+        Log(result[0] + result[1])
     }
 }
 ```
@@ -197,9 +239,9 @@ events.close()
 ```java
 try {
     final message = await inbox.receive().timeout(1000)
-    print(message)
+    Log(message)
 } catch (Error err) {
-    print(err.message())   // "task timed out"
+    Log(err.message())   // "task timed out"
 }
 ```
 
@@ -220,13 +262,13 @@ Ube has **no class inheritance** (`extends` is prohibited). Code reuse and polym
 ```java
 class Engine(int horsepower) {
     start() {
-        print('Engine started (${this._horsepower} HP)')
+        Log('Engine started (${this._horsepower} HP)')
     }
 }
 
 class Logger(string prefix) {
     info(string message) {
-        print('[${this._prefix}] ${message}')
+        Log('[${this._prefix}] ${message}')
     }
 }
 
@@ -303,7 +345,7 @@ class Application {
             case Rejected(reason) -> 'Order rejected: ${reason}'
         }
 
-        print(message)
+        Log(message)
     }
 }
 ```
@@ -320,15 +362,15 @@ Ube uses `for` as its **sole loop keyword**. There is no `while` or `do-while` k
 class Application {
     main() {
         for (item in []) {
-            print(item)
+            Log(item)
         } else {
-            print('empty') // Runs: zero iterations
+            Log('empty') // Runs: zero iterations
         }
 
         for (item in [1]) {
             break
         } else {
-            print('empty') // Does not run: the body was entered
+            Log('empty') // Does not run: the body was entered
         }
     }
 }
@@ -357,23 +399,23 @@ class Application {
         // 3. Collection Element Iteration
         final names = ['Lem', 'Rhea', 'Alex']
         for (name in names) {
-            print('Name: ${name}')
+            Log('Name: ${name}')
         }
 
         // 4. Index & Item Destructuring Iteration
         for (index, name in names) {
-            print('${index}: ${name}')
+            Log('${index}: ${name}')
         }
 
         // 5. Map Key-Value Destructuring Iteration
         final userScores = [1000L: 95, 1001L: 88]
         for (id, score in userScores) {
-            print('ID ${id} -> Score ${score}')
+            Log('ID ${id} -> Score ${score}')
         }
 
         // 6. Numeric Range Iteration
         for (i in 0..5) {
-            print('Index: ${i}')
+            Log('Index: ${i}')
         }
     }
 }
@@ -468,17 +510,17 @@ class Application {
 
         // 1. Logical negation of boolean
         if (not isConnected) {
-            print('System disconnected')
+            Log('System disconnected')
         }
 
         // 2. Falsiness check
         if (not input) {
-            print('No input provided')
+            Log('No input provided')
         }
 
         // 3. Negated type check ('is not')
         if (data is not string) {
-            print('Data is not a text string')
+            Log('Data is not a text string')
         }
     }
 }

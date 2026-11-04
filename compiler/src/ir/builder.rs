@@ -317,7 +317,7 @@ impl IrBuilder {
     fn emit(&mut self, instr: IrInstruction) {
         let check = matches!(instr, IrInstruction::CallMethod { .. } | IrInstruction::CallTrait { .. })
             || matches!(&instr, IrInstruction::CallRuntime { symbol, .. }
-                if symbol.starts_with("ube_sqlite_") || symbol.starts_with("ube_file_") || symbol.starts_with("ube_directory_")
+                if symbol.starts_with("ube_output_") || symbol.starts_with("ube_log_") || symbol.starts_with("ube_sqlite_") || symbol.starts_with("ube_file_") || symbol.starts_with("ube_directory_")
                     || symbol.starts_with("ube_stream_") || symbol.starts_with("ube_server_"));
         self.current_instructions.push(instr);
         if check {
@@ -411,6 +411,21 @@ impl IrBuilder {
         let dest = (result_ty != Type::Void).then(|| self.fresh_reg());
         self.emit(IrInstruction::CallTrait { dest, signature, receiver, args, ret_ty: result_ty.clone() });
         dest.map_or(IrOperand::Null, |d| IrOperand::Register(d, result_ty))
+    }
+
+    fn format_output_value(&mut self, mut value: IrOperand) -> IrOperand {
+        if let Type::Class { name } = value.get_type() {
+            if name == "Error" || self.trait_members.get("Error").is_some_and(|members| members.contains(&name)) {
+                value = self.build_trait_call("Error", "message", value, vec![]);
+            }
+        }
+        let ty = value.get_type();
+        let inner = match &ty { Type::Nullable(inner) => inner.as_ref(), _ => &ty };
+        if !matches!(inner, Type::String | Type::Int | Type::Long | Type::Byte | Type::Bool | Type::Decimal | Type::Void) {
+            self.diagnostics.push(Diagnostic::error("String interpolation requires a scalar, string, or Error value", None));
+            return IrOperand::ConstantString(String::new());
+        }
+        self.runtime("ube_format_value", vec![value], Type::String)
     }
 
     fn make_exception(&mut self, value: IrOperand, span: crate::diagnostics::Span) -> IrOperand {
@@ -1706,24 +1721,6 @@ impl IrBuilder {
 
     fn build_expr(&mut self, expr: &Expr) -> IrOperand {
         match &expr.kind {
-            ExprKind::Print { expr: inner } => {
-                let op = self.build_expr(inner);
-                let symbol = match op.get_type() {
-                    Type::String => "ube_print_str",
-                    Type::Int => "ube_print_i64",
-                    Type::Long => "ube_print_i64",
-                    Type::Decimal => "ube_print_f64",
-                    Type::Bool => "ube_print_bool",
-                    _ => "ube_print_str",
-                };
-                self.emit(IrInstruction::CallRuntime {
-                    dest: None,
-                    symbol: symbol.into(),
-                    args: vec![op],
-                    ret_ty: Type::Void,
-                });
-                IrOperand::Null
-            }
             ExprKind::IntLiteral(v) => IrOperand::ConstantInt(*v),
             ExprKind::LongLiteral(v) => IrOperand::ConstantLong(*v),
             ExprKind::DecimalLiteral(v) => IrOperand::ConstantDecimal(*v),
@@ -1758,7 +1755,7 @@ impl IrBuilder {
                             let mut parser = crate::parser::Parser::new(lexer);
                             if let Ok(parsed_expr) = parser.parse_expr(Precedence::None) {
                                 let expr_op = self.build_expr(&parsed_expr);
-                                parts.push(expr_op);
+                                parts.push(self.format_output_value(expr_op));
                             } else if let Some((ptr, ty)) = self.lookup_var(expr_str) {
                                 let dest = self.fresh_reg();
                                 self.emit(IrInstruction::Load {
@@ -1766,7 +1763,7 @@ impl IrBuilder {
                                     ptr,
                                     ty: ty.clone(),
                                 });
-                                parts.push(IrOperand::Register(dest, ty));
+                                parts.push(self.format_output_value(IrOperand::Register(dest, ty)));
                             }
                             curr = &rest[end + 1..];
                         } else {
@@ -1906,6 +1903,31 @@ impl IrBuilder {
                                 },
                                 _ => "Application".into(),
                             });
+                        if class_name == "Log" || class_name == "Console" {
+                            if class_name == "Log" && ["put", "get", "remove", "clear"].contains(&member.as_str()) {
+                                let result = if member == "get" { Type::Nullable(Box::new(Type::String)) } else { Type::Void };
+                                return self.runtime(&format!("ube_log_{}", member), arg_ops, result);
+                            }
+                            if member == "setLevel" {
+                                return self.runtime("ube_log_set_level", arg_ops, Type::Void);
+                            }
+                            let mode = match member.as_str() {
+                                "debug" => 0, "info" => 1, "warn" => 2, "error" => 3,
+                                "write" => 4, "writeLine" => 5, _ => 1,
+                            };
+                            let mut value = arg_ops.into_iter().next().unwrap_or(IrOperand::Null);
+                            if matches!(value.get_type(), Type::Class { .. }) {
+                                value = self.build_trait_call("Error", "message", value, vec![]);
+                            }
+                            let ty = value.get_type();
+                            let inner = ty.nullable_scalar_inner().unwrap_or(&ty);
+                            let suffix = match inner {
+                                Type::Int | Type::Long | Type::Byte => "i64",
+                                Type::Decimal => "f64", Type::Bool => "bool", _ => "str",
+                            };
+                            self.runtime(&format!("ube_output_{}", suffix), vec![IrOperand::ConstantInt(mode), value], Type::Void);
+                            return IrOperand::Null;
+                        }
                         if self.trait_members.contains_key(&class_name) {
                             return self.build_trait_call(&class_name, member, obj_op, arg_ops);
                         }

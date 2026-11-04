@@ -45,7 +45,7 @@ mod tests {
                     final worker = Worker()
                     final task = worker.compute(41)
                     final results = await Task.all([task, worker.compute(42)])
-                    print(results.len())
+                    Console.writeLine(results.len())
                 }
             }
         "#;
@@ -105,8 +105,8 @@ mod tests {
             class Application {
                 void main() {
                     for (index, item in [10, 20]) {
-                        print(index)
-                        print(item)
+                        Console.writeLine(index)
+                        Console.writeLine(item)
                     }
                 }
             }

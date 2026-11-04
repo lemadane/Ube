@@ -142,7 +142,7 @@ try {
     db.commit()
 } catch (SQLiteError err) {
     db.rollback()
-    print(err.message())
+    Log(err.message())
 }
 ```
 

@@ -21,8 +21,8 @@ class Application {
             final rows = db.query('SELECT id, name FROM items ORDER BY id')
             try {
                 for (rows.next()) {
-                    print(rows.getLong(0))
-                    print(rows.getString(1))
+                    Log(rows.getLong(0))
+                    Log(rows.getString(1))
                 }
             } finally {
                 rows.close()

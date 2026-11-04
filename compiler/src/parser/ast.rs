@@ -140,9 +140,6 @@ pub enum ExprKind {
         callee: Box<Expr>,
         args: Vec<Expr>,
     },
-    Print {
-        expr: Box<Expr>,
-    },
     MemberAccess {
         object: Box<Expr>,
         member: String,

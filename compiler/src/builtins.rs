@@ -27,6 +27,7 @@ const BUILTIN_CLASS_NAMES: &[&str] = &[
     "JsonObject",
     "JsonParseError",
     "List",
+    "Log",
     "LocationPermissionError",
     "LocationUnavailableError",
     "Map",
@@ -61,7 +62,13 @@ pub fn canonical_builtin_class_name(name: &str) -> Option<&'static str> {
     BUILTIN_CLASS_NAMES
         .iter()
         .copied()
-        .find(|canonical| name == *canonical || name == canonical.to_ascii_lowercase())
+        .find(|canonical| name == *canonical)
+}
+
+/// Suggest the canonical spelling for a miscapitalized built-in class.
+pub fn builtin_class_case_suggestion(name: &str) -> Option<&'static str> {
+    BUILTIN_CLASS_NAMES.iter().copied()
+        .find(|canonical| name != *canonical && name.eq_ignore_ascii_case(canonical))
 }
 
 /// Shared SQLite ABI: keep semantic checks and emitted calls in agreement.
@@ -429,5 +436,37 @@ pub fn sqlite_methods(class: &str) -> Vec<SQLiteMethod> {
             },
         ],
         _ => vec![],
+    }
+}
+
+#[cfg(test)]
+mod capitalization_tests {
+    use super::*;
+    use crate::{Lexer, Parser, TypeChecker};
+
+    #[test]
+    fn every_builtin_requires_canonical_case_in_constructors_types_and_static_calls() {
+        for &name in BUILTIN_CLASS_NAMES {
+            let canonical = format!("class Application {{ main() {{ final value = {name}() }} }}");
+            let mut parser = Parser::new(Lexer::new(&canonical));
+            parser.parse_program();
+            assert!(parser.diagnostics.is_empty(), "{name}: {:?}", parser.diagnostics);
+            let lower = name.to_ascii_lowercase();
+            for source in [
+                format!("class Application {{ main() {{ final value = {lower}() }} }}"),
+                format!("class Application({lower} value) {{}}"),
+            ] {
+                let mut parser = Parser::new(Lexer::new(&source));
+                parser.parse_program();
+                assert!(parser.diagnostics.iter().any(|d| d.message.contains("capitalization")), "{source}: {:?}", parser.diagnostics);
+            }
+            let source = format!("class Application {{ main() {{ {lower}.method() }} }}");
+            let mut parser = Parser::new(Lexer::new(&source));
+            let program = parser.parse_program();
+            assert!(parser.diagnostics.is_empty(), "{source}: {:?}", parser.diagnostics);
+            let mut checker = TypeChecker::new();
+            assert!(!checker.check_program(&program), "accepted {source}");
+            assert!(checker.diagnostics.iter().any(|d| d.message.contains("capitalization")), "{source}: {:?}", checker.diagnostics);
+        }
     }
 }

@@ -54,7 +54,7 @@
         },
         {
           "name": "support.function.builtin.ube",
-          "match": "\\b(print)\\b"
+          "match": "\\b(Log|Console)\\b"
         },
         {
           "name": "variable.language.this.ube",

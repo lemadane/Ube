@@ -5,17 +5,17 @@ const { formatUbeDocument } = require("../formatter");
 test("formats the starter app using the initial Ube formatting rules", () => {
   const source = `class Application {
 main() {
-final server = server()
-server.get('/', request -> response.ok('Hello from my Ube server!'));
+final server = Server()
+server.get('/', request -> Response.ok('Hello from my Ube server!'));
 server.start(8080)
 }
 }`;
   const expected = `class Application {
     main() {
-        final server = server()
+        final server = Server()
         server.get(
           '/',
-          request -> response.ok('Hello from my Ube server!')
+          request -> Response.ok('Hello from my Ube server!')
         );
         server.start(8080)
     }
@@ -77,25 +77,25 @@ outer(first(one, two), second)
 test("formats the commented src/main.ube example without changing its comments", () => {
   const source = `class Application { // indentions should be 2 spaces in length only
     main() { // method declaration should be 2x indented from the class declaration
-        final server = server() // statement1 should be 2x indented from the method declaration
+        final server = Server() // statement1 should be 2x indented from the method declaration
         // statement2 should be 2x indented from the method declaration
         // method call with 2 or more arguments should be lowered down per argument and 1x indented from its parent method call
         server.get(
         // argument1 should be 1x indented from the method call
           '/',
-          request -> response.ok('Hello from my Ube server!')) // argument2 should be 1x indented from the method call
+          request -> Response.ok('Hello from my Ube server!')) // argument2 should be 1x indented from the method call
         server.start(8080) // statement3 should be 2x indented from the method declaration
   }
 }`;
   const expected = `class Application { // indentions should be 2 spaces in length only
     main() { // method declaration should be 2x indented from the class declaration
-        final server = server() // statement1 should be 2x indented from the method declaration
+        final server = Server() // statement1 should be 2x indented from the method declaration
         // statement2 should be 2x indented from the method declaration
         // method call with 2 or more arguments should be lowered down per argument and 1x indented from its parent method call
         server.get(
           // argument1 should be 1x indented from the method call
           '/',
-          request -> response.ok('Hello from my Ube server!')
+          request -> Response.ok('Hello from my Ube server!')
         ) // argument2 should be 1x indented from the method call
         server.start(8080) // statement3 should be 2x indented from the method declaration
     }
@@ -110,13 +110,13 @@ test("formats the commented src/main.ube example without changing its comments",
 test("preserves braces and commas inside strings and comments", () => {
   const source = `class Application {
 main() {
-print('},')
+Log('},')
 // } , remains a comment
 }
 }`;
   const expected = `class Application {
     main() {
-        print('},')
+        Log('},')
         // } , remains a comment
     }
 }
@@ -128,14 +128,14 @@ print('},')
 test("preserves multiline string contents", () => {
   const source = `class Application {
 main() {
-print(\`first line
+Log(\`first line
   {second, line}
 third line\`)
 }
 }`;
   const expected = `class Application {
     main() {
-        print(\`first line
+        Log(\`first line
   {second, line}
 third line\`)
     }
@@ -151,7 +151,7 @@ main() {
 server.get(
 // route with an "unfinished quote
 "/",
-request -> response.ok("Hello")
+request -> Response.ok("Hello")
         )
 }
 }`;
@@ -160,7 +160,7 @@ request -> response.ok("Hello")
         server.get(
           // route with an "unfinished quote
           "/",
-          request -> response.ok("Hello")
+          request -> Response.ok("Hello")
         )
     }
 }
@@ -174,7 +174,7 @@ test("keeps explicitly multiline single-argument calls and indents both closing 
     main() {
         server.get(
           '/',
-          request -> response.ok( // lowering down the argument of a 1 argument method call is optional
+          request -> Response.ok( // lowering down the argument of a 1 argument method call is optional
             'Hello from my Ube server!'
         )
         )
@@ -184,7 +184,7 @@ test("keeps explicitly multiline single-argument calls and indents both closing 
     main() {
         server.get(
           '/',
-          request -> response.ok( // lowering down the argument of a 1 argument method call is optional
+          request -> Response.ok( // lowering down the argument of a 1 argument method call is optional
             'Hello from my Ube server!'
           )
         )
@@ -200,13 +200,13 @@ test("keeps explicitly multiline single-argument calls and indents both closing 
 test("matches the revised multiline-call example and preserves its comments", () => {
   const source = `class Application {
     main() { // method declaration should be 2x indented from the class declaration
-        final server = server() // statement1 should be 2x indented from the method declaration
+        final server = Server() // statement1 should be 2x indented from the method declaration
         // statement2 should be 2x indented from the method declaration
         // method call with 2 or more arguments should be lowered down per argument and 1x indented from its parent method call
         server.get(
           // arguments should be 1x indented from the method call and should be on a new line
           '/',
-          request -> response.ok( // lowering down the argument of a 1 argument method call is optional
+          request -> Response.ok( // lowering down the argument of a 1 argument method call is optional
             'Hello from my Ube server!' // this is a forced lowered down argument, it should be 1x indented from the method call
         ) // the closing parenthesis of a single argument (that is forced lowered down method call should be on a new line and 1x indented from the method call
         ) // the closing parenthesis of a multiple argument method call should be on a new line and 1x indented from the method call
@@ -215,13 +215,13 @@ test("matches the revised multiline-call example and preserves its comments", ()
 }`;
   const expected = `class Application {
     main() { // method declaration should be 2x indented from the class declaration
-        final server = server() // statement1 should be 2x indented from the method declaration
+        final server = Server() // statement1 should be 2x indented from the method declaration
         // statement2 should be 2x indented from the method declaration
         // method call with 2 or more arguments should be lowered down per argument and 1x indented from its parent method call
         server.get(
           // arguments should be 1x indented from the method call and should be on a new line
           '/',
-          request -> response.ok( // lowering down the argument of a 1 argument method call is optional
+          request -> Response.ok( // lowering down the argument of a 1 argument method call is optional
             'Hello from my Ube server!' // this is a forced lowered down argument, it should be 1x indented from the method call
           ) // the closing parenthesis of a single argument (that is forced lowered down method call should be on a new line and 1x indented from the method call
         ) // the closing parenthesis of a multiple argument method call should be on a new line and 1x indented from the method call
@@ -238,7 +238,7 @@ test("matches the revised multiline-call example and preserves its comments", ()
 test("is idempotent", () => {
   const source = `class Application {
     main() {
-        server.get('/', request -> response.ok('Hello'));
+        server.get('/', request -> Response.ok('Hello'));
     }
 }
 `;
@@ -248,15 +248,15 @@ test("is idempotent", () => {
 });
 
 test("ignores punctuation inside single-quoted arguments", () => {
-  const source = "class App {\nmain() {\nprint('hello { (, world')\nprint('done')\n}\n}\n";
-  const expected = "class App {\n    main() {\n        print('hello { (, world')\n        print('done')\n    }\n}\n";
+  const source = "class App {\nmain() {\nLog('hello { (, world')\nLog('done')\n}\n}\n";
+  const expected = "class App {\n    main() {\n        Log('hello { (, world')\n        Log('done')\n    }\n}\n";
   assert.equal(formatUbeDocument(source), expected);
   assert.equal(formatUbeDocument(expected), expected);
 });
 
 test("tracks braces after a text block and preserves its contents", () => {
-  const source = 'class App {\nmain() {\nprint("\n    hello { world\n    ")}\nnext() {\nprint("x")\n}\n}\n';
-  const expected = 'class App {\n    main() {\n        print("\n    hello { world\n    ")}\n    next() {\n        print("x")\n    }\n}\n';
+  const source = 'class App {\nmain() {\nLog("\n    hello { world\n    ")}\nnext() {\nLog("x")\n}\n}\n';
+  const expected = 'class App {\n    main() {\n        Log("\n    hello { world\n    ")}\n    next() {\n        Log("x")\n    }\n}\n';
   assert.equal(formatUbeDocument(source), expected);
   assert.equal(formatUbeDocument(expected), expected);
 });
@@ -265,14 +265,14 @@ test("raw text blocks close after a backslash and preserve JSON content", () => 
   const source = [
     "class Application {",
     "main() {",
-    "print(`C:\\tmp\\`, '{\"ok\":true}')",
+    "Log(`C:\\tmp\\`, '{\"ok\":true}')",
     "}",
     "}"
   ].join("\n");
   const expected = [
     "class Application {",
     "    main() {",
-    "        print(",
+    "        Log(",
     "          `C:\\tmp\\`,",
     "          '{\"ok\":true}'",
     "        )",

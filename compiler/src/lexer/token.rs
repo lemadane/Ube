@@ -29,7 +29,6 @@ pub enum TokenKind {
     This,
     With,
     In,
-    Print,
     Try,
     Check,
     Throw,

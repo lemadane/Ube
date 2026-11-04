@@ -1,0 +1,17 @@
+class Application {
+    main() {
+        Log.put('requestId', 'req-42')
+        try {
+            Log('Processing request')
+            string? requestId = Log.get('requestId')
+            Console.writeLine(requestId ?? 'unknown')
+
+            Log.put('user', 'alice')
+            Log.warn('Retrying operation')
+            Log.remove('user')
+        } finally {
+            Log.clear()
+        }
+        Log.info('Context cleared')
+    }
+}

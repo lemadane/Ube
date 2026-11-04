@@ -395,7 +395,6 @@ impl<'a> Lexer<'a> {
             "this" => TokenKind::This,
             "with" => TokenKind::With,
             "in" => TokenKind::In,
-            "print" => TokenKind::Print,
             "try" => TokenKind::Try,
             "check" => TokenKind::Check,
             "throw" => TokenKind::Throw,

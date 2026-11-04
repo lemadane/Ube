@@ -25,7 +25,7 @@ fn test_ube_end_to_end_pipeline() {
                 user.birthday()
 
                 final obj = { id: 1000, name: 'Lem' }
-                print('User birthday updated!')
+                Console.writeLine('User birthday updated!')
             }
         }
     "#;
@@ -52,7 +52,7 @@ fn test_ube_end_to_end_pipeline() {
 
     assert!(llvm_ir.contains("%User = type {"));
     assert!(llvm_ir.contains("define void @User_birthday"));
-    assert!(llvm_ir.contains("call void @ube_print_str"));
+    assert!(llvm_ir.contains("call void @ube_output_str"));
     assert!(llvm_ir.contains("define i32 @main(i32 %argc, i8** %argv)"));
 }
 
@@ -89,7 +89,7 @@ fn test_ube_trait_parsing() {
 
         class User(long id, string name) {
             printDetails() {
-                print('User #${this._id}: ${this._name}')
+                Console.writeLine('User #${this._id}: ${this._name}')
             }
         }
     "#;
@@ -119,10 +119,10 @@ fn test_e2e_person_birthday() {
         class Application {
             main() {
                 final person = Person('Lem', 35)
-                print(person.name())
-                print(person.age())
+                Console.writeLine(person.name())
+                Console.writeLine(person.age())
                 person.birthday()
-                print(person.age())
+                Console.writeLine(person.age())
             }
         }
     "#;
@@ -149,8 +149,8 @@ fn test_e2e_person_birthday() {
 
     assert!(llvm_ir.contains("%Person = type { i8*, i32 }"));
     assert!(llvm_ir.contains("define void @Person_birthday(%Person* %0)"));
-    assert!(llvm_ir.contains("call void @ube_print_str"));
-    assert!(llvm_ir.contains("call void @ube_print_i64"));
+    assert!(llvm_ir.contains("call void @ube_output_str"));
+    assert!(llvm_ir.contains("call void @ube_output_i64"));
     assert!(llvm_ir.contains("getelementptr inbounds %Person, %Person*"));
     assert!(llvm_ir.contains("store i32 35"));
     assert!(!llvm_ir.contains("void %"));
@@ -162,7 +162,8 @@ fn test_lambda_captures_outer_variables() {
         class Application {
             main() {
                 final res = 'Hello from my Ube server!'
-                server.get('/', request -> response.ok(res))
+                final server = Server()
+                server.get('/', request -> Response.ok(res))
             }
         }
     "#;
@@ -194,19 +195,19 @@ fn test_e2e_trait_polymorphism() {
 
         class User(long id, string name) {
             printDetails() { // Concrete implementation
-                print('User #${this._id}: ${this._name}')
+                Console.writeLine('User #${this._id}: ${this._name}')
             }
         }
 
         class Invoice(long id, decimal total) {
             printDetails() { // Concrete implementation
-                print('Invoice #${this._id}: \$${this._total}')
+                Console.writeLine('Invoice #${this._id}: \$${this._total}')
             }
         }
 
         class App {
             render(Printable item) { // Accepts any Printable item
-                print(item.getHeader())
+                Console.writeLine(item.getHeader())
                 item.printDetails()
             }
 
@@ -269,9 +270,9 @@ fn test_e2e_control_flow_and_dynamic_alloc() {
                 final cond = true
 
                 if (cond) {
-                    print('Condition true')
+                    Console.writeLine('Condition true')
                 } else {
-                    print('Condition false')
+                    Console.writeLine('Condition false')
                 }
 
                 for {
@@ -312,14 +313,14 @@ fn test_e2e_nested_cfg_and_logical_ops() {
 
                 if (a) {
                     if (b) {
-                        print('Inner B')
+                        Console.writeLine('Inner B')
                     }
-                    print('Outer A')
+                    Console.writeLine('Outer A')
                 }
 
                 for {
                     break
-                    print('UNREACHABLE DEAD CODE')
+                    Console.writeLine('UNREACHABLE DEAD CODE')
                 }
             }
         }
@@ -385,7 +386,7 @@ fn test_e2e_definitely_returns_if_branches() {
         class Application {
             main() {
                 final calc = Calculator()
-                print(calc.compute(true))
+                Console.writeLine(calc.compute(true))
             }
         }
     "#;
@@ -426,12 +427,12 @@ fn test_e2e_go_style_zero_values() {
                 final u3 = User(1000L, 'Lem')
                 final u4 = User(1000L, 'Lem', 35)
 
-                print(user.id())
-                print(user.name())
-                print(u1.age())
-                print(u2.age())
-                print(u3.age())
-                print(u4.age())
+                Console.writeLine(user.id())
+                Console.writeLine(user.name())
+                Console.writeLine(u1.age())
+                Console.writeLine(u2.age())
+                Console.writeLine(u3.age())
+                Console.writeLine(u4.age())
             }
         }
     "#;
@@ -468,9 +469,9 @@ fn test_e2e_go_zero_value_user() {
             main() {
                 User user
 
-                print(user.id())
-                print(user.name())
-                print(user.age())
+                Console.writeLine(user.id())
+                Console.writeLine(user.name())
+                Console.writeLine(user.age())
             }
         }
     "#;
@@ -511,11 +512,11 @@ fn test_e2e_unified_zero_value_instantiation() {
                 final a4 = Account(1000L, 'Lem')
                 final a5 = Account(1000L, 'Lem', 500)
 
-                print(a1.balance())
-                print(a2.balance())
-                print(a3.balance())
-                print(a4.balance())
-                print(a5.balance())
+                Console.writeLine(a1.balance())
+                Console.writeLine(a2.balance())
+                Console.writeLine(a3.balance())
+                Console.writeLine(a4.balance())
+                Console.writeLine(a5.balance())
             }
         }
     "#;
@@ -587,7 +588,7 @@ fn test_type_checker_if_condition_bool_enforcement() {
         class Application {
             main() {
                 if (123) {
-                    print('Hello')
+                    Console.writeLine('Hello')
                 }
             }
         }
@@ -610,7 +611,7 @@ fn test_e2e_unary_not_lowering() {
             main() {
                 final a = false
                 final b = not a
-                print(b)
+                Console.writeLine(b)
             }
         }
     "#;
@@ -669,7 +670,7 @@ fn test_e2e_decimal_modulus_lowering() {
         class Application {
             main() {
                 final a = 10.5 % 3.2
-                print(a)
+                Console.writeLine(a)
             }
         }
     "#;
@@ -699,8 +700,8 @@ fn test_e2e_int_and_long_keep_distinct_storage_types() {
                 int small = 10
                 long big = 10L
 
-                print(small)
-                print(big)
+                Console.writeLine(small)
+                Console.writeLine(big)
             }
         }
     "#;
@@ -788,7 +789,7 @@ fn test_e2e_reject_wrong_method_argument_type() {
     let source_code = r#"
         class Greeter {
             greet(int times) {
-                print('Hello')
+                Console.writeLine('Hello')
             }
         }
 
@@ -832,7 +833,7 @@ fn test_e2e_application_startup_uses_zero_initialization() {
             var int port = 8080
         ) {
             main() {
-                print(this.port())
+                Console.writeLine(this.port())
             }
         }
     "#;
@@ -970,7 +971,7 @@ fn test_e2e_string_interpolation_is_not_literal_text() {
             main() {
                 final name = 'Lem'
 
-                print('Hello ${name}')
+                Console.writeLine('Hello ${name}')
             }
         }
     "#;
@@ -1094,11 +1095,11 @@ fn test_e2e_trait_declared_return_types_preserved_across_all_types() {
         class Application {
             main() {
                 final s = Service(42, 1000L, 3.14, true, 'OK')
-                print(s.count())
-                print(s.timestamp())
-                print(s.ratio())
-                print(s.isValid())
-                print(s.code())
+                Console.writeLine(s.count())
+                Console.writeLine(s.timestamp())
+                Console.writeLine(s.ratio())
+                Console.writeLine(s.isValid())
+                Console.writeLine(s.code())
             }
         }
     "#;
@@ -1218,7 +1219,7 @@ fn test_e2e_unsupported_member_access_emits_diagnostic() {
         class Application {
             main() {
                 final x = 42
-                print(x.invalid_member)
+                Console.writeLine(x.invalid_member)
             }
         }
     "#;
@@ -1273,7 +1274,7 @@ fn test_e2e_optional_chaining_emits_diagnostic_until_supported() {
         class Application {
             main() {
                 final u = User('Alice')
-                print(u?.name)
+                Console.writeLine(u?.name)
             }
         }
     "#;
@@ -1383,15 +1384,15 @@ fn test_e2e_try_check_no_error_flow() {
         class Application {
             main() {
                 try {
-                    print('Step 1')
+                    Console.writeLine('Step 1')
         
                 }
                 catch (Error err) {
-                    print('Error occurred')
+                    Console.writeLine('Error occurred')
                 }
         
                 finally {
-                    print('Cleanup')
+                    Console.writeLine('Cleanup')
                 }
             }
         }
@@ -1445,16 +1446,16 @@ fn test_e2e_try_raise_check_error_flow() {
         class Application {
             main() {
                 try {
-                    print('Before throw')
+                    Console.writeLine('Before throw')
                     throw(CustomError('Something went wrong'))
         
                 }
                 catch (Error err) {
-                    print('Handled error')
+                    Console.writeLine('Handled error')
                 }
         
                 finally {
-                    print('Cleanup always runs')
+                    Console.writeLine('Cleanup always runs')
                 }
             }
         }
@@ -1529,7 +1530,7 @@ fn test_e2e_try_raise_string_interpolation_flow() {
         
                 }
                 catch (Error error) {
-                    print('${error}')
+                    Console.writeLine('${error}')
                 }
             }
         }
@@ -1581,7 +1582,7 @@ fn test_e2e_raise_primitive_emits_diagnostic() {
         
                 }
                 finally {
-                    print('Cleanup')
+                    Console.writeLine('Cleanup')
                 }
             }
         }
@@ -1631,7 +1632,7 @@ fn test_e2e_raise_custom_class_error_trait() {
         
                 }
                 catch (Error err) {
-                    print(err.message())
+                    Console.writeLine(err.message())
                 }
             }
         }
@@ -1671,8 +1672,8 @@ fn test_e2e_list_literal_indexing_and_methods() {
             main() {
                 final numbers = [10, 20, 30]
                 numbers.add(40)
-                print(numbers[0])
-                print(numbers.len())
+                Console.writeLine(numbers[0])
+                Console.writeLine(numbers.len())
             }
         }
     "#;
@@ -1701,8 +1702,8 @@ fn test_e2e_map_literal_indexing_and_len() {
         class Application {
             main() {
                 final scores = [1000L: 95, 1001L: 88]
-                print(scores[1000L])
-                print(scores.len())
+                Console.writeLine(scores[1000L])
+                Console.writeLine(scores.len())
             }
         }
     "#;
@@ -1733,11 +1734,11 @@ fn test_e2e_list_index_out_of_bounds_raises_error() {
             main() {
                 try {
                     final list = [1, 2]
-                    print(list[10])
+                    Console.writeLine(list[10])
         
                 }
                 catch (Error err) {
-                    print(err.message())
+                    Console.writeLine(err.message())
                 }
             }
         }
@@ -1772,7 +1773,7 @@ fn test_e2e_async_spawn_and_await() {
             main() {
                 final task = this.fetchScore(1000)
                 final score = await task
-                print(score)
+                Console.writeLine(score)
             }
         }
     "#;
@@ -1811,7 +1812,7 @@ fn test_e2e_async_task_raise_rethrown_on_await() {
         
                 }
                 catch (Error err) {
-                    print(err.message())
+                    Console.writeLine(err.message())
                 }
             }
         }
@@ -1841,9 +1842,9 @@ fn test_e2e_channel_send_and_receive() {
         class Application {
             main() {
                 final ch = Channel()
-                ch.send(100)
-                final val = ch.receive()
-                print(val)
+                await ch.send(100)
+                final val = await ch.receive()
+                Console.writeLine(val)
             }
         }
     "#;
@@ -1873,7 +1874,7 @@ fn test_e2e_async_expression_spawn() {
             main() {
                 final task = async (10 + 20)
                 final val = await task
-                print(val)
+                Console.writeLine(val)
             }
         }
     "#;
@@ -1916,7 +1917,7 @@ fn test_e2e_typed_closable_channel() {
                 final sent = await sentTask
                 final received = await receivedTask
                 messages.close()
-                print(received)
+                Console.writeLine(received)
             }
         }
     "#;
@@ -1951,11 +1952,11 @@ fn test_async_task_errors_route_to_try_catch() {
             main() {
                 try {
                     final result = await this.fail()
-                    print(result)
+                    Console.writeLine(result)
         
                 }
                 catch (Error err) {
-                    print(err.message())
+                    Console.writeLine(err.message())
                 }
             }
         }
@@ -1992,7 +1993,7 @@ fn test_e2e_multiple_async_tasks_concurrent_await() {
                 final t2 = this.compute(20)
                 final r1 = await t1
                 final r2 = await t2
-                print(r1 + r2)
+                Console.writeLine(r1 + r2)
             }
         }
     "#;
@@ -2035,7 +2036,7 @@ fn test_e2e_try_check_inside_async_method_body() {
             main() {
                 final task = this.safeTask()
                 final res = await task
-                print(res)
+                Console.writeLine(res)
             }
         }
     "#;
@@ -2065,7 +2066,7 @@ fn test_e2e_task_all_combinator_success() {
             main() {
                 final tasks = [async 10, async 20]
                 final results = await Task.all(tasks)
-                print(results.len())
+                Console.writeLine(results.len())
             }
         }
     "#;
@@ -2104,7 +2105,7 @@ fn test_e2e_task_all_combinator_fail_fast() {
         
                 }
                 catch (Error err) {
-                    print(err.message())
+                    Console.writeLine(err.message())
                 }
             }
         }
@@ -2136,7 +2137,7 @@ fn test_e2e_task_any_and_race_combinators() {
                 final t1 = async 100
                 final t2 = async 200
                 final winner = await Task.race([t1, t2])
-                print(winner)
+                Console.writeLine(winner)
             }
         }
     "#;
@@ -2166,7 +2167,7 @@ fn test_e2e_task_all_settled_combinator() {
             main() {
                 final tasks = [async 10, async 20]
                 final settled = await Task.allSettled(tasks)
-                print(settled.len())
+                Console.writeLine(settled.len())
             }
         }
     "#;
@@ -2198,13 +2199,13 @@ fn test_e2e_task_timeout_wraps_any_task() {
                 Channel<int> inbox = Channel<int>(1)
                 try {
                     final quick = await (async 500).timeout(2000)
-                    print(quick)
+                    Console.writeLine(quick)
                     final message = await inbox.receive().timeout(50)
-                    print(message)
+                    Console.writeLine(message)
         
                 }
                 catch (Error err) {
-                    print(err.message())
+                    Console.writeLine(err.message())
                 }
             }
         }
@@ -2228,7 +2229,7 @@ fn test_removed_concurrency_forms_are_rejected() {
         class Application {
             main() {
                 final task = Task.async(10 + 20)
-                print(await task)
+                Console.writeLine(await task)
             }
         }
     "#;
@@ -2285,7 +2286,7 @@ fn test_unguarded_await_failure_stops_or_propagates() {
 
             main() {
                 final value = await this.relay()
-                print(value)
+                Console.writeLine(value)
             }
         }
     "#;
@@ -2308,11 +2309,11 @@ fn test_e2e_datetime_factories_and_getters() {
         class Application {
             main() {
                 final dt = DateTime.of(2026, 8, 31, 14, 30)
-                print(dt.year())
-                print(dt.month())
-                print(dt.day())
-                print(dt.hour())
-                print(dt.minute())
+                Console.writeLine(dt.year())
+                Console.writeLine(dt.month())
+                Console.writeLine(dt.day())
+                Console.writeLine(dt.hour())
+                Console.writeLine(dt.minute())
             }
         }
     "#;
@@ -2342,9 +2343,9 @@ fn test_e2e_datetime_arithmetic_and_diff() {
             main() {
                 final start = DateTime.of(2026, 8, 31, 12, 0)
                 final later = start.addHours(2)
-                print(later.hour())
+                Console.writeLine(later.hour())
                 final diffSec = later.diffSeconds(start)
-                print(diffSec)
+                Console.writeLine(diffSec)
             }
         }
     "#;
@@ -2374,7 +2375,7 @@ fn test_e2e_datetime_formatting_and_parsing() {
             main() {
                 final dt = DateTime.parse('2026-08-31T14:30:00+08:00')
                 final formatted = dt.format('yyyy-MM-dd HH:mm:ss')
-                print(formatted)
+                Console.writeLine(formatted)
             }
         }
     "#;
@@ -2405,7 +2406,7 @@ fn test_e2e_duration_and_addition() {
                 final start = DateTime.of(2026, 8, 31, 10, 0)
                 final dur = Duration.hours(3)
                 final end = start.addDuration(dur)
-                print(end.hour())
+                Console.writeLine(end.hour())
             }
         }
     "#;
@@ -2435,9 +2436,9 @@ fn test_e2e_datetime_instant_timezone_invariance() {
             main() {
                 final manila = DateTime.of(2026, 8, 31, 17, 0, 'Asia/Manila')
                 final tokyo = manila.in('Asia/Tokyo')
-                print(manila.timestamp() == tokyo.timestamp())
-                print(manila.hour())
-                print(tokyo.hour())
+                Console.writeLine(manila.timestamp() == tokyo.timestamp())
+                Console.writeLine(manila.hour())
+                Console.writeLine(tokyo.hour())
             }
         }
     "#;
@@ -2468,8 +2469,8 @@ fn test_e2e_datetime_unix_timestamp_factories() {
                 final dt = DateTime.fromUnix(1788159600)
                 final sec = dt.unix()
                 final ms = dt.unixMillis()
-                print(sec)
-                print(ms)
+                Console.writeLine(sec)
+                Console.writeLine(ms)
             }
         }
     "#;
@@ -2498,9 +2499,9 @@ fn test_e2e_financial_money_factories_and_getters() {
         class Application {
             main() {
                 final balance = Money.php(1250.75)
-                print(balance.amount())
+                Console.writeLine(balance.amount())
                 final curr = balance.currency()
-                print(curr.code())
+                Console.writeLine(curr.code())
             }
         }
     "#;
@@ -2531,7 +2532,7 @@ fn test_e2e_financial_money_addition() {
                 final subtotal = Money.php(1000)
                 final shipping = Money.php(100)
                 final total = subtotal.add(shipping)
-                print(total.amount())
+                Console.writeLine(total.amount())
             }
         }
     "#;
@@ -2562,9 +2563,9 @@ fn test_e2e_financial_exchange_conversion() {
                 final dollar = Money.usd(100)
                 final rate = 58.50
                 final converted = Exchange.convert(dollar, Currency.PHP, rate)
-                print(converted.amount())
+                Console.writeLine(converted.amount())
                 final curr = converted.currency()
-                print(curr.code())
+                Console.writeLine(curr.code())
             }
         }
     "#;
@@ -2595,7 +2596,7 @@ fn test_e2e_financial_percent_and_rate_multiplication() {
                 final price = Money.php(1000)
                 final vat = Percent(12)
                 final tax = price.multiply(vat)
-                print(tax.amount())
+                Console.writeLine(tax.amount())
             }
         }
     "#;
@@ -2624,11 +2625,11 @@ fn test_e2e_geo_point_and_distance_getters() {
         class Application {
             main() {
                 final p = GeoPoint(14.5995, 120.9842)
-                print(p.latitude())
-                print(p.longitude())
+                Console.writeLine(p.latitude())
+                Console.writeLine(p.longitude())
                 final d = Distance.kilometers(5.5)
-                print(d.kilometers())
-                print(d.meters())
+                Console.writeLine(d.kilometers())
+                Console.writeLine(d.meters())
             }
         }
     "#;
@@ -2659,9 +2660,9 @@ fn test_e2e_geo_distance_and_bearing() {
                 final home = GeoPoint(14.58, 121.12)
                 final provider = GeoPoint(14.60, 121.10)
                 final dist = home.distanceTo(provider)
-                print(dist.kilometers())
+                Console.writeLine(dist.kilometers())
                 final bearing = home.bearingTo(provider)
-                print(bearing)
+                Console.writeLine(bearing)
             }
         }
     "#;
@@ -2693,7 +2694,7 @@ fn test_e2e_geo_bounds_contains() {
                 final ne = GeoPoint(15.0, 121.0)
                 final bounds = GeoBounds(sw, ne)
                 final target = GeoPoint(14.5, 120.5)
-                print(bounds.contains(target))
+                Console.writeLine(bounds.contains(target))
             }
         }
     "#;
@@ -2724,11 +2725,11 @@ fn test_e2e_geolocation_current_and_error() {
             main() {
                 try {
                     final pos = Geolocation.current()
-                    print(pos.latitude())
+                    Console.writeLine(pos.latitude())
         
                 }
                 catch (Error err) {
-                    print(err.message())
+                    Console.writeLine(err.message())
                 }
             }
         }
@@ -2758,11 +2759,11 @@ fn test_e2e_math_constants_roots_powers() {
         class Application {
             main() {
                 final pi = Math.PI
-                print(pi)
+                Console.writeLine(pi)
                 final sq = Math.sqrt(144)
-                print(sq)
+                Console.writeLine(sq)
                 final pow = Math.pow(2, 8)
-                print(pow)
+                Console.writeLine(pow)
             }
         }
     "#;
@@ -2790,9 +2791,9 @@ fn test_e2e_math_rounding_clamp_sign() {
     let source_code = r#"
         class Application {
             main() {
-                print(Math.round(12.56))
-                print(Math.clamp(150, 0, 100))
-                print(Math.sign(-42))
+                Console.writeLine(Math.round(12.56))
+                Console.writeLine(Math.clamp(150, 0, 100))
+                Console.writeLine(Math.sign(-42))
             }
         }
     "#;
@@ -2820,10 +2821,10 @@ fn test_e2e_math_integer_gcd_lcm_even_odd() {
     let source_code = r#"
         class Application {
             main() {
-                print(Math.gcd(48, 18))
-                print(Math.lcm(12, 18))
-                print(Math.isEven(10))
-                print(Math.isOdd(7))
+                Console.writeLine(Math.gcd(48, 18))
+                Console.writeLine(Math.lcm(12, 18))
+                Console.writeLine(Math.isEven(10))
+                Console.writeLine(Math.isOdd(7))
             }
         }
     "#;
@@ -2852,11 +2853,11 @@ fn test_e2e_random_securerandom_statistics() {
         class Application {
             main() {
                 final rInt = Random.int(1, 100)
-                print(rInt > 0)
+                Console.writeLine(rInt > 0)
                 final secBytes = SecureRandom.bytes(16)
-                print(secBytes.len())
+                Console.writeLine(secBytes.len())
                 final stats = [10.0, 20.0, 30.0]
-                print(Statistics.mean(stats))
+                Console.writeLine(Statistics.mean(stats))
             }
         }
     "#;
@@ -2887,9 +2888,9 @@ fn test_e2e_probability_combinatorics() {
                 final nCr = Probability.combinations(5, 2)
                 final nPr = Probability.permutations(5, 2)
                 final fact = Probability.factorial(5)
-                print(nCr)
-                print(nPr)
-                print(fact)
+                Console.writeLine(nCr)
+                Console.writeLine(nPr)
+                Console.writeLine(fact)
             }
         }
     "#;
@@ -2918,7 +2919,7 @@ fn test_e2e_probability_distributions() {
         class Application {
             main() {
                 final pdf = Probability.normal(0, 0, 1)
-                print(pdf)
+                Console.writeLine(pdf)
             }
         }
     "#;
@@ -2947,12 +2948,12 @@ fn test_e2e_statistics_descriptive_and_correlation() {
         class Application {
             main() {
                 final data = [10.0, 20.0, 30.0, 40.0, 50.0]
-                print(Statistics.mean(data))
-                print(Statistics.median(data))
-                print(Statistics.percentile(data, 50))
+                Console.writeLine(Statistics.mean(data))
+                Console.writeLine(Statistics.median(data))
+                Console.writeLine(Statistics.percentile(data, 50))
                 final x = [1.0, 2.0, 3.0]
                 final y = [2.0, 4.0, 6.0]
-                print(Statistics.correlation(x, y))
+                Console.writeLine(Statistics.correlation(x, y))
             }
         }
     "#;
@@ -2982,11 +2983,11 @@ fn test_e2e_file_write_read_exists_delete() {
             main() {
                 final path = 'test_file_rw.txt'
                 File.write(path, 'Hello Ube File API')
-                print(File.exists(path))
+                Console.writeLine(File.exists(path))
                 final content = File.read(path)
-                print(content)
+                Console.writeLine(content)
                 File.delete(path)
-                print(File.exists(path))
+                Console.writeLine(File.exists(path))
             }
         }
     "#;
@@ -3023,11 +3024,11 @@ fn test_e2e_file_open_object_read_after_close() {
                 final file = File.open(path)
                 try {
                     final text = file.read()
-                    print(text)
+                    Console.writeLine(text)
         
                 }
                 catch (Error err) {
-                    print(err.message())
+                    Console.writeLine(err.message())
                 }
                 finally { file.close() }
                 File.delete(path)
@@ -3061,8 +3062,8 @@ fn test_e2e_file_info_metadata() {
                 final path = 'test_info.txt'
                 File.write(path, 'Metadata test')
                 final info = File.info(path)
-                print(info.size() > 0)
-                print(info.isDirectory())
+                Console.writeLine(info.size() > 0)
+                Console.writeLine(info.isDirectory())
                 File.delete(path)
             }
         }
@@ -3092,12 +3093,12 @@ fn test_e2e_directory_and_path_operations() {
         class Application {
             main() {
                 final p = Path.join('/home/user', 'config.json')
-                print(Path.filename(p))
-                print(Path.extension(p))
+                Console.writeLine(Path.filename(p))
+                Console.writeLine(Path.extension(p))
                 final dir = 'test_dir_logs'
                 Directory.create(dir)
                 final files = Directory.list('.')
-                print(files.len() >= 0)
+                Console.writeLine(files.len() >= 0)
                 Directory.delete(dir)
             }
         }
@@ -3129,12 +3130,12 @@ fn test_e2e_file_error_handling_try_check() {
             main() {
                 try {
                     final content = File.read('non_existent_file_999.txt')
-                    print(content)
+                    Console.writeLine(content)
         
                 }
                 catch (Error err) {
                     if (err is FileNotFoundError) {
-                        print('File does not exist')
+                        Console.writeLine('File does not exist')
                     }
                 }
             }
@@ -3171,7 +3172,7 @@ fn test_server_route_registration_and_response_factories_typecheck() {
                 server.post('/users') { request ->
                     return Response.created('User created')
                 }
-                print(server.port())
+                Console.writeLine(server.port())
             }
         }
     "#;
@@ -3245,11 +3246,11 @@ fn test_server_middleware_and_try_syntax_typecheck() {
                 server.get('/api/data') { request ->
                     try {
                         final val = request.query('search')
-                        print(val)
+                        Console.writeLine(val)
                     }
                     catch (Error err) {
                         if (err) {
-                            print(err.message())
+                            Console.writeLine(err.message())
                         }
                     }
                     Response.text('Request processed')
@@ -3321,8 +3322,8 @@ fn test_server_http_protocol_versions_syntax_typecheck() {
                 server.enableHttp2()
                 server.enableHttp3(443)
                 server.get('/protocol') { request ->
-                    print(request.protocol())
-                    print(request.isHttp3())
+                    Console.writeLine(request.protocol())
+                    Console.writeLine(request.isHttp3())
                     return Response.ok('Protocol: ${request.protocol()}')
                 }
             }
@@ -3354,10 +3355,10 @@ fn test_e2e_json_parse_getters_stringify() {
             main() {
                 final text = '{"name": "Lem", "age": 40}'
                 final json = Json.parse(text)
-                print(json.getString('name'))
-                print(json.getInt('age'))
+                Console.writeLine(json.getString('name'))
+                Console.writeLine(json.getInt('age'))
                 final s = Json.stringify(json)
-                print(s.len() > 0)
+                Console.writeLine(s.len() > 0)
             }
         }
     "#;
@@ -3392,7 +3393,7 @@ fn test_e2e_json_parse_error_handling() {
                 }
                 catch (Error err) {
                     if (err is JsonParseError) {
-                        print(err.message())
+                        Console.writeLine(err.message())
                     }
                 }
             }
@@ -3425,7 +3426,7 @@ fn test_e2e_xml_create_element_text_tostring() {
                 final doc = Xml.create('user')
                 doc.root().element('name').text('Lem')
                 doc.root().element('age').text('40')
-                print(doc.toString())
+                Console.writeLine(doc.toString())
             }
         }
     "#;
@@ -3456,7 +3457,7 @@ fn test_e2e_xml_parse_child_navigation() {
                 final text = '<user><name>Lem</name><age>40</age></user>'
                 final doc = Xml.parse(text)
                 final root = doc.root()
-                print(root.child('name').text())
+                Console.writeLine(root.child('name').text())
             }
         }
     "#;
@@ -3486,11 +3487,11 @@ fn test_e2e_pure_ube_json_and_xml_record_mapping() {
             main() {
                 final jsonText = '{"restaurantID": "0603", "orderType": "DineIn"}'
                 final json = Json.parse(jsonText)
-                print(json.getString('restaurantID'))
+                Console.writeLine(json.getString('restaurantID'))
 
                 final xmlText = '<KitchenOrderScan><RestaurantID>0603</RestaurantID></KitchenOrderScan>'
                 final xmlDoc = Xml.parse(xmlText)
-                print(xmlDoc.root().child('RestaurantID').text())
+                Console.writeLine(xmlDoc.root().child('RestaurantID').text())
             }
         }
     "#;
@@ -3519,9 +3520,9 @@ fn test_e2e_pure_ube_partial_parse_and_strict_modes() {
         class Application {
             main() {
                 final partialJson = Json.partialParse('{"name": "Lem", "extra": 123}', JsonObject)
-                print(partialJson.getString('name'))
+                Console.writeLine(partialJson.getString('name'))
                 final partialXml = Xml.partialParse('<user><name>Lem</name><extra>123</extra></user>', XmlDocument)
-                print(partialXml.root().child('name').text())
+                Console.writeLine(partialXml.root().child('name').text())
             }
         }
     "#;
@@ -3642,7 +3643,7 @@ fn test_e2e_return_inside_try_is_valid() {
         
                 }
                 catch (Error err) {
-                    print(err.message())
+                    Console.writeLine(err.message())
                 }
                 return 0
             }
@@ -3671,16 +3672,16 @@ fn test_e2e_break_inside_try_cleans_up_loop_exit() {
             main() {
                 for (x in [1]) {
                     try {
-                        print('Before break')
+                        Console.writeLine('Before break')
                         break
-                        print('Unreachable after break')
+                        Console.writeLine('Unreachable after break')
         
                     }
                     finally {
-                        print('Exit cleanup runs on break')
+                        Console.writeLine('Exit cleanup runs on break')
                     }
                 }
-                print('After try block')
+                Console.writeLine('After try block')
             }
         }
     "#;
@@ -3719,9 +3720,9 @@ fn test_e2e_for_else_empty_collection_executes_else() {
             main() {
                 final emptyItems = []
                 for (item in emptyItems) {
-                    print('Loop body executed')
+                    Console.writeLine('Loop body executed')
                 } else {
-                    print('Else block executed for 0 iterations')
+                    Console.writeLine('Else block executed for 0 iterations')
                 }
             }
         }
@@ -3761,9 +3762,9 @@ fn test_e2e_for_else_non_empty_collection_skips_else() {
             main() {
                 final items = [10, 20, 30]
                 for (item in items) {
-                    print('Loop body item ${item}')
+                    Console.writeLine('Loop body item ${item}')
                 } else {
-                    print('Else block should be skipped')
+                    Console.writeLine('Else block should be skipped')
                 }
             }
         }
@@ -3807,7 +3808,7 @@ fn test_e2e_if_expression_with_braces_and_yield() {
                 } else {
                     yield 'Failed'
                 }
-                print('Status: ${status}')
+                Console.writeLine('Status: ${status}')
             }
         }
     "#;
@@ -3848,7 +3849,7 @@ fn test_e2e_for_expression_comprehension_with_braces_and_yield() {
                 final doubled = for (x in numbers) {
                     yield x * 2
                 }
-                print('Doubled list length: ${doubled.len()}')
+                Console.writeLine('Doubled list length: ${doubled.len()}')
             }
         }
     "#;
@@ -3889,13 +3890,13 @@ fn test_e2e_full_expression_and_lambda_string_interpolation() {
                 final b = 20
 
                 // Arithmetic & Binary Operations
-                print('Sum: ${a + b * 2}')
+                Console.writeLine('Sum: ${a + b * 2}')
 
                 // Immediately-Invoked Anonymous Function (Lambda)
-                print('Calculated: ${ { (x) -> x * 21 }(2) }')
+                Console.writeLine('Calculated: ${ { (x) -> x * 21 }(2) }')
 
                 // Expression evaluation inside interpolation
-                print('Status: ${if (a > 5) { yield `High` } else { yield `Low` }}')
+                Console.writeLine('Status: ${if (a > 5) { yield `High` } else { yield `Low` }}')
             }
         }
     "#;

@@ -482,11 +482,16 @@ impl<'a> Parser<'a> {
             TokenKind::LongType => TypeSpec::Long,
             TokenKind::BoolType => TypeSpec::Bool,
             TokenKind::StringType => TypeSpec::String,
-            TokenKind::Identifier(name) => TypeSpec::Class(
-                canonical_builtin_class_name(&name)
-                    .unwrap_or(&name)
-                    .to_string(),
-            ),
+            TokenKind::Identifier(name) => {
+                if let Some(canonical) = crate::builtins::builtin_class_case_suggestion(&name) {
+                    self.diagnostics.push(Diagnostic::error(
+                        format!("Built-in types require capitalization; use {}", canonical),
+                        Some(tok.span),
+                    ));
+                    return Err(());
+                }
+                TypeSpec::Class(name)
+            },
             _ => {
                 self.diagnostics.push(Diagnostic::error(
                     format!("Expected type specifier, found {:?}", tok.kind),
@@ -946,17 +951,6 @@ impl<'a> Parser<'a> {
         self.advance();
 
         match tok.kind {
-            TokenKind::Print => {
-                self.expect(&TokenKind::OpenParen, "(")?;
-                let expr = self.parse_expr(Precedence::None)?;
-                let end_tok = self.expect(&TokenKind::CloseParen, ")")?;
-                Ok(Expr {
-                    kind: ExprKind::Print {
-                        expr: Box::new(expr),
-                    },
-                    span: Span::combine(tok.span, end_tok.span),
-                })
-            }
             TokenKind::IntLiteral(val) => Ok(Expr {
                 kind: ExprKind::IntLiteral(val),
                 span: tok.span,
@@ -994,18 +988,21 @@ impl<'a> Parser<'a> {
                 span: tok.span,
             }),
             TokenKind::Identifier(name) => {
-                if name == "print" {
-                    if self.check(&TokenKind::OpenParen) {
-                        self.advance();
-                        let expr = self.parse_expr(Precedence::None)?;
-                        let end_tok = self.expect(&TokenKind::CloseParen, ")")?;
-                        return Ok(Expr {
-                            kind: ExprKind::Print {
-                                expr: Box::new(expr),
-                            },
-                            span: Span::combine(tok.span, end_tok.span),
-                        });
+                if self.check(&TokenKind::OpenParen) {
+                    if let Some(canonical) = crate::builtins::builtin_class_case_suggestion(&name) {
+                        self.diagnostics.push(Diagnostic::error(
+                            format!("Built-in classes require capitalization; use {}()", canonical),
+                            Some(tok.span),
+                        ));
+                        return Err(());
                     }
+                }
+                if name == "print" && self.check(&TokenKind::OpenParen) {
+                    self.diagnostics.push(Diagnostic::error(
+                        "print() was removed; use Log() for logging or Console.writeLine() for stdout",
+                        Some(tok.span),
+                    ));
+                    return Err(());
                 }
                 if self.check(&TokenKind::Arrow) {
                     self.advance();
@@ -1301,6 +1298,18 @@ impl<'a> Parser<'a> {
             }
         }
         let end = self.expect(&TokenKind::CloseParen, ")")?.span;
+        if class_name == "Log" && generic_type.is_none() {
+            return Ok(Expr {
+                kind: ExprKind::Call {
+                    callee: Box::new(Expr {
+                        kind: ExprKind::MemberAccess {
+                            object: Box::new(Expr { kind: ExprKind::Identifier("Log".into()), span: start }),
+                            member: "info".into(), is_optional: false,
+                        }, span: start,
+                    }), args,
+                }, span: Span::combine(start, end),
+            });
+        }
         Ok(Expr {
             kind: ExprKind::ClassInstantiation {
                 class_name,

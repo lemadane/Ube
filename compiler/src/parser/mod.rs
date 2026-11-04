@@ -13,14 +13,14 @@ mod tests {
     fn semicolons_are_rejected_in_statements_and_declarations() {
         for source in [
             "; class Application { main() {} }",
-            "class Application { main() { print('hello'); } }",
+            "class Application { main() { Console.writeLine('hello'); } }",
             "class Application { main() { final value = 1; } }",
             "class Application { main() { return; } }",
             "class Application { main() { for (true) { break; } } }",
             "class Application { main() { for (true) { continue; } } }",
             "trait Printable { printDetails(); }",
             "class Application { main(); }",
-            "class Application { main() { server.use('/api') { request -> print('hello'); } } }",
+            "class Application { main() { server.use('/api') { request -> Console.writeLine('hello'); } } }",
             "class Application { main() {} };",
         ] {
             let mut parser = Parser::new(Lexer::new(source));
@@ -34,7 +34,7 @@ mod tests {
     #[test]
     fn newline_ends_a_bare_return() {
         let mut parser = Parser::new(Lexer::new(
-            "class Application { main() { return\n print('unreachable') } }"
+            "class Application { main() { return\n Console.writeLine('unreachable') } }"
         ));
         let program = parser.parse_program();
         assert!(parser.diagnostics.is_empty(), "{:?}", parser.diagnostics);

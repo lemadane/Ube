@@ -1,11 +1,11 @@
 // Ube Standard Library Prelude
 
 class Console {
-    void print(string message) {
+    write(string message) {
         // Internal primitive output wrapper
     }
 
-    void println(string message) {
+    writeLine(string message) {
         // Internal primitive output wrapper
     }
 }
