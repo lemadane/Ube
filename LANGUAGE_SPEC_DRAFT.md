@@ -33,7 +33,7 @@ Ube provides `print(...)` as the sole built-in output directive. `print` **alway
 ```java
 class Application {
     main() {
-        final name = 'Lem'
+    final name = 'Lem'
         print('Hello, ${name}!')
     }
 }

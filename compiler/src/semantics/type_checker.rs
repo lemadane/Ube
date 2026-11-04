@@ -1066,6 +1066,15 @@ impl TypeChecker {
             },
         );
 
+        for &name in crate::builtins::SQLITE_CLASSES {
+            self.classes.insert(name.into(), ClassInfo {
+                name: name.into(), fields: HashMap::new(),
+                methods: crate::builtins::sqlite_methods(name).into_iter()
+                    .map(|m| (m.name.into(), (m.params, m.result))).collect(),
+                param_types: vec![], min_constructor_args: 0, max_constructor_args: 0,
+            });
+        }
+
         let mut file_methods = HashMap::new();
         file_methods.insert(
             "open".into(),
@@ -1190,6 +1199,7 @@ impl TypeChecker {
         );
 
         let file_errors = vec![
+            "SQLiteError",
             "FileError",
             "FileNotFoundError",
             "PermissionError",
@@ -2345,6 +2355,21 @@ impl TypeChecker {
                 match &callee.kind {
                     ExprKind::MemberAccess { object, member, .. } => {
                         if let Some(obj_ty) = self.check_expr(cls, object) {
+                            if let Type::Class { name } = &obj_ty {
+                                if crate::builtins::SQLITE_CLASSES.contains(&name.as_str()) {
+                                    if let Some(method) = crate::builtins::sqlite_methods(name).into_iter().find(|m| m.name == member) {
+                                        let static_call = matches!(&object.kind, ExprKind::Identifier(n) if self.symbol_table.lookup(n).is_none() && canonical_builtin_class_name(n).is_some());
+                                        if static_call != method.is_static {
+                                            self.diagnostics.push(Diagnostic::error("SQLite factory methods require the class; other SQLite methods require an instance", Some(expr.span)));
+                                            return None;
+                                        }
+                                        if args.len() != method.params.len() {
+                                            self.diagnostics.push(Diagnostic::error(format!("{}.{} expects {} arguments, got {}", name, member, method.params.len(), args.len()), Some(expr.span)));
+                                            return None;
+                                        }
+                                    }
+                                }
+                            }
                             if matches!(&obj_ty, Type::Class { name } if name == "List" || name == "Map") && arg_types.iter().any(|ty| ty.nullable_scalar_inner().is_some() || matches!(ty, Type::Task(inner) if inner.nullable_scalar_inner().is_some())) {
                                 self.diagnostics.push(Diagnostic::error("Nullable scalar values and tasks with nullable scalar results are not supported in untyped collection storage yet", Some(expr.span)));
                             }
@@ -2540,6 +2565,10 @@ impl TypeChecker {
                 args,
             } => {
                 let class_name = canonical_builtin_class_name(class_name).unwrap_or(class_name);
+                if crate::builtins::SQLITE_CLASSES.contains(&class_name) {
+                    self.diagnostics.push(Diagnostic::error("Use SQLite.open(path) or connection.query(sql) to create SQLite handles", Some(expr.span)));
+                    return None;
+                }
                 if class_name == "Channel" {
                     if args.len() > 1 {
                         self.diagnostics.push(Diagnostic::error(

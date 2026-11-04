@@ -1103,6 +1103,82 @@ For detailed compiler pipeline design, module layout, object layout headers, mem
 
 ---
 
+
+## SQLite
+
+SQLite is bundled with the runtime. Open a file with `SQLite.open('app.db')` or
+use `SQLite.open(':memory:')` for an in-memory database. Connections support
+prepared statements, typed and named parameter binding, transactions, SQL
+scripts, BLOBs via hex strings, read-only mode, busy timeouts, and backup/restore.
+Results provide typed getters and column metadata; failures raise `SQLiteError`.
+
+This complete example saves, reads, updates, and deletes one record:
+
+```ube
+class Application {
+    main() {
+        // Store records in a local file that persists between runs.
+        final db = SQLite.open('items.db')
+        try {
+            db.execute('CREATE TABLE IF NOT EXISTS items (id INTEGER PRIMARY KEY, name TEXT NOT NULL)')
+
+            // Save a new record. Bind values instead of interpolating SQL.
+            final save = db.prepare('INSERT INTO items (name) VALUES (?)')
+            try {
+                save.bindString(1, 'Ube')
+                save.execute()
+            } finally {
+                save.close()
+            }
+            final id = db.lastInsertRowId()
+
+            // Read the record by its generated ID.
+            final read = db.prepare('SELECT id, name FROM items WHERE id = ?')
+            try {
+                read.bindLong(1, id)
+                final rows = read.query()
+                try {
+                    for (rows.next()) {
+                        print(rows.getLong(0))
+                        print(rows.getString(1)) // Ube
+                    }
+                } finally {
+                    rows.close()
+                }
+            } finally {
+                read.close()
+            }
+
+            // Update the same record.
+            final update = db.prepare('UPDATE items SET name = ? WHERE id = ?')
+            try {
+                update.bindString(1, 'Purple yam')
+                update.bindLong(2, id)
+                print(update.execute()) // 1 affected row
+            } finally {
+                update.close()
+            }
+
+            // Delete only the record created above.
+            final delete = db.prepare('DELETE FROM items WHERE id = ?')
+            try {
+                delete.bindLong(1, id)
+                print(delete.execute()) // 1 affected row
+            } finally {
+                delete.close()
+            }
+        } finally {
+            db.close()
+        }
+    }
+}
+```
+
+See the [complete SQLite API reference](docs/sqlite.md) and
+[runnable example](examples/sqlite.ube).
+
+---
+
 ## Documentation Links
 
 - [Language Specification Baseline (`LANGUAGE_SPEC_DRAFT.md`)](LANGUAGE_SPEC_DRAFT.md)

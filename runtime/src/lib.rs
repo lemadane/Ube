@@ -10,6 +10,7 @@ pub mod math;
 pub mod memory;
 pub mod net;
 pub mod strings;
+pub mod sqlite;
 
 
 #[no_mangle]
@@ -20,6 +21,7 @@ pub extern "C" fn ube_runtime_init() {
 
 #[no_mangle]
 pub extern "C" fn ube_runtime_cleanup() {
+    sqlite::cleanup();
     concurrency::ube_concurrency_cleanup();
     exceptions::cleanup();
     memory::cleanup();

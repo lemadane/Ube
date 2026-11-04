@@ -327,6 +327,14 @@ impl TextualLlvmEmitter {
             .push_str("declare double @ube_probability_poisson(i64, double)\n");
         self.output
             .push_str("declare double @ube_probability_uniform(double, double, double)\n");
+        for &class in crate::builtins::SQLITE_CLASSES {
+            for method in crate::builtins::sqlite_methods(class) {
+                let mut params = Vec::new();
+                if !method.is_static { params.push(format!("%{}*", class)); }
+                params.extend(method.params.iter().map(|ty| self.type_to_llvm(ty)));
+                self.output.push_str(&format!("declare {} @{}({})\n", self.type_to_llvm(&method.result), method.symbol, params.join(", ")));
+            }
+        }
         self.output.push_str("declare i8* @ube_file_open(i8*)\n");
         self.output.push_str("declare i8* @ube_file_read(i8*)\n");
         self.output
@@ -487,6 +495,10 @@ impl TextualLlvmEmitter {
             ("Statistics", "i8*"),
             ("Probability", "i8*"),
             ("File", "i8*, i1"),
+            ("SQLite", "i8*"),
+            ("SQLiteResult", "i8*"),
+            ("SQLiteStatement", "i8*"),
+            ("SQLiteError", "i8*"),
             ("FileInfo", "i64, i8*, i8*, i1"),
             ("Directory", "i8*"),
             ("Path", "i8*"),
@@ -645,7 +657,7 @@ impl TextualLlvmEmitter {
         };
 
         if func.blocks.is_empty() { return format!("declare {} @{}({})\n", ret_ty_str, fn_name, all_params); }
-        let linkage = if ["GenericError", "OutOfBoundsError", "FileError", "FileNotFoundError", "PermissionError", "AlreadyExistsError", "InvalidPathError", "DiskFullError", "LocationPermissionError", "LocationUnavailableError", "JsonError", "JsonParseError", "MissingFieldError", "InvalidTypeError", "XmlError", "XmlParseError"].contains(&func.class_name.as_str()) { "linkonce_odr " } else { "" };
+        let linkage = if ["SQLiteError", "GenericError", "OutOfBoundsError", "FileError", "FileNotFoundError", "PermissionError", "AlreadyExistsError", "InvalidPathError", "DiskFullError", "LocationPermissionError", "LocationUnavailableError", "JsonError", "JsonParseError", "MissingFieldError", "InvalidTypeError", "XmlError", "XmlParseError"].contains(&func.class_name.as_str()) { "linkonce_odr " } else { "" };
         buf.push_str(&format!("define {}{} @{}({}) {{\n", linkage, ret_ty_str, fn_name, all_params));
 
         for block in &func.blocks {

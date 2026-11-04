@@ -670,3 +670,106 @@ fn untyped_collections_diagnose_nullable_scalar_storage() {
     rejects("class Application { main() { int? value = null final values = [value] } }", "untyped List storage");
     rejects("class Application { async int? absent() { return null } main() { final tasks = [this.absent()] } }", "untyped List storage");
 }
+
+#[test]
+fn sqlite_native_queries_and_errors() {
+    runs(r#"class Application { main() {
+        final db = SQLite.open(':memory:')
+        db.execute('CREATE TABLE items (id INTEGER, name TEXT, price REAL, extra TEXT)')
+        print(db.execute('INSERT INTO items VALUES (7, \'ube\', 2.5, NULL)'))
+        final rows = db.query('SELECT * FROM items')
+        print(rows.next()) print(rows.getLong(0)) print(rows.getString(1))
+        print(rows.getDecimal(2)) print(rows.isNull(3)) print(rows.next())
+        rows.close()
+        try { db.execute('invalid SQL') } catch (Error err) { print('invalid SQL caught') }
+        db.close() db.close()
+        try { db.query('SELECT 1') } catch (Error err) { print('closed caught') }
+    } }"#, "1\ntrue\n7\nube\n2.5\ntrue\nfalse\ninvalid SQL caught\nclosed caught\n");
+}
+
+#[test]
+fn sqlite_example_and_handle_creation_rules() {
+    runs(include_str!("../../examples/sqlite.ube"), "1\nUbe\n");
+    rejects("class Application { main() { SQLite.execute('SELECT 1') } }", "require an instance");
+    rejects("class Application { main() { final db = SQLite() } }", "Use SQLite.open");
+    rejects("class Application { main() { final rows = SQLiteResult() } }", "Use SQLite.open");
+}
+
+#[test]
+fn sqlite_prepared_bindings_transactions_and_metadata() {
+    runs(r#"class Application { main() {
+        final db = SQLite.open(':memory:')
+        db.busyTimeout(50)
+        db.executeBatch('PRAGMA foreign_keys = ON; CREATE TABLE items (id INTEGER PRIMARY KEY, name TEXT UNIQUE, price REAL, active INTEGER, payload BLOB, extra TEXT);')
+        final insert = db.prepare('INSERT INTO items VALUES (?1, :name, ?3, ?4, ?5, ?6)')
+        print(insert.parameterCount()) print(insert.parameterName(2)) print(insert.parameterIndex(':name'))
+        insert.bindLong(1, 4294967296L)
+        insert.bindString(insert.parameterIndex(':name'), 'hello\' ; DROP TABLE items; --')
+        insert.bindDecimal(3, 2.5) insert.bindBool(4, true) insert.bindBlobHex(5, '00ff80') insert.bindNull(6)
+        db.begin() print(db.inTransaction()) print(insert.execute()) print(db.changes()) print(db.lastInsertRowId())
+        db.commit() print(db.inTransaction())
+        final select = db.prepare('SELECT * FROM items WHERE id = ?')
+        select.bindLong(1, 4294967296L)
+        final rows = select.query()
+        print(rows.rowCount()) print(rows.columnCount()) print(rows.columnName(1)) print(rows.columnIndex('NAME'))
+        print(rows.next()) print(rows.getLong(0)) print(rows.getString(rows.columnIndex('name')))
+        print(rows.getDecimal(2)) print(rows.getBool(3)) print(rows.getBlobHex(4)) print(rows.isNull(5)) print(rows.columnType(4))
+        try { print(rows.getInt(0)) } catch (SQLiteError err) { print('overflow') }
+        rows.reset() print(rows.next())
+        db.begin() db.execute('DELETE FROM items') db.rollback()
+        select.clearBindings() final empty = select.query() print(empty.rowCount()) empty.close()
+        insert.clearBindings() insert.bindInt(1, 2) insert.bindString(2, 'second') print(insert.execute())
+        db.begin() db.execute('DELETE FROM items') db.close()
+        print(rows.getLong(0))
+        try { select.execute() } catch (SQLiteError err) { print('closed statement') }
+        select.close() insert.close() rows.close()
+    } }"#, "6\n:name\n2\ntrue\n1\n1\n4294967296\nfalse\n1\n6\nname\n1\ntrue\n4294967296\nhello' ; DROP TABLE items; --\n2.5\ntrue\n00ff80\ntrue\nblob\noverflow\ntrue\n0\n1\n4294967296\nclosed statement\n");
+}
+
+#[test]
+fn sqlite_returning_nulls_errors_and_parameter_validation() {
+    runs(r#"class Application { main() {
+        final db = SQLite.open(':memory:')
+        db.execute('CREATE TABLE items (id INTEGER PRIMARY KEY, value TEXT NOT NULL UNIQUE)')
+        final returning = db.prepare('INSERT INTO items(value) VALUES (?) RETURNING id, value')
+        returning.bindString(1, 'first') final rows = returning.query()
+        print(rows.next()) print(rows.getInt(0)) print(rows.getString(1)) rows.close()
+        try { returning.query() } catch (SQLiteError err) { print('unique') }
+        try { returning.bindInt(0, 1) } catch (SQLiteError err) { print('index') }
+        try { returning.bindBlobHex(1, '0x') } catch (SQLiteError err) { print('hex') }
+        try { db.execute('DELETE FROM items; DROP TABLE items') } catch (SQLiteError err) { print('multiple') }
+        try { db.query('SELECT 1; SELECT 2') } catch (SQLiteError err) { print('multiple query') }
+        final count = db.query('SELECT count(*) FROM items') print(count.next()) print(count.getInt(0)) count.close()
+        try { db.execute('SELECT 1') } catch (SQLiteError err) { print('use query') }
+        try { db.query('DELETE FROM items') } catch (SQLiteError err) { print('use execute') }
+        try { db.busyTimeout(-1) } catch (SQLiteError err) { print('timeout') }
+        final empty = db.query('SELECT id AS number FROM items WHERE 0') print(empty.columnName(0)) print(empty.next()) empty.close()
+        returning.close() db.close()
+    } }"#, "true\n1\nfirst\nunique\nindex\nhex\nmultiple\nmultiple query\ntrue\n1\nuse query\nuse execute\ntimeout\nnumber\nfalse\n");
+    rejects("class Application { main() { final db = SQLite.open() } }", "expects 1 arguments");
+    rejects("class Application { main() { final db = SQLite.open(':memory:') db.close(1) } }", "expects 0 arguments");
+    rejects("class Application { main() { final db = SQLite.open(':memory:') final s = db.prepare('SELECT ?') s.bindLong(1, 'bad') } }", "Expected");
+    rejects("class Application { main() { final s = SQLiteStatement() } }", "Use SQLite.open");
+}
+
+#[test]
+fn sqlite_native_file_backup_restore_and_read_only() {
+    let dir = Scratch(std::env::temp_dir().join(format!("ube-sqlite-native-{}", std::process::id())));
+    fs::create_dir_all(&dir.0).unwrap();
+    let source = r#"class Application { main() {
+        print(SQLite.version() != '')
+        final db = SQLite.open('$ROOT/source.db')
+        print(db.readOnly())
+        db.executeBatch('CREATE TABLE t(id INTEGER); INSERT INTO t VALUES (7);')
+        db.backup('$ROOT/backup.db')
+        db.execute('UPDATE t SET id = 9')
+        db.restore('$ROOT/backup.db')
+        db.close()
+        final ro = SQLite.openReadOnly('$ROOT/source.db')
+        print(ro.readOnly())
+        final rows = ro.query('SELECT id FROM t') print(rows.next()) print(rows.getInt(0)) rows.close()
+        try { ro.execute('DELETE FROM t') } catch (SQLiteError err) { print('read only') }
+        ro.close()
+    } }"#.replace("$ROOT", dir.0.to_str().unwrap());
+    runs(&source, "true\nfalse\ntrue\ntrue\n7\nread only\n");
+}

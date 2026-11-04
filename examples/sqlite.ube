@@ -1,0 +1,34 @@
+class Application {
+    main() {
+        final db = SQLite.open(':memory:')
+        try {
+            db.execute('CREATE TABLE items (id INTEGER, name TEXT)')
+            final insert = db.prepare('INSERT INTO items VALUES (:id, :name)')
+            try {
+                db.begin()
+                try {
+                    insert.bindInt(insert.parameterIndex(':id'), 1)
+                    insert.bindString(insert.parameterIndex(':name'), 'Ube')
+                    insert.execute()
+                    db.commit()
+                } catch (SQLiteError err) {
+                    db.rollback()
+                    throw err
+                }
+            } finally {
+                insert.close()
+            }
+            final rows = db.query('SELECT id, name FROM items ORDER BY id')
+            try {
+                for (rows.next()) {
+                    print(rows.getLong(0))
+                    print(rows.getString(1))
+                }
+            } finally {
+                rows.close()
+            }
+        } finally {
+            db.close()
+        }
+    }
+}
