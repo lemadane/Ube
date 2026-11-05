@@ -10,12 +10,15 @@ pub struct UbeArray {
 
 #[no_mangle]
 pub extern "C" fn ube_array_create(capacity: usize, element_size: usize) -> UbeArray {
-    let size = capacity.saturating_mul(element_size);
-    let ptr = crate::memory::ube_alloc(size, 8);
+    // Overflow and allocation failure must never produce a usable capacity.
+    let ptr = capacity
+        .checked_mul(element_size)
+        .map(|size| crate::memory::ube_alloc(size, 8))
+        .unwrap_or(std::ptr::null_mut());
     UbeArray {
         data: ptr as *mut u8,
         len: 0,
-        capacity,
+        capacity: if ptr.is_null() { 0 } else { capacity },
         element_size,
     }
 }
@@ -105,4 +108,30 @@ pub extern "C" fn ube_map_len(ptr: *mut UbeMap) -> i64 {
         }
     }
     0
+}
+
+#[cfg(test)]
+mod allocation_tests {
+    use super::*;
+
+    #[test]
+    fn failed_array_allocation_never_retains_requested_capacity() {
+        // Exercise arithmetic overflow and an unrepresentable allocator layout
+        // without asking the operating system for an enormous allocation.
+        for element_size in [1, 2] {
+            let array = ube_array_create(usize::MAX, element_size);
+            assert!(array.data.is_null());
+            assert_eq!(array.len, 0);
+            assert_eq!(array.capacity, 0);
+            assert_eq!(array.element_size, element_size);
+        }
+        let array = ube_array_create(4, 8);
+        assert!(!array.data.is_null());
+        assert_eq!(array.capacity, 4);
+        assert_eq!(array.len, 0);
+        unsafe {
+            *array.data.add(31) = 42;
+        }
+        crate::memory::ube_free(array.data.cast(), 32, 8);
+    }
 }

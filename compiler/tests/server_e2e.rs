@@ -906,3 +906,862 @@ fn compiled_http3_udp_bind_failure_is_catchable() {
     );
     assert_eq!(output.stdout, b"UDP occupied\n");
 }
+
+#[test]
+fn compiled_ube_server_receives_post_and_put_bodies() {
+    let port = TcpListener::bind(("127.0.0.1", 0))
+        .unwrap()
+        .local_addr()
+        .unwrap()
+        .port();
+    let source = format!(
+        r#"
+        class Application(var int calls) {{
+            Response echo(Request request) {{
+                this._calls = this._calls + 1
+                return Response.ok(request.body())
+            }}
+            Response checked(Request request) {{
+                try {{ return Response.ok(request.body()) }}
+                catch (GenericError error) {{ return Response.ok('invalid text') }}
+            }}
+            main() {{
+                final server = Server()
+                server.post('/echo', request -> this.echo(request))
+                server.put('/echo', request -> this.echo(request))
+                server.get('/calls', request -> Response.ok('${{this._calls}}'))
+                server.post('/checked', request -> this.checked(request))
+                server.start({port})
+            }}
+        }}
+    "#
+    );
+    let directory = TestDirectory::new();
+    let binary = compile_ube_server(&source, directory.path());
+    let mut server = RunningServer(
+        Command::new(binary)
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap(),
+    );
+    let address = SocketAddr::from(([127, 0, 0, 1], port));
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while TcpStream::connect_timeout(&address, Duration::from_millis(100)).is_err() {
+        assert!(server.0.try_wait().unwrap().is_none());
+        assert!(Instant::now() < deadline);
+        thread::sleep(Duration::from_millis(25));
+    }
+    let json = r#"{"name":"Ube🦀","enabled":true}"#;
+    for method in ["POST", "PUT"] {
+        let raw = format!(
+            "{method} /echo HTTP/1.1\r\nHost: localhost\r\nContent-Length: {}\r\n\r\n{json}",
+            json.len()
+        );
+        let response = String::from_utf8(send_request(address, &raw)).unwrap();
+        assert!(response.starts_with("HTTP/1.1 200 "), "{response}");
+        assert_eq!(response.split_once("\r\n\r\n").unwrap().1, json);
+    }
+    let response = String::from_utf8(send_request(address, "PUT /echo HTTP/1.1\r\nHost: localhost\r\nTransfer-Encoding: chunked\r\n\r\n3\r\nabc\r\n2\r\nde\r\n0\r\n\r\n")).unwrap();
+    assert!(response.starts_with("HTTP/1.1 200 "));
+    assert!(response.ends_with("\r\n\r\nabcde"));
+    let response = String::from_utf8(send_request(
+        address,
+        "POST /checked HTTP/1.1\r\nHost: localhost\r\nContent-Length: 1\r\n\r\n\0",
+    ))
+    .unwrap();
+    assert!(response.starts_with("HTTP/1.1 200 "), "{response}");
+    assert!(response.ends_with("invalid text"), "{response}");
+    // Exercise real binary bytes across TCP and the generated catch path.
+    let mut binary = TcpStream::connect(address).unwrap();
+    binary
+        .set_read_timeout(Some(Duration::from_secs(2)))
+        .unwrap();
+    binary
+        .write_all(b"POST /checked HTTP/1.1\r\nHost: localhost\r\nContent-Length: 1\r\n\r\n\xff")
+        .unwrap();
+    let mut response = String::new();
+    binary.read_to_string(&mut response).unwrap();
+    assert!(response.starts_with("HTTP/1.1 200 "));
+    assert!(response.ends_with("invalid text"));
+
+    // A client waits for 100 Continue before sending either fixed or chunked data.
+    // The server must not dispatch while the final payload bytes are still absent.
+    for (framing, first, last) in [
+        ("Content-Length: 5", "ab", "cde"),
+        (
+            "Transfer-Encoding: chunked",
+            "3\r\nab",
+            "c\r\n2\r\nde\r\n0\r\n\r\n",
+        ),
+    ] {
+        let mut stream = TcpStream::connect(address).unwrap();
+        stream
+            .set_read_timeout(Some(Duration::from_secs(2)))
+            .unwrap();
+        write!(
+            stream,
+            "POST /echo HTTP/1.1\r\nHost: localhost\r\n{framing}\r\nExpect: 100-continue\r\n\r\n"
+        )
+        .unwrap();
+        let mut interim = [0; 25];
+        stream.read_exact(&mut interim).unwrap();
+        assert_eq!(&interim, b"HTTP/1.1 100 Continue\r\n\r\n");
+        stream.write_all(first.as_bytes()).unwrap();
+        stream
+            .set_read_timeout(Some(Duration::from_millis(100)))
+            .unwrap();
+        let error = stream
+            .read(&mut [0; 1])
+            .expect_err("handler must await the complete body");
+        assert!(matches!(
+            error.kind(),
+            std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+        ));
+        stream
+            .set_read_timeout(Some(Duration::from_secs(2)))
+            .unwrap();
+        stream.write_all(last.as_bytes()).unwrap();
+        let mut response = String::new();
+        stream.read_to_string(&mut response).unwrap();
+        assert!(response.starts_with("HTTP/1.1 200 "), "{response}");
+        assert!(response.ends_with("\r\n\r\nabcde"), "{response}");
+    }
+
+    // The exact decoded size limit succeeds; one byte above it is rejected below.
+    let payload = "x".repeat(1024 * 1024);
+    let response = send_request(
+        address,
+        &format!(
+            "PUT /echo HTTP/1.1\r\nHost: localhost\r\nContent-Length: {}\r\n\r\n{payload}",
+            payload.len()
+        ),
+    );
+    let response = String::from_utf8(response).unwrap();
+    assert!(response.starts_with("HTTP/1.1 200 "));
+    assert_eq!(response.split_once("\r\n\r\n").unwrap().1, payload);
+    let response = send_request(address, "POST /echo HTTP/1.1\r\nHost: localhost\r\n\r\n");
+    assert!(response.starts_with(b"HTTP/1.1 200 "));
+    assert!(response.ends_with(b"\r\n\r\n"));
+
+    // A counter in the compiled handler proves rejected requests never reach it.
+    let calls_before = session_http1(address, "/calls", None).body;
+    for (headers, status) in [
+        ("Content-Length: 1048577", 413),
+        ("Content-Length: 1048577\r\nExpect: 100-continue", 413),
+        ("Content-Length: 0\r\nTransfer-Encoding: chunked", 400),
+        ("Content-Length: 0\r\nContent-Length: 0", 400),
+        ("Transfer-Encoding: gzip", 400),
+        ("Expect: unsupported", 417),
+    ] {
+        let response = String::from_utf8(send_request(
+            address,
+            &format!("POST /echo HTTP/1.1\r\nHost: localhost\r\n{headers}\r\n\r\n"),
+        ))
+        .unwrap();
+        assert!(
+            response.starts_with(&format!("HTTP/1.1 {status} ")),
+            "{headers}: {response}"
+        );
+    }
+    for (framing, body) in [
+        ("Transfer-Encoding: chunked", "Z\r\n"),
+        ("Transfer-Encoding: chunked", "100001\r\n"),
+        (
+            "Transfer-Encoding: chunked",
+            "1;unsupported=yes\r\nx\r\n0\r\n\r\n",
+        ),
+        (
+            "Transfer-Encoding: chunked",
+            "0\r\nX-Trailer: value\r\n\r\n",
+        ),
+    ] {
+        let status = if body == "100001\r\n" { 413 } else { 400 };
+        let response = send_request(
+            address,
+            &format!("POST /echo HTTP/1.1\r\nHost: localhost\r\n{framing}\r\n\r\n{body}"),
+        );
+        assert!(
+            response.starts_with(format!("HTTP/1.1 {status} ").as_bytes()),
+            "{}",
+            String::from_utf8_lossy(&response)
+        );
+    }
+    // EOF before Content-Length must reject the request rather than dispatch it.
+    let mut stream = TcpStream::connect(address).unwrap();
+    stream
+        .set_read_timeout(Some(Duration::from_secs(2)))
+        .unwrap();
+    stream
+        .write_all(b"POST /echo HTTP/1.1\r\nHost: localhost\r\nContent-Length: 5\r\n\r\nx")
+        .unwrap();
+    stream.shutdown(std::net::Shutdown::Write).unwrap();
+    let mut response = String::new();
+    stream.read_to_string(&mut response).unwrap();
+    assert!(response.starts_with("HTTP/1.1 400 "), "{response}");
+    // A stalled sender must receive a 408, with no handler invocation.
+    let mut stalled = TcpStream::connect(address).unwrap();
+    stalled
+        .set_read_timeout(Some(Duration::from_secs(15)))
+        .unwrap();
+    stalled
+        .write_all(b"POST /echo HTTP/1.1\r\nHost: localhost\r\nContent-Length: 1\r\n\r\n")
+        .unwrap();
+    let mut response = String::new();
+    stalled.read_to_string(&mut response).unwrap();
+    assert!(response.starts_with("HTTP/1.1 408 "), "{response}");
+    assert_eq!(session_http1(address, "/calls", None).body, calls_before);
+    // Malformed clients must not prevent subsequent valid requests from succeeding.
+    let response = send_request(
+        address,
+        "POST /echo HTTP/1.1\r\nHost: localhost\r\nContent-Length: 2\r\n\r\nok",
+    );
+    assert!(response.starts_with(b"HTTP/1.1 200 "));
+    assert!(response.ends_with(b"\r\n\r\nok"));
+}
+
+struct BodyCase {
+    method: &'static str,
+    path: &'static str,
+    length: Option<String>,
+    data: bytes::Bytes,
+    status: u16,
+    expected: bytes::Bytes,
+}
+
+fn multiplexed_body_cases() -> Vec<BodyCase> {
+    use bytes::Bytes;
+    let mut cases = Vec::new();
+    for method in ["POST", "PUT"] {
+        for length in [false, true] {
+            let data = Bytes::from_static("{\"name\":\"Ube🦀\"}".as_bytes());
+            cases.push(BodyCase {
+                method,
+                path: "/echo",
+                length: length.then(|| data.len().to_string()),
+                expected: data.clone(),
+                data,
+                status: 200,
+            });
+        }
+    }
+    for size in [0, 1024 * 1024, 1024 * 1024 + 1] {
+        let data = Bytes::from(vec![b'x'; size]);
+        cases.push(BodyCase {
+            method: "POST",
+            path: "/echo",
+            length: None,
+            expected: if size > 1024 * 1024 {
+                Bytes::new()
+            } else {
+                data.clone()
+            },
+            data,
+            status: if size > 1024 * 1024 { 413 } else { 200 },
+        });
+    }
+    for (length, status) in [("1048577", 413), ("+1", 400), ("1, 1", 400), ("2", 400)] {
+        cases.push(BodyCase {
+            method: "POST",
+            path: "/echo",
+            length: Some(length.into()),
+            data: Bytes::new(),
+            status,
+            expected: Bytes::new(),
+        });
+    }
+    for data in [Bytes::from_static(b"\0"), Bytes::from_static(b"\xff")] {
+        cases.push(BodyCase {
+            method: "POST",
+            path: "/checked",
+            length: None,
+            data,
+            status: 200,
+            expected: Bytes::from_static(b"invalid text"),
+        });
+    }
+    cases
+}
+
+fn compiled_multiplexed_body_server(
+    http3: bool,
+) -> (
+    TestDirectory,
+    RunningServer,
+    rcgen::CertifiedKey,
+    SocketAddr,
+) {
+    let directory = TestDirectory::new();
+    let certificate = rcgen::generate_simple_self_signed(vec!["localhost".into()]).unwrap();
+    let cert = directory.path().join("cert.pem");
+    let key = directory.path().join("key.pem");
+    fs::write(&cert, certificate.cert.pem()).unwrap();
+    fs::write(&key, certificate.key_pair.serialize_pem()).unwrap();
+    let port = TcpListener::bind(("127.0.0.1", 0))
+        .unwrap()
+        .local_addr()
+        .unwrap()
+        .port();
+    let source = format!(
+        r#"
+        class Application(var int calls) {{
+            Response echo(Request request) {{
+                this._calls = this._calls + 1
+                return Response.ok(request.body())
+            }}
+            Response checked(Request request) {{
+                try {{ return Response.ok(request.body()) }}
+                catch (GenericError error) {{ return Response.ok('invalid text') }}
+            }}
+            main() {{
+                final server = Server()
+                server.tls('{cert}', '{key}')
+                server.enableHttp2()
+                {enable_h3}
+                server.get('/ports', request -> Response.ok('${{server.http3Port()}}'))
+                server.get('/calls', request -> Response.ok('${{this._calls}}'))
+                server.post('/echo', request -> this.echo(request))
+                server.put('/echo', request -> this.echo(request))
+                server.post('/checked', request -> this.checked(request))
+                server.start({port})
+            }}
+        }}
+    "#,
+        cert = cert.display(),
+        key = key.display(),
+        enable_h3 = if http3 { "server.enableHttp3(0)" } else { "" }
+    );
+    let binary = compile_ube_server(&source, directory.path());
+    let mut server = RunningServer(
+        Command::new(binary)
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap(),
+    );
+    let address = SocketAddr::from(([127, 0, 0, 1], port));
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while TcpStream::connect_timeout(&address, Duration::from_millis(100)).is_err() {
+        assert!(server.0.try_wait().unwrap().is_none());
+        assert!(Instant::now() < deadline);
+        thread::sleep(Duration::from_millis(25));
+    }
+    (directory, server, certificate, address)
+}
+
+fn body_client_tls(certificate: &rcgen::CertifiedKey, alpn: &[u8]) -> rustls::ClientConfig {
+    let mut roots = rustls::RootCertStore::empty();
+    roots.add(certificate.cert.der().clone()).unwrap();
+    let mut config = rustls::ClientConfig::builder_with_provider(std::sync::Arc::new(
+        rustls::crypto::ring::default_provider(),
+    ))
+    .with_safe_default_protocol_versions()
+    .unwrap()
+    .with_root_certificates(roots)
+    .with_no_client_auth();
+    config.alpn_protocols = vec![alpn.to_vec()];
+    config
+}
+
+async fn h2_body_reply(future: h2::client::ResponseFuture) -> Result<(u16, Vec<u8>), h2::Error> {
+    let response = future.await?;
+    assert_eq!(response.version(), http::Version::HTTP_2);
+    let status = response.status().as_u16();
+    let mut stream = response.into_body();
+    let mut body = Vec::new();
+    while let Some(data) = stream.data().await {
+        let data = data?;
+        body.extend_from_slice(&data);
+        stream.flow_control().release_capacity(data.len())?;
+    }
+    Ok((status, body))
+}
+
+#[test]
+fn compiled_http2_server_buffers_bounded_bodies_without_blocking_other_streams() {
+    use bytes::Bytes;
+    let (_directory, _server, certificate, address) = compiled_multiplexed_body_server(false);
+    ube_runtime::net::get_runtime().block_on(async {
+        tokio::time::timeout(Duration::from_secs(35), async {
+            let tcp = tokio::net::TcpStream::connect(address).await.unwrap();
+            let tls = tokio_rustls::TlsConnector::from(std::sync::Arc::new(body_client_tls(
+                &certificate,
+                b"h2",
+            )))
+            .connect("localhost".try_into().unwrap(), tcp)
+            .await
+            .unwrap();
+            let (mut client, connection) = h2::client::handshake(tls).await.unwrap();
+            let driver = tokio::spawn(connection);
+            let mut calls = 0;
+            for case in multiplexed_body_cases() {
+                let mut request = http::Request::builder()
+                    .method(case.method)
+                    .uri(format!("https://localhost{}", case.path));
+                if let Some(length) = &case.length {
+                    request = request.header("content-length", length);
+                }
+                let end_stream = case.data.is_empty() && case.status != 413;
+                let (response, mut send) = client
+                    .send_request(request.body(()).unwrap(), end_stream)
+                    .unwrap();
+                for (index, chunk) in case.data.chunks(16 * 1024).enumerate() {
+                    send.reserve_capacity(chunk.len());
+                    while send.capacity() < chunk.len() {
+                        futures_capacity(&mut send).await;
+                    }
+                    send.send_data(
+                        Bytes::copy_from_slice(chunk),
+                        (index + 1) * 16 * 1024 >= case.data.len(),
+                    )
+                    .unwrap();
+                }
+                match h2_body_reply(response).await {
+                    Ok((status, body)) => {
+                        assert_eq!(status, case.status, "{} {:?}", case.path, case.length);
+                        assert_eq!(body, case.expected);
+                    }
+                    Err(error) => assert!(
+                        case.status == 400 && error.is_reset(),
+                        "{} {:?} expected {}: {error}",
+                        case.path,
+                        case.length,
+                        case.status
+                    ),
+                }
+                if case.path == "/echo" && case.status == 200 {
+                    calls += 1;
+                }
+            }
+            let request = http::Request::builder()
+                .method("POST")
+                .uri("https://localhost/echo")
+                .header("expect", "unsupported")
+                .body(())
+                .unwrap();
+            assert_eq!(
+                h2_body_reply(client.send_request(request, true).unwrap().0)
+                    .await
+                    .unwrap()
+                    .0,
+                417
+            );
+            let request = http::Request::builder()
+                .method("POST")
+                .uri("https://localhost/echo")
+                .body(())
+                .unwrap();
+            let (response, mut trailer_send) = client.send_request(request, false).unwrap();
+            trailer_send
+                .send_data(Bytes::from_static(b"a"), false)
+                .unwrap();
+            let mut trailers = http::HeaderMap::new();
+            trailers.insert("x-test", http::HeaderValue::from_static("unsupported"));
+            trailer_send.send_trailers(trailers).unwrap();
+            assert_eq!(h2_body_reply(response).await.unwrap().0, 400);
+            drop(trailer_send);
+            let request = http::Request::builder()
+                .method("POST")
+                .uri("https://localhost/echo")
+                .body(())
+                .unwrap();
+            let (cancelled, mut cancel_send) = client.send_request(request, false).unwrap();
+            cancel_send
+                .send_data(Bytes::from_static(b"partial"), false)
+                .unwrap();
+            cancel_send.send_reset(h2::Reason::CANCEL);
+            drop(cancel_send);
+            drop(cancelled);
+            // Leave an upload unfinished, and prove another stream still completes.
+            let request = http::Request::builder()
+                .method("POST")
+                .uri("https://localhost/echo")
+                .header("expect", "100-continue")
+                .body(())
+                .unwrap();
+            let (mut pending, mut send) = client.send_request(request, false).unwrap();
+            let interim = tokio::time::timeout(
+                Duration::from_secs(2),
+                std::future::poll_fn(|cx| pending.poll_informational(cx)),
+            )
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+            assert_eq!(interim.status(), 100);
+            send.send_data(Bytes::from_static(b"ab"), false).unwrap();
+            let request = http::Request::builder()
+                .uri("https://localhost/calls")
+                .body(())
+                .unwrap();
+            let fast = client.send_request(request, true).unwrap().0;
+            let reply = tokio::time::timeout(Duration::from_secs(2), h2_body_reply(fast))
+                .await
+                .unwrap()
+                .unwrap();
+            assert_eq!(reply, (200, calls.to_string().into_bytes()));
+            send.send_data(Bytes::from_static(b"cde"), true).unwrap();
+            assert_eq!(
+                h2_body_reply(pending).await.unwrap(),
+                (200, b"abcde".to_vec())
+            );
+            calls += 1;
+            let request = http::Request::builder()
+                .method("POST")
+                .uri("https://localhost/echo")
+                .body(())
+                .unwrap();
+            let (stalled, _send) = client.send_request(request, false).unwrap();
+            assert_eq!(h2_body_reply(stalled).await.unwrap().0, 408);
+            let request = http::Request::builder()
+                .uri("https://localhost/calls")
+                .body(())
+                .unwrap();
+            assert_eq!(
+                h2_body_reply(client.send_request(request, true).unwrap().0)
+                    .await
+                    .unwrap(),
+                (200, calls.to_string().into_bytes())
+            );
+            drop(send);
+            drop(_send);
+            drop(client);
+            driver.await.unwrap().unwrap();
+        })
+        .await
+        .unwrap();
+    });
+}
+
+async fn futures_capacity(send: &mut h2::SendStream<bytes::Bytes>) {
+    std::future::poll_fn(|cx| send.poll_capacity(cx))
+        .await
+        .unwrap()
+        .unwrap();
+}
+
+async fn h3_body_bytes(
+    stream: &mut h3::client::RequestStream<h3_quinn::BidiStream<bytes::Bytes>, bytes::Bytes>,
+) -> Vec<u8> {
+    use bytes::Buf;
+    let mut body = Vec::new();
+    while let Some(mut data) = stream.recv_data().await.unwrap() {
+        while data.has_remaining() {
+            let chunk = data.chunk();
+            body.extend_from_slice(chunk);
+            let n = chunk.len();
+            data.advance(n);
+        }
+    }
+    body
+}
+
+#[test]
+fn compiled_http3_server_buffers_bounded_bodies_without_blocking_other_streams() {
+    use bytes::Bytes;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let (_directory, _server, certificate, address) = compiled_multiplexed_body_server(true);
+    ube_runtime::net::get_runtime().block_on(async {
+        tokio::time::timeout(Duration::from_secs(35), async {
+            let tcp = tokio::net::TcpStream::connect(address).await.unwrap();
+            let mut tls = tokio_rustls::TlsConnector::from(std::sync::Arc::new(body_client_tls(
+                &certificate,
+                b"http/1.1",
+            )))
+            .connect("localhost".try_into().unwrap(), tcp)
+            .await
+            .unwrap();
+            tls.write_all(b"GET /ports HTTP/1.1\r\nHost: localhost\r\n\r\n")
+                .await
+                .unwrap();
+            let mut reply = String::new();
+            tls.read_to_string(&mut reply).await.unwrap();
+            let port = reply
+                .split_once("\r\n\r\n")
+                .unwrap()
+                .1
+                .parse::<u16>()
+                .unwrap();
+            let config = quinn::crypto::rustls::QuicClientConfig::try_from(body_client_tls(
+                &certificate,
+                b"h3",
+            ))
+            .unwrap();
+            let mut endpoint = quinn::Endpoint::client("127.0.0.1:0".parse().unwrap()).unwrap();
+            endpoint
+                .set_default_client_config(quinn::ClientConfig::new(std::sync::Arc::new(config)));
+            let quic = endpoint
+                .connect(SocketAddr::from(([127, 0, 0, 1], port)), "localhost")
+                .unwrap()
+                .await
+                .unwrap();
+            let (mut connection, mut sender) =
+                h3::client::new(h3_quinn::Connection::new(quic.clone()))
+                    .await
+                    .unwrap();
+            let driver = tokio::spawn(async move { connection.wait_idle().await });
+            let mut calls = 0;
+            for case in multiplexed_body_cases() {
+                let mut request = http::Request::builder()
+                    .method(case.method)
+                    .uri(format!("https://localhost{}", case.path));
+                if let Some(length) = &case.length {
+                    request = request.header("content-length", length);
+                }
+                let mut stream = sender
+                    .send_request(request.body(()).unwrap())
+                    .await
+                    .unwrap();
+                for chunk in case.data.chunks(16 * 1024) {
+                    stream
+                        .send_data(Bytes::copy_from_slice(chunk))
+                        .await
+                        .unwrap();
+                }
+                stream.finish().await.unwrap();
+                let response = stream.recv_response().await;
+                match response {
+                    Ok(response) => {
+                        assert_eq!(response.version(), http::Version::HTTP_3);
+                        assert_eq!(
+                            response.status().as_u16(),
+                            case.status,
+                            "{} {:?}",
+                            case.path,
+                            case.length
+                        );
+                        assert_eq!(h3_body_bytes(&mut stream).await, case.expected);
+                    }
+                    Err(error) => assert_eq!(case.status, 400, "{error}"),
+                }
+                if case.path == "/echo" && case.status == 200 {
+                    calls += 1;
+                }
+            }
+            let request = http::Request::builder()
+                .method("POST")
+                .uri("https://localhost/echo")
+                .header("expect", "unsupported")
+                .body(())
+                .unwrap();
+            let mut rejected = sender.send_request(request).await.unwrap();
+            rejected.finish().await.unwrap();
+            assert_eq!(rejected.recv_response().await.unwrap().status(), 417);
+            let request = http::Request::builder()
+                .method("POST")
+                .uri("https://localhost/echo")
+                .body(())
+                .unwrap();
+            let mut trailer_send = sender.send_request(request).await.unwrap();
+            trailer_send
+                .send_data(Bytes::from_static(b"a"))
+                .await
+                .unwrap();
+            let mut trailers = http::HeaderMap::new();
+            trailers.insert("x-test", http::HeaderValue::from_static("unsupported"));
+            trailer_send.send_trailers(trailers).await.unwrap();
+            trailer_send.finish().await.unwrap();
+            assert_eq!(trailer_send.recv_response().await.unwrap().status(), 400);
+            let request = http::Request::builder()
+                .method("POST")
+                .uri("https://localhost/echo")
+                .body(())
+                .unwrap();
+            let mut cancelled = sender.send_request(request).await.unwrap();
+            cancelled
+                .send_data(Bytes::from_static(b"partial"))
+                .await
+                .unwrap();
+            cancelled.stop_stream(h3::error::Code::H3_REQUEST_CANCELLED);
+            cancelled.stop_sending(h3::error::Code::H3_REQUEST_CANCELLED);
+            drop(cancelled);
+            let request = http::Request::builder()
+                .method("POST")
+                .uri("https://localhost/echo")
+                .header("expect", "100-continue")
+                .body(())
+                .unwrap();
+            let mut pending = sender.send_request(request).await.unwrap();
+            assert_eq!(
+                tokio::time::timeout(Duration::from_secs(2), pending.recv_response())
+                    .await
+                    .unwrap()
+                    .unwrap()
+                    .status(),
+                100
+            );
+            pending.send_data(Bytes::from_static(b"ab")).await.unwrap();
+            let request = http::Request::builder()
+                .uri("https://localhost/calls")
+                .body(())
+                .unwrap();
+            let mut fast = sender.send_request(request).await.unwrap();
+            fast.finish().await.unwrap();
+            assert_eq!(
+                tokio::time::timeout(Duration::from_secs(2), fast.recv_response())
+                    .await
+                    .unwrap()
+                    .unwrap()
+                    .status(),
+                200
+            );
+            assert_eq!(h3_body_bytes(&mut fast).await, calls.to_string().as_bytes());
+            pending.send_data(Bytes::from_static(b"cde")).await.unwrap();
+            pending.finish().await.unwrap();
+            assert_eq!(pending.recv_response().await.unwrap().status(), 200);
+            assert_eq!(h3_body_bytes(&mut pending).await, b"abcde");
+            calls += 1;
+            let request = http::Request::builder()
+                .method("POST")
+                .uri("https://localhost/echo")
+                .body(())
+                .unwrap();
+            let mut stalled = sender.send_request(request).await.unwrap();
+            assert_eq!(stalled.recv_response().await.unwrap().status(), 408);
+            let request = http::Request::builder()
+                .uri("https://localhost/calls")
+                .body(())
+                .unwrap();
+            let mut check = sender.send_request(request).await.unwrap();
+            check.finish().await.unwrap();
+            assert_eq!(check.recv_response().await.unwrap().status(), 200);
+            assert_eq!(
+                h3_body_bytes(&mut check).await,
+                calls.to_string().as_bytes()
+            );
+            quic.close(quinn::VarInt::from_u32(0x100), b"done");
+            drop(sender);
+            let _ = driver.await;
+            endpoint.close(quinn::VarInt::from_u32(0x100), b"done");
+            endpoint.wait_idle().await;
+        })
+        .await
+        .unwrap();
+    });
+}
+
+#[test]
+fn compiled_server_survives_caught_and_uncaught_currency_mismatches() {
+    let port = TcpListener::bind(("127.0.0.1", 0))
+        .unwrap()
+        .local_addr()
+        .unwrap()
+        .port();
+    let source = format!(
+        r#"
+        class Application(var int cleaned, var int continued) {{
+            Money fail(bool subtract) {{
+                try {{
+                    if (subtract) {{ return Money.php(10.0).subtract(Money.usd(1.0)) }}
+                    return Money.php(10.0).add(Money.usd(1.0))
+                }} finally {{ this._cleaned = this._cleaned + 1 }}
+            }}
+            Response uncaught(bool subtract) {{
+                final value = this.fail(subtract)
+                this._continued = this._continued + 1
+                return Response.ok('unexpected')
+            }}
+            Response valid() {{
+                final original = Money.php(10.0)
+                final sum = original.add(Money.php(5.0))
+                final difference = original.subtract(Money.php(5.0))
+                return Response.ok('${{original.amount() == 10.0}} ${{sum.amount() == 15.0}} ${{difference.amount() == 5.0}} ${{sum.currency().code()}}')
+            }}
+            Response recover(bool subtract) {{
+                try {{
+                    final value = this.fail(subtract)
+                    this._continued = this._continued + 1
+                    return Response.ok('unexpected')
+                }}
+                catch (CurrencyMismatchError error) {{ return Response.ok('recovered: ${{error.message()}}') }}
+            }}
+            main() {{
+                final server = Server()
+                server.get('/caught-add', request -> this.recover(false))
+                server.get('/caught-subtract', request -> this.recover(true))
+                server.get('/uncaught-add', request -> this.uncaught(false))
+                server.get('/uncaught-subtract', request -> this.uncaught(true))
+                server.post('/caught', request -> this.recover(request.body() == 'subtract'))
+                server.post('/uncaught', request -> this.uncaught(request.body() == 'subtract'))
+                server.get('/valid', request -> this.valid())
+                server.get('/stats', request -> Response.ok('${{this._cleaned}} ${{this._continued}}'))
+                server.get('/health', request -> Response.ok('alive'))
+                server.start({port})
+            }}
+        }}
+    "#
+    );
+    let directory = TestDirectory::new();
+    let binary = compile_ube_server(&source, directory.path());
+    let mut server = RunningServer(
+        Command::new(binary)
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap(),
+    );
+    let address = SocketAddr::from(([127, 0, 0, 1], port));
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while TcpStream::connect_timeout(&address, Duration::from_millis(100)).is_err() {
+        assert!(server.0.try_wait().unwrap().is_none());
+        assert!(Instant::now() < deadline);
+        thread::sleep(Duration::from_millis(25));
+    }
+    let post = |path: &str, body: &str| {
+        let response = send_request(
+            address,
+            &format!(
+                "POST {path} HTTP/1.1\r\nHost: localhost\r\nContent-Length: {}\r\n\r\n{body}",
+                body.len()
+            ),
+        );
+        let response = String::from_utf8(response).unwrap();
+        let (head, body) = response.split_once("\r\n\r\n").unwrap();
+        (
+            head.split_whitespace()
+                .nth(1)
+                .unwrap()
+                .parse::<u16>()
+                .unwrap(),
+            body.to_owned(),
+        )
+    };
+    let mut expected_cleanup = 0;
+    for _ in 0..2 {
+        for operation in ["add", "subtract"] {
+            for caught in [true, false] {
+                let mode = if caught { "caught" } else { "uncaught" };
+                for method in ["GET", "POST"] {
+                    let (status, body) = if method == "GET" {
+                        let reply = session_http1(address, &format!("/{mode}-{operation}"), None);
+                        (reply.status, reply.body)
+                    } else {
+                        post(&format!("/{mode}"), operation)
+                    };
+                    if caught {
+                        assert_eq!(status, 200, "{method} {mode} {operation}");
+                        assert_eq!(body, "recovered: Money currency mismatch: PHP vs USD");
+                    } else {
+                        assert_eq!(status, 500, "{method} {mode} {operation}");
+                        assert_eq!(body, "Internal Server Error");
+                    }
+                    expected_cleanup += 1;
+                    // Exactly one finally runs per operation. No statement
+                    // after the failed arithmetic may execute in either path.
+                    let stats = session_http1(address, "/stats", None);
+                    assert_eq!(stats.status, 200);
+                    assert_eq!(stats.body, format!("{expected_cleanup} 0"));
+                    // A successful money operation after every failure proves
+                    // pending exceptions were consumed and arithmetic still works.
+                    let valid = session_http1(address, "/valid", None);
+                    assert_eq!(valid.status, 200);
+                    assert_eq!(valid.body, "true true true PHP");
+                    let health = session_http1(address, "/health", None);
+                    assert_eq!(health.status, 200);
+                    assert_eq!(health.body, "alive");
+                    assert!(server.0.try_wait().unwrap().is_none());
+                }
+            }
+        }
+    }
+}

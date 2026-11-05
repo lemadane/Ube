@@ -375,6 +375,7 @@ pub struct UbeRequest {
     cookies: String,
     headers: Vec<(String, String)>,
     session: usize,
+    body: Option<Vec<u8>>,
 }
 
 #[repr(C)]
@@ -574,6 +575,25 @@ pub extern "C" fn ube_request_path_long(_ptr: *mut UbeRequest, _key: *const c_ch
     1
 }
 #[no_mangle]
+pub extern "C" fn ube_request_body(ptr: *mut UbeRequest) -> *mut c_char {
+    let body = if ptr.is_null() {
+        None
+    } else {
+        unsafe { &*ptr }.body.as_deref()
+    };
+    let Some(body) = body else {
+        fail("Request.body requires a request with a buffered body");
+        return std::ptr::null_mut();
+    };
+    if let Ok(text) = std::str::from_utf8(body) {
+        if let Ok(value) = CString::new(text) {
+            return value.into_raw();
+        }
+    }
+    fail("Request.body requires UTF-8 text without null bytes");
+    std::ptr::null_mut()
+}
+#[no_mangle]
 pub extern "C" fn ube_request_query(ptr: *mut UbeRequest, key: *const c_char) -> *mut c_char {
     if ptr.is_null() || key.is_null() {
         fail("Request.query requires a request and a key");
@@ -721,6 +741,7 @@ fn dispatch_request(
     context: &ServerContext<'_>,
     cookies: &str,
     headers: Vec<(String, String)>,
+    body: Option<Vec<u8>>,
 ) -> (u16, Vec<u8>, Option<String>, Option<String>) {
     let path = url.split('?').next().unwrap_or(url);
     let Some(route) = context
@@ -741,6 +762,7 @@ fn dispatch_request(
         cookies: cookies.into(),
         headers,
         session: 0,
+        body,
     };
     let handler: unsafe extern "C" fn(*mut std::ffi::c_void, *mut UbeRequest) -> *mut UbeResponse =
         unsafe { std::mem::transmute(route.handler) };

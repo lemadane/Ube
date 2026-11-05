@@ -115,9 +115,7 @@ async fn serve_connection(
         if stream.get_ref().1.alpn_protocol() == Some(b"h2") {
             serve_h2(stream, context, running).await
         } else {
-            tokio::time::timeout(IO_TIMEOUT, serve_h1(stream, context))
-                .await
-                .map_err(error)?
+            serve_h1(stream, context).await
         }
     } else if http2
         && tokio::time::timeout(IO_TIMEOUT, is_h2(&stream))
@@ -126,9 +124,7 @@ async fn serve_connection(
     {
         serve_h2(stream, context, running).await
     } else {
-        tokio::time::timeout(IO_TIMEOUT, serve_h1(stream, context))
-            .await
-            .map_err(error)?
+        serve_h1(stream, context).await
     }
 }
 
@@ -148,55 +144,228 @@ async fn is_h2(stream: &tokio::net::TcpStream) -> io::Result<bool> {
     }
 }
 
+// Limits apply to decoded payload bytes and separately to framing metadata.
+pub(super) const MAX_BODY: usize = 1024 * 1024;
+const MAX_HEAD: usize = 16 * 1024;
+const MAX_CHUNK_METADATA: usize = 64 * 1024;
+
+#[derive(Debug)]
+struct H1Request {
+    method: String,
+    url: String,
+    protocol: &'static str,
+    headers: Vec<(String, String)>,
+    body: Vec<u8>,
+}
+
+async fn h1_line<S: AsyncRead + Unpin>(
+    reader: &mut S,
+    limit: usize,
+    oversized: u16,
+) -> Result<Vec<u8>, u16> {
+    let mut line = Vec::new();
+    loop {
+        if line.len() >= limit {
+            return Err(oversized);
+        }
+        let byte = reader.read_u8().await.map_err(|_| 400u16)?;
+        line.push(byte);
+        if byte == b'\n' {
+            if !line.ends_with(b"\r\n") {
+                return Err(400);
+            }
+            line.truncate(line.len() - 2);
+            return Ok(line);
+        }
+        if line.len() > 1 && line[line.len() - 2] == b'\r' {
+            return Err(400);
+        }
+    }
+}
+
+async fn read_h1_request<S: AsyncRead + AsyncWrite + Unpin>(
+    reader: &mut S,
+) -> Result<H1Request, u16> {
+    let mut head = Vec::new();
+    loop {
+        let line = h1_line(reader, MAX_HEAD.saturating_sub(head.len()), 431).await?;
+        let finished = line.is_empty();
+        head.extend_from_slice(&line);
+        head.extend_from_slice(b"\r\n");
+        if finished {
+            break;
+        }
+    }
+    let mut slots = [httparse::EMPTY_HEADER; 128];
+    let mut parsed = httparse::Request::new(&mut slots);
+    match parsed.parse(&head) {
+        Ok(httparse::Status::Complete(n)) if n == head.len() => {}
+        Err(httparse::Error::TooManyHeaders) => return Err(431),
+        _ => return Err(400),
+    }
+    let protocol = match parsed.version {
+        Some(0) => "HTTP/1.0",
+        Some(1) => "HTTP/1.1",
+        _ => return Err(400),
+    };
+    let method = parsed.method.ok_or(400u16)?.to_owned();
+    let url = parsed.path.ok_or(400u16)?.to_owned();
+    let mut headers = Vec::new();
+    for header in parsed.headers.iter() {
+        if !header
+            .value
+            .iter()
+            .all(|b| *b == b'\t' || (32..=126).contains(b))
+        {
+            return Err(400);
+        }
+        headers.push((
+            header.name.to_owned(),
+            std::str::from_utf8(header.value)
+                .map_err(|_| 400u16)?
+                .trim_matches([' ', '\t'])
+                .to_owned(),
+        ));
+    }
+    let single = |name: &str| -> Result<Option<&str>, u16> {
+        let mut values = headers
+            .iter()
+            .filter(|(key, _)| key.eq_ignore_ascii_case(name));
+        let first = values.next().map(|(_, value)| value.as_str());
+        if values.next().is_some() {
+            return Err(400);
+        }
+        Ok(first)
+    };
+    let length = single("content-length")?;
+    let transfer = single("transfer-encoding")?;
+    if length.is_some() && transfer.is_some() {
+        return Err(400);
+    }
+    let length = match length {
+        Some(value) => {
+            if value.is_empty() || !value.bytes().all(|b| b.is_ascii_digit()) {
+                return Err(400);
+            }
+            let n = value.parse::<usize>().map_err(|_| 413u16)?;
+            if n > MAX_BODY {
+                return Err(413);
+            }
+            n
+        }
+        None => 0,
+    };
+    let chunked = if let Some(value) = transfer {
+        // No stacked transfer codings or parameters are supported.
+        if protocol != "HTTP/1.1" || !value.eq_ignore_ascii_case("chunked") {
+            return Err(400);
+        }
+        true
+    } else {
+        false
+    };
+    if headers
+        .iter()
+        .any(|(name, _)| name.eq_ignore_ascii_case("trailer"))
+    {
+        return Err(400);
+    }
+    if let Some(expect) = single("expect")? {
+        if protocol != "HTTP/1.1" || !expect.eq_ignore_ascii_case("100-continue") {
+            return Err(417);
+        }
+        if chunked || length > 0 {
+            reader
+                .write_all(b"HTTP/1.1 100 Continue\r\n\r\n")
+                .await
+                .map_err(|_| 400u16)?;
+            reader.flush().await.map_err(|_| 400u16)?;
+        }
+    }
+    let mut body = Vec::new();
+    if chunked {
+        let mut metadata = 0;
+        loop {
+            let line = h1_line(reader, 8192.min(MAX_CHUNK_METADATA - metadata), 413).await?;
+            metadata += line.len() + 2;
+            if metadata > MAX_CHUNK_METADATA {
+                return Err(413);
+            }
+            // Extensions and trailers are deliberately rejected rather than ignored.
+            if line.is_empty() || !line.iter().all(u8::is_ascii_hexdigit) {
+                return Err(400);
+            }
+            let size = usize::from_str_radix(std::str::from_utf8(&line).map_err(|_| 400u16)?, 16)
+                .map_err(|_| 413u16)?;
+            if size > MAX_BODY - body.len() {
+                return Err(413);
+            }
+            if size == 0 {
+                if !h1_line(reader, 8192.min(MAX_CHUNK_METADATA - metadata), 413)
+                    .await?
+                    .is_empty()
+                {
+                    return Err(400);
+                }
+                break;
+            }
+            let start = body.len();
+            body.resize(start + size, 0);
+            reader
+                .read_exact(&mut body[start..])
+                .await
+                .map_err(|_| 400u16)?;
+            let mut ending = [0; 2];
+            reader.read_exact(&mut ending).await.map_err(|_| 400u16)?;
+            if ending != *b"\r\n" {
+                return Err(400);
+            }
+        }
+    } else {
+        body.resize(length, 0);
+        reader.read_exact(&mut body).await.map_err(|_| 400u16)?;
+    }
+    Ok(H1Request {
+        method,
+        url,
+        protocol,
+        headers,
+        body,
+    })
+}
+
 async fn serve_h1<S: AsyncRead + AsyncWrite + Unpin>(
     stream: S,
     context: &ServerContext<'_>,
 ) -> io::Result<()> {
     let mut reader = BufReader::new(stream);
-    let mut head = Vec::new();
-    // A hard cap applies before allocating an arbitrarily long request line.
-    while head.len() < 16 * 1024 {
-        let byte = reader.read_u8().await?;
-        head.push(byte);
-        if head.ends_with(b"\r\n\r\n") || head.ends_with(b"\n\n") {
-            break;
+    let parsed = tokio::time::timeout(IO_TIMEOUT, read_h1_request(&mut reader)).await;
+    let (status, body, cookie, location) = match parsed {
+        Ok(Ok(request)) => {
+            let cookies = request
+                .headers
+                .iter()
+                .filter(|(name, _)| name.eq_ignore_ascii_case("cookie"))
+                .map(|(_, value)| value.as_str())
+                .collect::<Vec<_>>()
+                .join("; ");
+            dispatch_request(
+                &request.method,
+                &request.url,
+                request.protocol,
+                context,
+                &cookies,
+                request.headers,
+                Some(request.body),
+            )
         }
-    }
-    let (status, body, cookie, location) = if head.len() == 16 * 1024 {
-        (431, b"Request header too large".to_vec(), None, None)
-    } else if let Ok(head) = std::str::from_utf8(&head) {
-        let headers = head
-            .lines()
-            .skip(1)
-            .filter_map(|line| line.split_once(':'))
-            .map(|(name, value)| (name.to_owned(), value.trim().to_owned()))
-            .collect::<Vec<_>>();
-        let cookies = headers
-            .iter()
-            .filter(|(name, _)| name.eq_ignore_ascii_case("cookie"))
-            .map(|(_, value)| value.as_str())
-            .collect::<Vec<_>>()
-            .join("; ");
-        let mut parts = head.lines().next().unwrap_or("").split_whitespace();
-        match (parts.next(), parts.next(), parts.next(), parts.next()) {
-            (Some(method), Some(url), Some(version @ ("HTTP/1.0" | "HTTP/1.1")), None) => {
-                dispatch_request(
-                    method,
-                    url,
-                    if version == "HTTP/1.0" {
-                        "HTTP/1.0"
-                    } else {
-                        "HTTP/1.1"
-                    },
-                    context,
-                    &cookies,
-                    headers,
-                )
-            }
-            _ => (400, b"Bad Request".to_vec(), None, None),
+        result => {
+            let status = match result {
+                Ok(Err(status)) => status,
+                _ => 408,
+            };
+            (status, Vec::new(), None, None)
         }
-    } else {
-        (400, b"Bad Request".to_vec(), None, None)
     };
     let stream = reader.get_mut();
     let reason = http::StatusCode::from_u16(status)
@@ -214,9 +383,94 @@ async fn serve_h1<S: AsyncRead + AsyncWrite + Unpin>(
         .as_ref()
         .map(|value| format!("Alt-Svc: {value}\r\n"))
         .unwrap_or_default();
+    tokio::time::timeout(IO_TIMEOUT, async {
     stream.write_all(format!("HTTP/1.1 {status} {reason}\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Length: {}\r\n{cookie}{location}{alt_svc}Connection: close\r\n\r\n", body.len()).as_bytes()).await?;
     stream.write_all(&body).await?;
     stream.shutdown().await
+    }).await.map_err(error)?
+}
+
+// HTTP/2 and HTTP/3 delimit bodies with END_STREAM, never transfer codings.
+pub(super) fn multiplexed_body_length(headers: &http::HeaderMap) -> Result<Option<usize>, u16> {
+    if headers.contains_key(http::header::TRANSFER_ENCODING)
+        || headers.contains_key(http::header::TRAILER)
+    {
+        return Err(400);
+    }
+    let mut lengths = headers.get_all(http::header::CONTENT_LENGTH).iter();
+    let length = lengths.next();
+    if lengths.next().is_some() {
+        return Err(400);
+    }
+    let Some(value) = length else {
+        return Ok(None);
+    };
+    let value = value.to_str().map_err(|_| 400u16)?;
+    if value.is_empty() || !value.bytes().all(|b| b.is_ascii_digit()) {
+        return Err(400);
+    }
+    let length = value.parse::<usize>().map_err(|_| 413u16)?;
+    if length > MAX_BODY {
+        return Err(413);
+    }
+    Ok(Some(length))
+}
+
+pub(super) fn expects_continue(headers: &http::HeaderMap) -> Result<bool, u16> {
+    let mut values = headers.get_all(http::header::EXPECT).iter();
+    let value = values.next();
+    if values.next().is_some() {
+        return Err(417);
+    }
+    match value {
+        None => Ok(false),
+        Some(value) if value.as_bytes().eq_ignore_ascii_case(b"100-continue") => Ok(true),
+        _ => Err(417),
+    }
+}
+
+async fn read_h2_body(
+    request: &mut http::Request<h2::RecvStream>,
+    respond: &mut h2::server::SendResponse<Bytes>,
+) -> Result<Vec<u8>, u16> {
+    let length = match multiplexed_body_length(request.headers()) {
+        Err(400) if !request.headers().contains_key(http::header::TRAILER) => {
+            respond.send_reset(h2::Reason::PROTOCOL_ERROR);
+            return Err(400);
+        }
+        result => result?,
+    };
+    if expects_continue(request.headers())? && !request.body().is_end_stream() {
+        respond
+            .send_informational(http::Response::builder().status(100).body(()).unwrap())
+            .map_err(|_| 400u16)?;
+    }
+    let incoming = request.body_mut();
+    let mut body = Vec::new();
+    while let Some(data) = incoming.data().await {
+        let data = data.map_err(|_| 400u16)?;
+        if data.len() > MAX_BODY - body.len() {
+            return Err(413);
+        }
+        body.extend_from_slice(&data);
+        incoming
+            .flow_control()
+            .release_capacity(data.len())
+            .map_err(|_| 400u16)?;
+    }
+    if incoming
+        .trailers()
+        .await
+        .map_err(|_| 400u16)?
+        .is_some_and(|trailers| !trailers.is_empty())
+    {
+        return Err(400);
+    }
+    if length.is_some_and(|length| length != body.len()) {
+        respond.send_reset(h2::Reason::PROTOCOL_ERROR);
+        return Err(400);
+    }
+    Ok(body)
 }
 
 async fn serve_h2<S: AsyncRead + AsyncWrite + Unpin>(
@@ -236,27 +490,42 @@ async fn serve_h2<S: AsyncRead + AsyncWrite + Unpin>(
     .map_err(error)?;
     let mut stopped = tokio::time::interval(Duration::from_millis(20));
     let mut responses = tokio::task::JoinSet::new();
+    let mut requests = futures_util::stream::FuturesUnordered::new();
+    use futures_util::StreamExt;
     loop {
         tokio::select! {
             incoming = connection.accept() => match incoming {
                 Some(Ok((request, respond))) => {
-                    let method = request.method().as_str();
-                    let url = request.uri().path_and_query().map(|p| p.as_str()).unwrap_or("/");
-                    let head = method == "HEAD";
-                    let cookies = request.headers().get_all(http::header::COOKIE).iter()
-                        .filter_map(|value| value.to_str().ok()).collect::<Vec<_>>().join("; ");
-                    let headers = request.headers().iter().map(|(name, value)| value.to_str().map(|value| (name.as_str().to_owned(), value.to_owned()))).collect::<Result<Vec<_>, _>>();
-                    let (status, body, cookie, location) = match headers {
-                        Ok(headers) => dispatch_request(method, url, "HTTP/2", context, &cookies, headers),
-                        Err(_) => (400, b"Bad Request".to_vec(), None, None),
-                    };
-                    responses.spawn(send_h2_response(request.into_body(), respond, status, body, head, cookie, location, context.alt_svc.clone()));
+                    requests.push(async move {
+                        let mut request = request;
+                        let mut respond = respond;
+                        let body = tokio::time::timeout(IO_TIMEOUT, read_h2_body(&mut request, &mut respond))
+                            .await.unwrap_or(Err(408));
+                        (request, respond, body)
+                    });
                 }
                 Some(Err(failure)) => return Err(error(failure)),
                 None => break,
             },
+            Some((request, respond, payload)) = requests.next(), if !requests.is_empty() => {
+                // Poll bodies concurrently with the connection driver. Generated
+                // callbacks must execute here, on the calling server thread.
+                let method = request.method().as_str();
+                let url = request.uri().path_and_query().map(|p| p.as_str()).unwrap_or("/");
+                let head = method == "HEAD";
+                let cookies = request.headers().get_all(http::header::COOKIE).iter()
+                    .filter_map(|value| value.to_str().ok()).collect::<Vec<_>>().join("; ");
+                let headers = request.headers().iter().map(|(name, value)| value.to_str().map(|value| (name.as_str().to_owned(), value.to_owned()))).collect::<Result<Vec<_>, _>>();
+                let (status, body, cookie, location) = match (headers, payload) {
+                    (Ok(headers), Ok(payload)) => dispatch_request(method, url, "HTTP/2", context, &cookies, headers, Some(payload)),
+                    (_, Err(status)) => (status, Vec::new(), None, None),
+                    _ => (400, Vec::new(), None, None),
+                };
+                responses.spawn(send_h2_response(request.into_body(), respond, status, body, head, cookie, location, context.alt_svc.clone()));
+            },
             _ = stopped.tick() => if !running.load(Ordering::Acquire) {
                 connection.graceful_shutdown();
+                requests.clear();
                 // Drive queued responses and GOAWAY even if the handler stopped
                 // the listener. A peer cannot prevent shutdown indefinitely.
                 let _ = tokio::time::timeout(IO_TIMEOUT, futures_util::future::poll_fn(|cx| connection.poll_closed(cx))).await;
@@ -275,7 +544,7 @@ async fn serve_h2<S: AsyncRead + AsyncWrite + Unpin>(
 }
 
 async fn send_h2_response(
-    mut incoming: h2::RecvStream,
+    _incoming: h2::RecvStream,
     mut respond: h2::server::SendResponse<Bytes>,
     status: u16,
     body: Vec<u8>,
@@ -304,17 +573,6 @@ async fn send_h2_response(
     let mut outgoing = respond
         .send_response(response, no_body || body.is_empty())
         .map_err(error)?;
-    // Drain unused request bodies while sending to release the receive window.
-    let receive = async {
-        while let Some(data) = incoming.data().await {
-            let data = data.map_err(error)?;
-            incoming
-                .flow_control()
-                .release_capacity(data.len())
-                .map_err(error)?;
-        }
-        Ok::<_, io::Error>(())
-    };
     let send = async {
         if !no_body {
             let mut body = Bytes::from(body);
@@ -331,7 +589,9 @@ async fn send_h2_response(
         }
         Ok::<_, io::Error>(())
     };
-    tokio::try_join!(receive, send)?;
+    tokio::time::timeout(IO_TIMEOUT, send)
+        .await
+        .map_err(error)??;
     Ok(())
 }
 
@@ -613,5 +873,229 @@ mod tests {
             .await
             .unwrap();
         });
+    }
+}
+
+#[cfg(test)]
+mod body_tests {
+    use super::*;
+
+    async fn parse(raw: &[u8]) -> Result<H1Request, u16> {
+        let (mut client, mut server) = tokio::io::duplex(4096);
+        let (result, ()) = tokio::join!(
+            async {
+                let result = read_h1_request(&mut server).await;
+                drop(server);
+                result
+            },
+            async {
+                let _ = client.write_all(raw).await;
+                let _ = client.shutdown().await;
+            }
+        );
+        result
+    }
+
+    #[tokio::test]
+    async fn h1_reads_fixed_and_chunked_bodies_and_empty_requests() {
+        let request = parse(
+            b"POST /echo?q=x HTTP/1.1\r\nHost: localhost\r\nContent-Length: 7\r\n\r\n{\"a\":1}",
+        )
+        .await
+        .unwrap();
+        assert_eq!(request.body, br#"{"a":1}"#);
+        assert_eq!(request.method, "POST");
+        assert_eq!(request.url, "/echo?q=x");
+        let request = parse(b"PUT /echo HTTP/1.1\r\nTransfer-Encoding: ChUnKeD\r\n\r\n3\r\nabc\r\n2\r\nde\r\n0\r\n\r\n").await.unwrap();
+        assert_eq!(request.body, b"abcde");
+        assert!(parse(b"POST / HTTP/1.1\r\n\r\n")
+            .await
+            .unwrap()
+            .body
+            .is_empty());
+        assert!(parse(b"POST / HTTP/1.0\r\nContent-Length: 0\r\n\r\n")
+            .await
+            .unwrap()
+            .body
+            .is_empty());
+    }
+
+    #[tokio::test]
+    async fn h1_rejects_ambiguous_unsupported_and_truncated_framing() {
+        for (headers, body, expected) in [
+            ("Content-Length: 1\r\nContent-Length: 1", "x", 400),
+            ("Content-Length: 1\r\ncontent-length: 2", "xx", 400),
+            ("Content-Length: 1, 1", "x", 400),
+            ("Content-Length: +1", "x", 400),
+            ("Content-Length: -1", "", 400),
+            ("Content-Length:", "", 400),
+            ("Content-Length: 2", "x", 400),
+            ("Content-Length: 1048577", "", 413),
+            ("Content-Length: 999999999999999999999999999999999", "", 413),
+            ("Content-Length: 0\r\nTransfer-Encoding: chunked", "", 400),
+            ("Transfer-Encoding: gzip", "", 400),
+            ("Transfer-Encoding: gzip, chunked", "", 400),
+            ("Transfer-Encoding: chunked, gzip", "", 400),
+            (
+                "Transfer-Encoding: chunked\r\nTransfer-Encoding: chunked",
+                "",
+                400,
+            ),
+            ("Transfer-Encoding: chunked", "1\r\nx\r\n", 400),
+            ("Transfer-Encoding: chunked", "1\r\n", 400),
+            ("Transfer-Encoding: chunked", "1\r\nxZZ", 400),
+            ("Transfer-Encoding: chunked", "Z\r\n", 400),
+            (
+                "Transfer-Encoding: chunked",
+                "1;foo=bar\r\nx\r\n0\r\n\r\n",
+                400,
+            ),
+            (
+                "Transfer-Encoding: chunked",
+                "0\r\nX-Trailer: value\r\n\r\n",
+                400,
+            ),
+            (
+                "Transfer-Encoding: chunked\r\nTrailer: X-Test",
+                "0\r\n\r\n",
+                400,
+            ),
+            ("Transfer-Encoding: chunked", "100001\r\n", 413),
+            ("Expect: unsupported", "", 417),
+            ("Bad Header: x", "", 400),
+            ("X-Test: x\r\n folded", "", 400),
+        ] {
+            let raw = format!("POST / HTTP/1.1\r\n{headers}\r\n\r\n{body}");
+            assert_eq!(
+                parse(raw.as_bytes()).await.unwrap_err(),
+                expected,
+                "{headers}: {body:?}"
+            );
+        }
+        assert_eq!(
+            parse(b"POST / HTTP/1.0\r\nTransfer-Encoding: chunked\r\n\r\n")
+                .await
+                .unwrap_err(),
+            400
+        );
+        assert_eq!(parse(b"POST / HTTP/1.1\n\n").await.unwrap_err(), 400);
+        assert_eq!(
+            parse(format!("GET /{} HTTP/1.1\r\n\r\n", "x".repeat(MAX_HEAD)).as_bytes())
+                .await
+                .unwrap_err(),
+            431
+        );
+    }
+
+    #[tokio::test]
+    async fn h1_body_and_framing_limits_apply_at_boundaries() {
+        let payload = "x".repeat(MAX_BODY);
+        let fixed = format!("POST / HTTP/1.1\r\nContent-Length: {MAX_BODY}\r\n\r\n{payload}");
+        assert_eq!(parse(fixed.as_bytes()).await.unwrap().body.len(), MAX_BODY);
+        let chunked = format!("POST / HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n{MAX_BODY:x}\r\n{payload}\r\n0\r\n\r\n");
+        assert_eq!(
+            parse(chunked.as_bytes()).await.unwrap().body.len(),
+            MAX_BODY
+        );
+        let oversized = chunked.replace("\r\n0\r\n\r\n", "\r\n1\r\nx\r\n0\r\n\r\n");
+        assert_eq!(parse(oversized.as_bytes()).await.unwrap_err(), 413);
+        let metadata = format!(
+            "POST / HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n{}0\r\n\r\n",
+            "1\r\nx\r\n".repeat(MAX_CHUNK_METADATA / 3 + 1)
+        );
+        assert_eq!(parse(metadata.as_bytes()).await.unwrap_err(), 413);
+    }
+
+    #[tokio::test]
+    async fn h1_continue_allows_fragmented_body_and_checks_limit_first() {
+        let (mut client, mut server) = tokio::io::duplex(256);
+        let (request, ()) = tokio::join!(read_h1_request(&mut server), async {
+            client
+                .write_all(b"POST / HTTP/1.1\r\nContent-Length: 4\r\nExpect: 100-continue\r\n\r\n")
+                .await
+                .unwrap();
+            let mut interim = [0; 25];
+            client.read_exact(&mut interim).await.unwrap();
+            assert_eq!(&interim, b"HTTP/1.1 100 Continue\r\n\r\n");
+            client.write_all(b"ab").await.unwrap();
+            tokio::task::yield_now().await;
+            client.write_all(b"cd").await.unwrap();
+        });
+        assert_eq!(request.unwrap().body, b"abcd");
+        assert_eq!(
+            parse(b"POST / HTTP/1.1\r\nContent-Length: 1048577\r\nExpect: 100-continue\r\n\r\n")
+                .await
+                .unwrap_err(),
+            413
+        );
+    }
+}
+
+#[cfg(test)]
+mod body_timeout_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn incomplete_body_times_out_with_408_before_dispatch() {
+        let (mut client, server) = tokio::io::duplex(1024);
+        let context = ServerContext {
+            routes: &[],
+            sessions: Default::default(),
+            secure: false,
+            alt_svc: None,
+        };
+        let (result, response) = tokio::join!(serve_h1(server, &context), async {
+            client
+                .write_all(b"POST / HTTP/1.1\r\nContent-Length: 1\r\n\r\n")
+                .await
+                .unwrap();
+            let mut response = String::new();
+            client.read_to_string(&mut response).await.unwrap();
+            response
+        });
+        result.unwrap();
+        assert!(response.starts_with("HTTP/1.1 408 "), "{response}");
+    }
+}
+
+#[cfg(test)]
+mod multiplexed_header_tests {
+    use super::*;
+
+    #[test]
+    fn validates_multiplexed_body_headers_before_allocating_or_continuing() {
+        let mut headers = http::HeaderMap::new();
+        assert_eq!(multiplexed_body_length(&headers), Ok(None));
+        for (value, expected) in [
+            ("0", Ok(Some(0))),
+            ("1048576", Ok(Some(MAX_BODY))),
+            ("1048577", Err(413)),
+            ("+1", Err(400)),
+            ("1, 1", Err(400)),
+            ("", Err(400)),
+        ] {
+            headers.insert("content-length", value.parse().unwrap());
+            assert_eq!(multiplexed_body_length(&headers), expected);
+        }
+        headers.insert("content-length", "0".parse().unwrap());
+        headers.append("content-length", "0".parse().unwrap());
+        assert_eq!(multiplexed_body_length(&headers), Err(400));
+        headers.clear();
+        headers.insert("transfer-encoding", "chunked".parse().unwrap());
+        assert_eq!(multiplexed_body_length(&headers), Err(400));
+        headers.clear();
+        headers.insert("trailer", "x-checksum".parse().unwrap());
+        assert_eq!(multiplexed_body_length(&headers), Err(400));
+        headers.clear();
+        // TE is a distinct, legal negotiation header; it does not frame a body.
+        headers.insert("te", "trailers".parse().unwrap());
+        assert_eq!(multiplexed_body_length(&headers), Ok(None));
+        assert_eq!(expects_continue(&headers), Ok(false));
+        headers.insert("expect", "100-CoNtInUe".parse().unwrap());
+        assert_eq!(expects_continue(&headers), Ok(true));
+        headers.append("expect", "100-continue".parse().unwrap());
+        assert_eq!(expects_continue(&headers), Err(417));
+        headers.insert("expect", "unsupported".parse().unwrap());
+        assert_eq!(expects_continue(&headers), Err(417));
     }
 }

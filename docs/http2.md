@@ -42,6 +42,10 @@ Callbacks run serially on the server thread; concurrent streams do not make
 blocking Ube handlers execute in parallel. `server.stop()` stops accepting new
 connections and allows active connections up to ten seconds to finish.
 
-Request-body parsing and middleware retain their existing runtime limitations.
+`request.body()` supports HTTP/2 DATA frames with a 1 MiB payload limit and a
+ten-second body-read deadline. Uploads respect flow control and do not block
+other streams; callbacks run after the complete body is validated. See
+[request bodies](request-bodies.md) for framing rules and rejection behavior.
+Middleware retains its existing runtime limitations.
 HTTP/3 uses a separate QUIC listener; see [HTTP/3 setup](http3.md). A Ube HTTP
 client API and WebTransport are not implemented.

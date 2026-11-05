@@ -91,8 +91,55 @@ async fn serve_request(
     resolver: h3::server::RequestResolver<h3_quinn::Connection, Bytes>,
     context: &ServerContext<'_>,
 ) -> io::Result<()> {
+    let (request, stream) = tokio::time::timeout(TIMEOUT, resolver.resolve_request())
+        .await
+        .map_err(error)?
+        .map_err(error)?;
+    let (mut send, mut recv) = stream.split();
+    let payload = tokio::time::timeout(TIMEOUT, async {
+        let length = match super::http::multiplexed_body_length(request.headers()) {
+            Err(400) if !request.headers().contains_key(http::header::TRAILER) => {
+                send.stop_stream(h3::error::Code::H3_MESSAGE_ERROR);
+                recv.stop_sending(h3::error::Code::H3_MESSAGE_ERROR);
+                return Err(400);
+            }
+            result => result?,
+        };
+        if super::http::expects_continue(request.headers())? {
+            send.send_response(http::Response::builder().status(100).body(()).unwrap())
+                .await
+                .map_err(|_| 400u16)?;
+        }
+        let mut body = Vec::new();
+        while let Some(mut data) = recv.recv_data().await.map_err(|_| 400u16)? {
+            if data.remaining() > super::http::MAX_BODY - body.len() {
+                return Err(413);
+            }
+            while data.has_remaining() {
+                let chunk = data.chunk();
+                body.extend_from_slice(chunk);
+                let count = chunk.len();
+                data.advance(count);
+            }
+        }
+        if recv
+            .recv_trailers()
+            .await
+            .map_err(|_| 400u16)?
+            .is_some_and(|trailers| !trailers.is_empty())
+        {
+            return Err(400);
+        }
+        if length.is_some_and(|length| length != body.len()) {
+            send.stop_stream(h3::error::Code::H3_MESSAGE_ERROR);
+            recv.stop_sending(h3::error::Code::H3_MESSAGE_ERROR);
+            return Err(400);
+        }
+        Ok(body)
+    })
+    .await
+    .unwrap_or(Err(408));
     tokio::time::timeout(TIMEOUT, async {
-        let (request, stream) = resolver.resolve_request().await.map_err(error)?;
         let head = request.method() == http::Method::HEAD;
         let cookies = request
             .headers()
@@ -110,8 +157,8 @@ async fn serve_request(
                     .map(|value| (name.as_str().to_owned(), value.to_owned()))
             })
             .collect::<Result<Vec<_>, _>>();
-        let (status, body, cookie, location) = match headers {
-            Ok(headers) => dispatch_request(
+        let (status, body, cookie, location) = match (headers, payload) {
+            (Ok(headers), Ok(payload)) => dispatch_request(
                 request.method().as_str(),
                 request
                     .uri()
@@ -122,8 +169,10 @@ async fn serve_request(
                 context,
                 &cookies,
                 headers,
+                Some(payload),
             ),
-            Err(_) => (400, b"Bad Request".to_vec(), None, None),
+            (_, Err(status)) => (status, Vec::new(), None, None),
+            _ => (400, b"Bad Request".to_vec(), None, None),
         };
         let no_body = head || status == 204 || status == 304;
         let mut response = http::Response::builder()
@@ -142,25 +191,18 @@ async fn serve_request(
             response = response.header(http::header::ALT_SVC, value);
         }
         let response = response.body(()).map_err(error)?;
-        let (mut send, mut recv) = stream.split();
-        // These futures remain on the server thread, as do generated callbacks.
-        tokio::try_join!(
-            async {
-                send.send_response(response).await.map_err(error)?;
-                if !no_body {
-                    let mut body = Bytes::from(body);
-                    while body.has_remaining() {
-                        let count = body.remaining().min(16 * 1024);
-                        send.send_data(body.split_to(count)).await.map_err(error)?;
-                    }
+        // Generated callbacks and this future remain on the server thread.
+        {
+            send.send_response(response).await.map_err(error)?;
+            if !no_body {
+                let mut body = Bytes::from(body);
+                while body.has_remaining() {
+                    let count = body.remaining().min(16 * 1024);
+                    send.send_data(body.split_to(count)).await.map_err(error)?;
                 }
-                send.finish().await.map_err(error)
-            },
-            async {
-                while recv.recv_data().await.map_err(error)?.is_some() {}
-                Ok::<_, io::Error>(())
             }
-        )?;
+            send.finish().await.map_err(error)?;
+        }
         Ok::<_, io::Error>(())
     })
     .await

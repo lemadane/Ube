@@ -318,7 +318,7 @@ impl IrBuilder {
     fn emit(&mut self, instr: IrInstruction) {
         let check = matches!(instr, IrInstruction::CallMethod { .. } | IrInstruction::CallTrait { .. })
             || matches!(&instr, IrInstruction::CallRuntime { symbol, .. }
-                if symbol.starts_with("ube_orm_") || symbol.starts_with("ube_sql_") || symbol.starts_with("ube_jwt_") || symbol.starts_with("ube_oauth2_") || symbol.starts_with("ube_session_") || matches!(symbol.as_str(), "ube_request_session" | "ube_request_query" | "ube_request_header" | "ube_response_redirect") || symbol.starts_with("ube_console_") || symbol.starts_with("ube_output_") || symbol.starts_with("ube_log_") || symbol.starts_with("ube_sqlite_") || symbol.starts_with("ube_file_") || symbol.starts_with("ube_directory_")
+                if symbol.starts_with("ube_money_") || symbol.starts_with("ube_orm_") || symbol.starts_with("ube_sql_") || symbol.starts_with("ube_jwt_") || symbol.starts_with("ube_oauth2_") || symbol.starts_with("ube_session_") || matches!(symbol.as_str(), "ube_request_session" | "ube_request_query" | "ube_request_header" | "ube_request_body" | "ube_response_redirect") || symbol.starts_with("ube_console_") || symbol.starts_with("ube_output_") || symbol.starts_with("ube_log_") || symbol.starts_with("ube_sqlite_") || symbol.starts_with("ube_file_") || symbol.starts_with("ube_directory_")
                     || symbol.starts_with("ube_stream_") || symbol.starts_with("ube_server_"));
         self.current_instructions.push(instr);
         if check {
@@ -786,7 +786,7 @@ impl IrBuilder {
 
     pub fn build_program(&mut self, program: &Program) -> IrProgram {
         let mut normalized = program.clone();
-        for name in ["SQLError", "SQLiteError", "GenericError", "OutOfBoundsError", "FileError", "FileNotFoundError", "PermissionError", "AlreadyExistsError", "InvalidPathError", "DiskFullError", "LocationPermissionError", "LocationUnavailableError", "JsonError", "JsonParseError", "MissingFieldError", "InvalidTypeError", "XmlError", "XmlParseError"] {
+        for name in ["CurrencyMismatchError", "SQLError", "SQLiteError", "GenericError", "OutOfBoundsError", "FileError", "FileNotFoundError", "PermissionError", "AlreadyExistsError", "InvalidPathError", "DiskFullError", "LocationPermissionError", "LocationUnavailableError", "JsonError", "JsonParseError", "MissingFieldError", "InvalidTypeError", "XmlError", "XmlParseError"] {
             if !normalized.items.iter().any(|i| matches!(i, Item::Class(c) if c.name == name)) {
                 normalized.items.push(Item::Class(ClassDecl { name: name.into(), primary_params: vec![ConstructorParam {
                     name: "message".into(), type_spec: TypeSpec::String, is_var: false,
@@ -3020,6 +3020,7 @@ impl IrBuilder {
                                 "pathInt" => "ube_request_path_int",
                                 "query" => "ube_request_query",
                                 "header" => "ube_request_header",
+                                "body" => "ube_request_body",
                                 "hasBearerToken" => "ube_request_has_bearer_token",
                                 "protocol" => "ube_request_protocol",
                                 "isHttp3" => "ube_request_is_http3",
@@ -3312,6 +3313,7 @@ impl IrBuilder {
                             "Cookie" => "ube_cookie_create",
                             "LocationPermissionError"
                             | "LocationUnavailableError"
+                            | "CurrencyMismatchError"
                             | "FileError"
                             | "FileNotFoundError"
                             | "PermissionError"

@@ -418,6 +418,8 @@ impl TextualLlvmEmitter {
         self.output
             .push_str("declare i8* @ube_request_header(i8*, i8*)\n");
         self.output
+            .push_str("declare i8* @ube_request_body(i8*)\n");
+        self.output
             .push_str("declare i1 @ube_request_has_bearer_token(i8*)\n");
         self.output
             .push_str("declare %Response* @ube_response_create(i32, i8*)\n");
@@ -506,6 +508,7 @@ impl TextualLlvmEmitter {
 
         let builtins = vec![
             ("GenericError", "i8*"),
+            ("CurrencyMismatchError", "i8*"),
             ("OutOfBoundsError", "i8*"),
             ("Error", "i8*"),
             ("Task", "i8*"),
@@ -707,7 +710,7 @@ impl TextualLlvmEmitter {
         };
 
         if func.blocks.is_empty() { return format!("declare {} @{}({})\n", ret_ty_str, fn_name, all_params); }
-        let linkage = if ["SQLError", "SQLiteError", "GenericError", "OutOfBoundsError", "FileError", "FileNotFoundError", "PermissionError", "AlreadyExistsError", "InvalidPathError", "DiskFullError", "LocationPermissionError", "LocationUnavailableError", "JsonError", "JsonParseError", "MissingFieldError", "InvalidTypeError", "XmlError", "XmlParseError"].contains(&func.class_name.as_str()) { "linkonce_odr " } else { "" };
+        let linkage = if ["CurrencyMismatchError", "SQLError", "SQLiteError", "GenericError", "OutOfBoundsError", "FileError", "FileNotFoundError", "PermissionError", "AlreadyExistsError", "InvalidPathError", "DiskFullError", "LocationPermissionError", "LocationUnavailableError", "JsonError", "JsonParseError", "MissingFieldError", "InvalidTypeError", "XmlError", "XmlParseError"].contains(&func.class_name.as_str()) { "linkonce_odr " } else { "" };
         buf.push_str(&format!("define {}{} @{}({}) {{\n", linkage, ret_ty_str, fn_name, all_params));
 
         for block in &func.blocks {

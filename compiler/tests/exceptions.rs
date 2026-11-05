@@ -1268,3 +1268,51 @@ fn orm_join_columns_aliases_and_related_filters_are_checked() {
         ("q.join(orders,'o','id')", "join expects"),
     ] { rejects(&format!("{prefix}{body} }} }}"),message); }
 }
+
+#[test]
+fn request_body_requires_instance_and_no_arguments() {
+    rejects("class Application { main() { Request.body() } }", "requires an instance");
+    rejects("class Application { main() { final server = Server() server.post('/', request -> Response.ok(request.body('extra'))) } }", "expects 0 arguments");
+}
+
+#[test]
+fn money_currency_mismatch_is_catchable_and_runs_finally() {
+    runs(r#"
+        class Application {
+            Money subtract() { return Money.php(10.0).subtract(Money.usd(5.0)) }
+            async Money failAsync() { return this.subtract() }
+            main() {
+                final original = Money.php(10.0)
+                try { print(original.add(Money.usd(5.0)).amount()) }
+                catch (CurrencyMismatchError error) { print(error.message()) }
+                finally { print('add cleanup') }
+                try { print(this.subtract().amount()) }
+                catch (CurrencyMismatchError error) { print(error.message()) }
+                finally { print('subtract cleanup') }
+                try { final value = await this.failAsync() }
+                catch (CurrencyMismatchError error) { print('async recovered') }
+                try { original.add(Money.eur(5.0)) }
+                catch (Error error) { print(error.message()) }
+                try { throw CurrencyMismatchError('explicit mismatch') }
+                catch (CurrencyMismatchError error) { print(error.message()) }
+                print(original.amount() == 10.0)
+                print(original.add(Money.php(5.0)).amount() == 15.0)
+                print(original.subtract(Money.php(5.0)).amount() == 5.0)
+                print('still running')
+            }
+        }
+    "#, "Money currency mismatch: PHP vs USD\nadd cleanup\nMoney currency mismatch: PHP vs USD\nsubtract cleanup\nasync recovered\nMoney currency mismatch: PHP vs EUR\nexplicit mismatch\ntrue\ntrue\ntrue\nstill running\n");
+}
+
+#[test]
+fn unhandled_money_currency_mismatch_uses_normal_exception_reporting() {
+    for operation in ["add", "subtract"] {
+        let source = format!("class Application {{ main() {{ try {{ Money.php(1.0).{operation}(Money.usd(1.0)) }} finally {{ print('cleanup') }} print('unreachable') }} }}");
+        let output = native(&source);
+        assert_eq!(output.status.code(), Some(1));
+        assert_eq!(output.stdout, b"cleanup\n");
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(stderr.contains("unhandled exception CurrencyMismatchError"), "{stderr}");
+        assert!(stderr.contains("PHP vs USD"), "{stderr}");
+    }
+}

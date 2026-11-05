@@ -78,6 +78,8 @@ expire after thirty seconds. Application callbacks run serially on the server
 thread, so a blocking handler still delays other callbacks.
 
 0-RTT application data is disabled. WebTransport, HTTP datagrams, server push,
-and a Ube HTTP/3 client API are not implemented. Request-body parsing,
-middleware, static-file serving, and WebSockets retain their existing runtime
-limitations; this change adds the HTTP/3 server transport.
+and a Ube HTTP/3 client API are not implemented. `request.body()` buffers HTTP/3
+DATA frames up to 1 MiB, with a ten-second body-read deadline. Other streams
+continue while uploads are pending. See [request bodies](request-bodies.md).
+Middleware, static-file serving, and WebSockets retain their existing runtime
+limitations.

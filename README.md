@@ -120,7 +120,7 @@ See the [runnable context example](examples/log_context.ube).
 - **`break` & `continue`**: `break` exits the nearest loop; `continue` skips to the next iteration.
 - **`Array<T>`**: Fixed-size contiguous buffer (`Array<int>(10)`).
 - **`List<T>`**: Dynamic growable sequence (`[1, 2, 3]` literal syntax, `.add()`, `.remove()`).
-- **`Map<K, V>`**: Key-value hash map (`[1000L: `Lem`]` literal syntax, bracket lookup returns `V?`, key-value `for (k, v in map)` iteration).
+- **`Map<K, V>`**: Key-value hash map (`[1000L: `Lem`]` literal syntax, key-value `for (k, v in map)` iteration; missing-key handling remains incomplete because the runtime lookup returns zero—see [audit notes](docs/financial.md)).
 
 ### 13. Pattern Matching `switch` Expressions & Statements
 - **First-Class Expressions**: `switch` can evaluate directly to a value (`final x = switch (...)`).
@@ -161,8 +161,8 @@ See the [runnable context example](examples/log_context.ube).
 - **Dedicated `Duration` Class**: `Duration.seconds(n)`, `Duration.hours(n)`, `Duration.days(n)` cleanly represents time amounts (`dt.addDuration(duration)`).
 
 ### 19. Financial Standard Library (`Money`, `Currency`, `Exchange`, `Percent`, `Rate`)
-- **Immutability & Fixed-Point Precision**: `Money` values are immutable and backed by exact decimal arithmetic (never binary floating-point rounding errors).
-- **Currency Safety**: `subtotal.add(shipping)` and `total.subtract(discount)` strictly enforce matching currencies. Mismatched currencies raise a runtime error unless explicitly converted via `Exchange.convert(dollar, Currency.PHP, rate)`.
+- **Current Amount Representation**: `Money` arithmetic returns new values, but amounts currently use binary floating point (`f64`), as does the language `decimal` type. Exact decimal monetary arithmetic is not implemented.
+- **Currency Safety**: `subtotal.add(shipping)` and `total.subtract(discount)` strictly enforce matching currencies. Mismatched currencies raise catchable `CurrencyMismatchError` through the exception ABI unless explicitly converted via `Exchange.convert(dollar, Currency.PHP, rate)`.
 - **Standard Currencies**: `Currency.PHP`, `Currency.USD`, `Currency.EUR`, `Currency.JPY`, `Currency.GBP`.
 - **Financial Percentages & Rates**: `Percent(12)` and `Rate.percent(5.5)` for tax, interest, and discount calculations (`price.multiply(vat)`).
 
@@ -181,7 +181,7 @@ See the [runnable context example](examples/log_context.ube).
 - **HTTP/3 Support**: Configure `server.tls(certPath, keyPath)` and `server.enableHttp3(udpPort)` before `start(tcpPort)`. QUIC shares routes and sessions with TCP, supports concurrent streams, and is advertised with `Alt-Svc`. `server.http3Port()` reports the bound UDP port. See [HTTP/3 setup](docs/http3.md) and [the runnable example](examples/http3.ube).
 - **HTTP/2 Support**: Call `server.enableHttp2()` before `start()`. With `server.tls(certPath, keyPath)`, TLS ALPN negotiates HTTP/2 or HTTP/1.1. Without TLS, cleartext HTTP/2 prior knowledge (h2c) and HTTP/1.1 share the same port. HTTP/1.1 upgrade to h2c is not supported. See [HTTP/2 setup](docs/http2.md) and [the runnable example](examples/http2.ube).
 - **Request & Response Ergonomics**: `request.pathLong('id')`, `request.query('search')`, `request.hasBearerToken()`, `request.cookie('session')`, `request.protocol()`, `request.isHttp3()`, `Response.ok('hello')`, `Response.json(data)`.
-- **Current runtime status**: `server.start(port)` blocks the calling thread and serves loopback HTTP/1.1, optional TLS/HTTP/2, and configured HTTP/3 with exact method/path route matching. Query parameters, request headers, redirects, protocol reporting, and sessions work across transports. Request-body parsing, middleware, static-file serving, WebSockets, and several advanced `Request` accessors remain unimplemented.
+- **Current runtime status**: `server.start(port)` blocks the calling thread and serves loopback HTTP/1.1, optional TLS/HTTP/2, and configured HTTP/3 with exact method/path route matching. Query parameters, request headers, redirects, protocol reporting, and sessions work across transports. `request.body()` reads bounded UTF-8 request payloads (1 MiB maximum) across HTTP/1.x, HTTP/2, and HTTP/3; see [request bodies and limits](docs/request-bodies.md). Middleware, static-file serving, WebSockets, and several advanced `Request` accessors remain unimplemented.
 
 ### 22. First-Class Native JSON & XML Record Mapping (`Json`, `JsonObject`, `JsonArray`, `Xml`, `XmlDocument`, `XmlElement`)
 - **Bi-Directional Document & Class Mapping**: `Json.parse(text)`, `Json.partialParse(text, TargetClass)`, `Json.stringify(obj)`, `Json.from(obj)`, `Json.to(text, TargetClass)`.
@@ -1007,6 +1007,20 @@ class Application {
     }
 }
 ```
+
+Currency mismatches can be handled without terminating the process:
+
+```ube
+try {
+    final total = Money.php(10.0).add(Money.usd(5.0))
+} catch (CurrencyMismatchError error) {
+    print(error.message())
+}
+```
+
+The same error applies to `subtract()`. Normal exception propagation, `finally`,
+and `catch (Error error)` work with this error. See [financial runtime behavior
+and audit notes](docs/financial.md).
 
 ### 16. Native Filesystem & `finally` Cleanup
 

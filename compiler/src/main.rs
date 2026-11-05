@@ -102,6 +102,47 @@ edition = "2026"
     println!("  ube run src/main.ube");
 }
 
+// Return before main calls process::exit so TempDir's destructor runs on every
+// normal success/error path, including linking and execution failures.
+fn run_llvm(llvm_ir: &str) -> i32 {
+    let directory = match tempfile::Builder::new().prefix("ube-run-").tempdir() {
+        Ok(directory) => directory,
+        Err(error) => {
+            eprintln!("Error creating temporary run directory: {}", error);
+            return 1;
+        }
+    };
+    let ll_path = directory.path().join("app.ll");
+    let bin_path = directory.path().join(format!("app{}", env::consts::EXE_SUFFIX));
+    if let Err(error) = fs::write(&ll_path, llvm_ir) {
+        eprintln!("Error writing temporary IR: {}", error);
+        return 1;
+    }
+    let mut clang_cmd = Command::new("clang");
+    clang_cmd.arg(&ll_path).arg("-o").arg(&bin_path);
+    configure_runtime_linkage(&mut clang_cmd);
+    match clang_cmd.status() {
+        Ok(status) if status.success() => {}
+        _ => {
+            eprintln!("Failed to compile temporary executable with clang.");
+            return 1;
+        }
+    }
+    match Command::new(&bin_path).status() {
+        Ok(status) => match status.code() {
+            Some(code) => code,
+            None => {
+                eprintln!("Process terminated abnormally by signal.");
+                1
+            }
+        },
+        Err(error) => {
+            eprintln!("Error executing temporary binary: {}", error);
+            1
+        }
+    }
+}
+
 fn main() {
     let args: Vec<String> = env::args().collect();
     if args.len() < 2 {
@@ -276,47 +317,8 @@ fn main() {
             let mut emitter = TextualLlvmEmitter::new();
             let llvm_ir = emitter.emit_program(&ir_program);
 
-            let tmp_dir = env::temp_dir();
-            let ll_path = tmp_dir.join("ube_temp_app.ll");
-            let bin_path = tmp_dir.join("ube_temp_app");
-
-            if let Err(e) = fs::write(&ll_path, &llvm_ir) {
-                eprintln!("Error writing temporary IR: {}", e);
-                process::exit(1);
-            }
-
-            let mut clang_cmd = Command::new("clang");
-            clang_cmd.arg(&ll_path).arg("-o").arg(&bin_path);
-            configure_runtime_linkage(&mut clang_cmd);
-
-            let compile_status = clang_cmd.status();
-
-            match compile_status {
-                Ok(s) if s.success() => {
-                    let run_status = Command::new(&bin_path).status();
-                    let _ = fs::remove_file(&ll_path);
-                    let _ = fs::remove_file(&bin_path);
-                    match run_status {
-                        Ok(exit_status) => {
-                            if let Some(code) = exit_status.code() {
-                                process::exit(code);
-                            } else {
-                                eprintln!("Process terminated abnormally by signal.");
-                                process::exit(1);
-                            }
-                        }
-                        Err(e) => {
-                            eprintln!("Error executing temporary binary: {}", e);
-                            process::exit(1);
-                        }
-                    }
-                }
-                _ => {
-                    eprintln!("Failed to compile temporary executable with clang.");
-                    let _ = fs::remove_file(&ll_path);
-                    process::exit(1);
-                }
-            }
+            let code = run_llvm(&llvm_ir);
+            process::exit(code);
         }
         other => {
             eprintln!("Unknown command '{}'", other);

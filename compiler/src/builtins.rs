@@ -4,6 +4,7 @@ const BUILTIN_CLASS_NAMES: &[&str] = &[
     "Console",
     "Cookie",
     "Currency",
+    "CurrencyMismatchError",
     "DateTime",
     "Directory",
     "DiskFullError",

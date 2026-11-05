@@ -1221,6 +1221,7 @@ impl TypeChecker {
         );
 
         let file_errors = vec![
+            "CurrencyMismatchError",
             "SQLError",
             "SQLiteError",
             "FileError",
@@ -2449,7 +2450,7 @@ impl TypeChecker {
                                     }
                                     return Some(method.result);
                                 }
-                                if name == "Session" || (name == "Request" && member == "session") {
+                                if name == "Session" || (name == "Request" && matches!(member.as_str(), "session" | "body")) {
                                     if class_receiver {
                                         self.diagnostics.push(Diagnostic::error(format!("{}.{} requires an instance", name, member), Some(expr.span)));
                                         return None;
