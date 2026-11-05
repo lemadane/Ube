@@ -230,8 +230,15 @@ To include a backtick in a one-line string, write it between single quotes. Doub
 - **Shared database execution**: `SQL.open(url)` supports PostgreSQL, MySQL/MariaDB, and SQLite. Network drivers provide pools and prepared statements; SQLite retains one connection per client.
 - **Typed bindings and results**: `SQLParams.create()` holds bound scalar values; `db.query(sql, params)` provides checked typed getters and explicit NULL handling. Values are never concatenated into SQL.
 - **Transactions**: `db.begin()` reserves a connection. Use `tx.commit()` and `tx.close()` in `finally`; savepoints and rollback are supported. Failures during execution invalidate and attempt to roll back the transaction.
-- **Builder/ORM foundation**: The upcoming query builder and ORM can share this execution API, dialect helpers, parameters, results, and transaction context. Schema validation, automatic class mapping, migrations, streaming, and async SQL APIs are future work.
+- **Builder/ORM foundation**: The ORM shares this execution API, dialect helpers, parameters, results, and transaction context. Live-schema validation, standalone query-builder APIs, migration diffs, streaming, and async SQL APIs are future work.
 - See [the complete SQL API and limitations](docs/sql.md) and [the runnable example](examples/sql.ube). The existing [SQLite-specific API](docs/sqlite.md) remains available.
+
+### 25. Typed ORM (`Orm`, `OrmModel<User>`, `OrmQuery<User>`, `OrmRows<User>`)
+- **Ordinary classes**: `Orm.model(db, User, 'users')` maps scalar constructor fields to columns, with an application-assigned `int` or `long` primary key named `id`.
+- **Explicit CRUD**: `users.create(user)`, `users.save(user)`, `users.get(id)`, `users.find(id)`, and `users.delete(id)` operate on typed objects. `migrate()` creates a missing table without altering existing schemas.
+- **Fluent typed queries**: `users.query().where('active', '=', true).orderBy('id', 'asc').limit(20)` binds values and preserves the result model type. Literal column names and predicate types are checked during compilation.
+- **Shared SQL transactions**: `users.using(tx)` pins ORM operations to a `SQLTransaction`, including raw SQL and savepoints. Changes are persisted explicitly with `save()`.
+- See [the ORM API and limitations](docs/orm.md) and [the runnable example](examples/orm.ube).
 
 ---
 

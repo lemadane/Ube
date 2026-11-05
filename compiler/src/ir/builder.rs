@@ -295,6 +295,7 @@ impl IrBuilder {
             TypeSpec::Generic(name, element) if name == "Channel" => {
                 Type::Channel(Box::new(self.type_spec_to_type(element)))
             }
+            TypeSpec::Generic(name, element) if crate::orm::generic(name, element).is_some() => crate::orm::generic(name, element).unwrap(),
             TypeSpec::Generic(name, _) => Type::Class {
                 name: canonical_builtin_class_name(name).unwrap_or(name).into(),
             },
@@ -317,7 +318,7 @@ impl IrBuilder {
     fn emit(&mut self, instr: IrInstruction) {
         let check = matches!(instr, IrInstruction::CallMethod { .. } | IrInstruction::CallTrait { .. })
             || matches!(&instr, IrInstruction::CallRuntime { symbol, .. }
-                if symbol.starts_with("ube_sql_") || symbol.starts_with("ube_jwt_") || symbol.starts_with("ube_oauth2_") || symbol.starts_with("ube_session_") || matches!(symbol.as_str(), "ube_request_session" | "ube_request_query" | "ube_request_header" | "ube_response_redirect") || symbol.starts_with("ube_console_") || symbol.starts_with("ube_output_") || symbol.starts_with("ube_log_") || symbol.starts_with("ube_sqlite_") || symbol.starts_with("ube_file_") || symbol.starts_with("ube_directory_")
+                if symbol.starts_with("ube_orm_") || symbol.starts_with("ube_sql_") || symbol.starts_with("ube_jwt_") || symbol.starts_with("ube_oauth2_") || symbol.starts_with("ube_session_") || matches!(symbol.as_str(), "ube_request_session" | "ube_request_query" | "ube_request_header" | "ube_response_redirect") || symbol.starts_with("ube_console_") || symbol.starts_with("ube_output_") || symbol.starts_with("ube_log_") || symbol.starts_with("ube_sqlite_") || symbol.starts_with("ube_file_") || symbol.starts_with("ube_directory_")
                     || symbol.starts_with("ube_stream_") || symbol.starts_with("ube_server_"));
         self.current_instructions.push(instr);
         if check {
@@ -1833,6 +1834,7 @@ impl IrBuilder {
                 }
             }
             ExprKind::Call { callee, args } => {
+                if let Some(result) = self.build_orm_call(callee, args) { return result; }
                 let mut prepared_receiver = None;
                 if let ExprKind::MemberAccess { object, member, .. } = &callee.kind {
                     if let Some(method) = match member.as_str() {
@@ -3888,3 +3890,5 @@ impl IrBuilder {
         }
     }
 }
+
+include!("orm.rs");

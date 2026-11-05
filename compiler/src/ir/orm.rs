@@ -1,0 +1,415 @@
+impl IrBuilder {
+    // Determine the static receiver type without evaluating fluent calls twice.
+    fn orm_expr_type(&self, expr: &Expr) -> Option<Type> {
+        use crate::orm::{handle, Kind};
+        match &expr.kind {
+            ExprKind::Identifier(name) => self.lookup_var(name).map(|(_, ty)| ty),
+            ExprKind::This => self.lookup_var("this").map(|(_, ty)| ty),
+            ExprKind::MemberAccess { object, member, .. } => {
+                if let Type::Class { name } = self.orm_expr_type(object)? {
+                    self.class_fields.get(&(name, member.clone())).cloned()
+                } else {
+                    None
+                }
+            }
+            ExprKind::Call { callee, args } => {
+                let ExprKind::MemberAccess { object, member, .. } = &callee.kind else {
+                    return None;
+                };
+                if matches!(&object.kind, ExprKind::Identifier(n) if n == "Orm" && self.lookup_var(n).is_none())
+                    && member == "model"
+                {
+                    if let Some(Expr {
+                        kind: ExprKind::Identifier(model),
+                        ..
+                    }) = args.get(1)
+                    {
+                        return Some(handle(model, Kind::Model));
+                    }
+                }
+                match self.orm_expr_type(object)? {
+                    Type::Orm {
+                        model,
+                        kind: Kind::Model,
+                    } if member == "query" => Some(handle(&model, Kind::Query)),
+                    Type::Orm {
+                        model,
+                        kind: Kind::Model,
+                    } if member == "using" => Some(handle(&model, Kind::Model)),
+                    Type::Orm {
+                        model,
+                        kind: Kind::Query,
+                    } if member == "all" => Some(handle(&model, Kind::Rows)),
+                    ty @ Type::Orm {
+                        kind: Kind::Query, ..
+                    } if [
+                        "where",
+                        "whereNull",
+                        "whereNotNull",
+                        "orderBy",
+                        "limit",
+                        "offset",
+                    ]
+                    .contains(&member.as_str()) =>
+                    {
+                        Some(ty)
+                    }
+                    Type::Class { name } => self
+                        .method_return_types
+                        .get(&(name, member.clone()))
+                        .cloned(),
+                    _ => None,
+                }
+            }
+            _ => None,
+        }
+    }
+    fn orm_branch_value(
+        &mut self,
+        condition: IrOperand,
+        ty: Type,
+        present: impl FnOnce(&mut Self) -> IrOperand,
+    ) -> IrOperand {
+        let slot = self.fresh_reg();
+        self.emit(IrInstruction::Alloca {
+            dest: slot,
+            ty: ty.clone(),
+        });
+        let yes = self.fresh_block();
+        let no = self.fresh_block();
+        let merge = self.fresh_block();
+        self.emit(IrInstruction::Branch {
+            cond: condition,
+            then_block: yes,
+            else_block: no,
+        });
+        self.end_block();
+        self.current_block_id = Some(yes);
+        let value = present(self);
+        let value = self.cast(value, ty.clone());
+        self.emit(IrInstruction::Store {
+            val: value,
+            ptr: slot,
+        });
+        self.emit(IrInstruction::Jump { target: merge });
+        self.end_block();
+        self.current_block_id = Some(no);
+        self.emit(IrInstruction::Store {
+            val: IrOperand::NullOf(ty.clone()),
+            ptr: slot,
+        });
+        self.emit(IrInstruction::Jump { target: merge });
+        self.end_block();
+        self.current_block_id = Some(merge);
+        let dest = self.fresh_reg();
+        self.emit(IrInstruction::Load {
+            dest,
+            ptr: slot,
+            ty: ty.clone(),
+        });
+        IrOperand::Register(dest, ty)
+    }
+    fn orm_read(&mut self, rows: IrOperand, model: &str) -> IrOperand {
+        let fields = crate::orm::fields(&self.class_decls[model]).unwrap();
+        let mut args = vec![];
+        for (index, (_, ty)) in fields.iter().enumerate() {
+            let inner = if let Type::Nullable(inner) = ty {
+                inner.as_ref()
+            } else {
+                ty
+            };
+            let symbol = match inner {
+                Type::Int => "ube_sql_result_get_int",
+                Type::Long => "ube_sql_result_get_long",
+                Type::Decimal => "ube_sql_result_get_decimal",
+                Type::Bool => "ube_sql_result_get_bool",
+                _ => "ube_sql_result_get_string",
+            };
+            let getter_args = vec![rows.clone(), IrOperand::ConstantInt(index as i64)];
+            let value = if matches!(ty, Type::Nullable(_)) {
+                let null = self.runtime("ube_sql_result_is_null", getter_args.clone(), Type::Bool);
+                let condition = self.fresh_reg();
+                self.emit(IrInstruction::Binary {
+                    dest: condition,
+                    op: BinaryOp::Equal,
+                    left: null,
+                    right: IrOperand::ConstantBool(false),
+                    operand_ty: Type::Bool,
+                    result_ty: Type::Bool,
+                });
+                self.orm_branch_value(
+                    IrOperand::Register(condition, Type::Bool),
+                    ty.clone(),
+                    |this| this.runtime(symbol, getter_args, inner.clone()),
+                )
+            } else {
+                self.runtime(symbol, getter_args, ty.clone())
+            };
+            args.push(value);
+        }
+        let dest = self.fresh_reg();
+        self.emit(IrInstruction::InstantiateClass {
+            dest,
+            class_name: model.into(),
+            args,
+        });
+        IrOperand::Register(dest, Type::Class { name: model.into() })
+    }
+    fn orm_find_result(&mut self, rows: IrOperand, model: &str) -> IrOperand {
+        let present = self.fresh_reg();
+        self.emit(IrInstruction::Binary {
+            dest: present,
+            op: BinaryOp::NotEqual,
+            left: rows.clone(),
+            right: IrOperand::NullOf(rows.get_type()),
+            operand_ty: rows.get_type(),
+            result_ty: Type::Bool,
+        });
+        self.orm_branch_value(
+            IrOperand::Register(present, Type::Bool),
+            Type::Nullable(Box::new(Type::Class { name: model.into() })),
+            |this| {
+                let value = this.orm_read(rows.clone(), model);
+                this.runtime("ube_sql_result_close", vec![rows], Type::Void);
+                value
+            },
+        )
+    }
+    fn orm_write_params(&mut self, object: IrOperand, model: &str) -> IrOperand {
+        let params = self.runtime(
+            "ube_sql_params_create",
+            vec![],
+            Type::Class {
+                name: "SQLParams".into(),
+            },
+        );
+        let fields = crate::orm::fields(&self.class_decls[model]).unwrap();
+        let IrOperand::Register(ptr, _) = object else {
+            unreachable!("model object must have a register");
+        };
+        for (index, (_, ty)) in fields.into_iter().enumerate() {
+            let dest = self.fresh_reg();
+            self.emit(IrInstruction::GetField {
+                dest,
+                ptr,
+                class_name: model.into(),
+                field_index: index,
+                field_ty: ty.clone(),
+            });
+            let value = IrOperand::Register(dest, ty.clone());
+            let inner = if let Type::Nullable(inner) = &ty {
+                inner.as_ref()
+            } else {
+                &ty
+            };
+            let suffix = match inner {
+                Type::Int => "int",
+                Type::Long => "long",
+                Type::Bool => "bool",
+                Type::Decimal => "decimal",
+                _ => "string",
+            };
+            if matches!(ty, Type::Nullable(_)) {
+                let condition = self.fresh_reg();
+                self.emit(IrInstruction::Binary {
+                    dest: condition,
+                    op: BinaryOp::NotEqual,
+                    left: value.clone(),
+                    right: IrOperand::NullOf(ty.clone()),
+                    operand_ty: ty.clone(),
+                    result_ty: Type::Bool,
+                });
+                let yes = self.fresh_block();
+                let no = self.fresh_block();
+                let merge = self.fresh_block();
+                self.emit(IrInstruction::Branch {
+                    cond: IrOperand::Register(condition, Type::Bool),
+                    then_block: yes,
+                    else_block: no,
+                });
+                self.end_block();
+                self.current_block_id = Some(yes);
+                let value = self.cast(value, inner.clone());
+                self.runtime(
+                    &format!("ube_sql_params_add_{suffix}"),
+                    vec![params.clone(), value],
+                    Type::Void,
+                );
+                self.emit(IrInstruction::Jump { target: merge });
+                self.end_block();
+                self.current_block_id = Some(no);
+                self.runtime(
+                    "ube_sql_params_add_null",
+                    vec![params.clone(), IrOperand::ConstantString(suffix.into())],
+                    Type::Void,
+                );
+                self.emit(IrInstruction::Jump { target: merge });
+                self.end_block();
+                self.current_block_id = Some(merge);
+            } else {
+                self.runtime(
+                    &format!("ube_sql_params_add_{suffix}"),
+                    vec![params.clone(), value],
+                    Type::Void,
+                );
+            }
+        }
+        params
+    }
+    fn build_orm_call(&mut self, callee: &Expr, args: &[Expr]) -> Option<IrOperand> {
+        use crate::orm::{handle, Kind};
+        let ExprKind::MemberAccess { object, member, .. } = &callee.kind else {
+            return None;
+        };
+        if matches!(&object.kind, ExprKind::Identifier(n) if n == "Orm" && self.lookup_var(n).is_none())
+            && member == "model"
+        {
+            let ExprKind::Identifier(model) = &args[1].kind else {
+                return Some(IrOperand::Null);
+            };
+            let fields = crate::orm::fields(&self.class_decls[model]).unwrap();
+            let db = self.build_expr(&args[0]);
+            let table = self.build_expr(&args[2]);
+            return Some(self.runtime(
+                "ube_orm_model",
+                vec![
+                    db,
+                    table,
+                    IrOperand::ConstantString(crate::orm::schema(&fields)),
+                ],
+                handle(model, Kind::Model),
+            ));
+        }
+        let Type::Orm { model, kind } = self.orm_expr_type(object)? else {
+            return None;
+        };
+        let receiver = self.build_expr(object);
+        let mut operands = vec![receiver.clone()];
+        operands.extend(args.iter().map(|a| self.build_expr(a)));
+        Some(match (kind, member.as_str()) {
+            (Kind::Model, "create" | "save") => {
+                let params = self.orm_write_params(operands[1].clone(), &model);
+                self.runtime(
+                    &format!("ube_orm_{member}"),
+                    vec![receiver, params],
+                    Type::Long,
+                )
+            }
+            (Kind::Model, "find" | "get" | "delete") => {
+                operands[1] = self.cast(operands[1].clone(), Type::Long);
+                if member == "delete" {
+                    self.runtime("ube_orm_delete", operands, Type::Long)
+                } else if member == "get" {
+                    let rows = self.runtime(
+                        "ube_orm_get",
+                        operands,
+                        Type::Class {
+                            name: "SQLResult".into(),
+                        },
+                    );
+                    let value = self.orm_read(rows.clone(), &model);
+                    self.runtime("ube_sql_result_close", vec![rows], Type::Void);
+                    value
+                } else {
+                    let rows = self.runtime(
+                        "ube_orm_find",
+                        operands,
+                        Type::Class {
+                            name: "SQLResult".into(),
+                        },
+                    );
+                    self.orm_find_result(rows, &model)
+                }
+            }
+            (Kind::Model, "migrate" | "close") => self.runtime(
+                if member == "close" {
+                    "ube_orm_model_close"
+                } else {
+                    "ube_orm_migrate"
+                },
+                operands,
+                Type::Void,
+            ),
+            (Kind::Model, "using") => {
+                self.runtime("ube_orm_using", operands, handle(&model, Kind::Model))
+            }
+            (Kind::Model, "query") => {
+                self.runtime("ube_orm_query", operands, handle(&model, Kind::Query))
+            }
+            (Kind::Query, "where") => {
+                let suffix = match operands[3].get_type() {
+                    Type::Int => "int",
+                    Type::Long => "long",
+                    Type::Decimal => "decimal",
+                    Type::Bool => "bool",
+                    _ => "string",
+                };
+                self.runtime(
+                    &format!("ube_orm_where_{suffix}"),
+                    operands,
+                    handle(&model, Kind::Query),
+                )
+            }
+            (Kind::Query, "whereNull" | "whereNotNull") => {
+                operands.push(IrOperand::ConstantBool(member == "whereNotNull"));
+                self.runtime("ube_orm_where_null", operands, handle(&model, Kind::Query))
+            }
+            (Kind::Query, "orderBy" | "limit" | "offset") => self.runtime(
+                &format!(
+                    "ube_orm_{}",
+                    if member == "orderBy" {
+                        "order_by"
+                    } else {
+                        member
+                    }
+                ),
+                operands,
+                handle(&model, Kind::Query),
+            ),
+            (Kind::Query, "all") => {
+                self.runtime("ube_orm_all", operands, handle(&model, Kind::Rows))
+            }
+            (Kind::Query, "first") => {
+                let rows = self.runtime(
+                    "ube_orm_first",
+                    operands,
+                    Type::Class {
+                        name: "SQLResult".into(),
+                    },
+                );
+                self.orm_find_result(rows, &model)
+            }
+            (Kind::Query, "count") => self.runtime("ube_orm_count", operands, Type::Long),
+            (Kind::Query, "close") => self.runtime("ube_orm_query_close", operands, Type::Void),
+            (Kind::Rows, "get") => {
+                let receiver = self.cast(
+                    receiver,
+                    Type::Class {
+                        name: "SQLResult".into(),
+                    },
+                );
+                self.orm_read(receiver, &model)
+            }
+            (Kind::Rows, method) => {
+                let suffix = if method == "rowCount" {
+                    "row_count"
+                } else {
+                    method
+                };
+                let result = match method {
+                    "next" => Type::Bool,
+                    "rowCount" => Type::Long,
+                    _ => Type::Void,
+                };
+                operands[0] = self.cast(
+                    receiver,
+                    Type::Class {
+                        name: "SQLResult".into(),
+                    },
+                );
+                self.runtime(&format!("ube_sql_result_{suffix}"), operands, result)
+            }
+            _ => IrOperand::Null,
+        })
+    }
+}

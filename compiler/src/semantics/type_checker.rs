@@ -28,6 +28,7 @@ pub struct TypeChecker {
     traits: HashMap<String, TraitInfo>,
     current_class: Option<String>,
     current_return_type: Option<Type>,
+    orm_declarations: HashMap<String, ClassDecl>,
     zero_init_classes: std::collections::HashSet<String>,
     loop_depth: usize,
     pub diagnostics: Vec<Diagnostic>,
@@ -41,6 +42,7 @@ impl TypeChecker {
             traits: HashMap::new(),
             current_class: None,
             current_return_type: None,
+            orm_declarations: HashMap::new(),
             zero_init_classes: Default::default(),
             loop_depth: 0,
             diagnostics: Vec::new(),
@@ -1821,6 +1823,7 @@ impl TypeChecker {
 
     pub fn check_program(&mut self, program: &Program) -> bool {
         self.diagnostics.clear();
+        self.orm_declarations = program.items.iter().filter_map(|item| if let Item::Class(c) = item { Some((c.name.clone(), c.clone())) } else { None }).collect();
         self.zero_init_classes = program.items.iter().filter_map(|item| {
             if let Item::Class(class) = item { Some(class.name.clone()) } else { None }
         }).collect();
@@ -2385,6 +2388,7 @@ impl TypeChecker {
                 match &callee.kind {
                     ExprKind::MemberAccess { object, member, .. } => {
                         if let Some(obj_ty) = self.check_expr(cls, object) {
+                            if let Some(result) = self.check_orm_call(&obj_ty, object, member, args, &arg_types, expr.span) { return result; }
                             if let Type::Class { name } = &obj_ty {
                                 if (name == "List" || name == "Map") && member == "len" && args.is_empty() {
                                     return Some(Type::Int);
@@ -2704,6 +2708,10 @@ impl TypeChecker {
                 let class_name = canonical_builtin_class_name(class_name).unwrap_or(class_name);
                 if class_name == "Log" || class_name == "Console" {
                     self.diagnostics.push(Diagnostic::error("Use log(value), Log.info(value), or Console.printLine(value); these built-ins do not create instances", Some(expr.span)));
+                    return None;
+                }
+                if ["Orm", "OrmModel", "OrmQuery", "OrmRows"].contains(&class_name) {
+                    self.diagnostics.push(Diagnostic::error("Use Orm.model(db, ModelClass, table); ORM handles cannot be constructed", Some(expr.span)));
                     return None;
                 }
                 if crate::builtins::SQL_CLASSES.contains(&class_name) {
@@ -3150,6 +3158,7 @@ impl TypeChecker {
             TypeSpec::Generic(name, element) if name == "Channel" => {
                 Type::Channel(Box::new(self.type_spec_to_type(element)))
             }
+            TypeSpec::Generic(name, element) if crate::orm::generic(name, element).is_some() => crate::orm::generic(name, element).unwrap(),
             TypeSpec::Generic(name, _) => Type::Class {
                 name: canonical_builtin_class_name(name).unwrap_or(name).into(),
             },
@@ -3157,3 +3166,5 @@ impl TypeChecker {
         }
     }
 }
+
+include!("orm.rs");

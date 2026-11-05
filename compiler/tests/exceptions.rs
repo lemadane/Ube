@@ -1207,3 +1207,48 @@ fn unified_sql_enforces_factory_arity_receiver_and_types() {
     rejects("class Application { main() { final db = SQL.open('sqlite::memory:') db.query('SELECT 1', null) } }", "Invalid SQL method argument types");
     rejects("class Application { main() { final db = SQL.open('sqlite::memory:') db.missing() } }", "Unknown SQL method");
 }
+
+#[test]
+fn orm_models_and_fluent_queries_are_checked_before_execution() {
+    rejects("class User(string name) {} class Application { main() { Orm.model(SQL.open('sqlite::memory:'), User, 'users') } }", "require a non-null int or long field named id");
+    rejects("class Address(string city) {} class User(int id, Address address) {} class Application { main() { Orm.model(SQL.open('sqlite::memory:'), User, 'users') } }", "must be int, long, decimal, bool, string");
+    rejects("class User(int id, string name) {} class Application { main() { final users = Orm.model(SQL.open('sqlite::memory:'), User, 'users') users.query().where('typo', '=', 1) } }", "Unknown ORM column 'typo'");
+    rejects("class User(int id, string name) {} class Application { main() { final users = Orm.model(SQL.open('sqlite::memory:'), User, 'users') users.query().where('name', '=', 1) } }", "expects string");
+    rejects("class User(int id) {} class Other(int id) {} class Application { main() { final users = Orm.model(SQL.open('sqlite::memory:'), User, 'users') users.create(Other(1)) } }", "Invalid ORM argument types");
+    rejects("class User(int id) {} class Application { main() { final users = Orm.model(SQL.open('sqlite::memory:'), User(1), 'users') } }", "model must be a class name");
+    rejects("class User(int id) {} class Application { main() { final users = Orm.model(SQL.open('sqlite::memory:'), User, 'users') users.delete(null) } }", "Invalid ORM argument types");
+    rejects("class Application { main() { OrmModel() } }", "ORM handles cannot be constructed");
+    rejects("class User(int id) {} class Application { main() { final users = Orm.model(SQL.open('sqlite::memory:'), User, 'users') users.query().where('id', '=', null) } }", "where requires a non-null scalar");
+}
+
+#[test]
+fn orm_runtime_guards_reject_unsafe_queries_and_incompatible_rows() {
+    runs(r#"
+class User(long id, string name, bool active) {}
+class Application {
+    main() {
+        final db = SQL.open('sqlite::memory:')
+        final users = Orm.model(db, User, 'select')
+        final query = users.query()
+        final params = SQLParams.create()
+        try {
+            users.migrate()
+            users.create(User(1L, 'Ada', false))
+            final column = 'id; DROP TABLE users'
+            try { query.where(column, '=', 1L) } catch (SQLError err) { print('column rejected') }
+            try { query.where('id', '= 1; DELETE FROM users', 1L) } catch (SQLError err) { print('operator rejected') }
+            try { query.orderBy('id', 'asc; DROP TABLE users') } catch (SQLError err) { print('direction rejected') }
+            try { query.limit(-1) } catch (SQLError err) { print('limit rejected') }
+            print(query.count())
+            // SQLite's dynamic typing permits an integer outside a boolean's value set.
+            db.execute('UPDATE "select" SET active = 7 WHERE id = 1', params)
+            try { users.get(1L) } catch (SQLError err) { print('row type rejected') }
+            db.execute('UPDATE "select" SET active = 0 WHERE id = 1', params)
+            print(users.get(1L).active())
+            query.close()
+            try { query.count() } catch (SQLError err) { print('closed query rejected') }
+        } finally { params.close() query.close() users.close() db.close() }
+    }
+}
+"#, "column rejected\noperator rejected\ndirection rejected\nlimit rejected\n1\nrow type rejected\nfalse\nclosed query rejected\n");
+}

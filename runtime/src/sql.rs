@@ -21,7 +21,7 @@ const MAX_PARAMETERS: usize = 32766;
 const MAX_ROWS: usize = 100_000;
 const MAX_BYTES: usize = 16 * 1024 * 1024;
 #[derive(Clone, Copy, Debug, PartialEq)]
-enum Dialect {
+pub(crate) enum Dialect {
     Postgres,
     Mysql,
     Sqlite,
@@ -34,7 +34,7 @@ impl Dialect {
             Self::Sqlite => "sqlite",
         }
     }
-    fn identifier(self, value: &str) -> Result<String> {
+    pub(crate) fn identifier(self, value: &str) -> Result<String> {
         if value.is_empty() || value.contains('\0') {
             return Err("identifier must be nonempty and contain no null bytes".into());
         }
@@ -58,7 +58,7 @@ struct Tx {
     inner: AsyncMutex<Option<Transaction<'static, Any>>>,
 }
 #[derive(Clone, Debug)]
-enum Param {
+pub(crate) enum Param {
     Null(Kind),
     Bool(bool),
     Integer(i32),
@@ -1095,6 +1095,85 @@ pub fn cleanup() {
     let mut s = registry().lock().unwrap();
     s.params.clear();
     s.results.clear();
+}
+
+// Internal shared execution seam for ORM/query-builder adapters; no second driver stack.
+pub(crate) fn orm_target(id: usize, tx: bool) -> Result<(Dialect, usize)> {
+    if tx {
+        let t = transaction(id)?;
+        Ok((t.client.dialect, t.owner))
+    } else {
+        Ok((client(id)?.dialect, id))
+    }
+}
+pub(crate) fn orm_take_params(h: Handle) -> Result<Vec<Param>> {
+    registry()
+        .lock()
+        .unwrap()
+        .params
+        .remove(&(h as usize))
+        .map(|p| p.values)
+        .ok_or_else(|| "invalid SQLParams".into())
+}
+pub(crate) fn orm_params(values: Vec<Param>) -> Result<Handle> {
+    let bytes = values
+        .iter()
+        .map(|v| match v {
+            Param::Text(s) => s.len(),
+            Param::Blob(b) => b.len(),
+            _ => 8,
+        })
+        .sum();
+    if values.len() > MAX_PARAMETERS || bytes > MAX_BYTES {
+        return Err("SQL parameters exceed their size limit".into());
+    }
+    let mut s = registry().lock().unwrap();
+    let id = s.id()?;
+    s.params.insert(id, Params { values, bytes });
+    Ok(id as Handle)
+}
+
+pub(crate) fn orm_validate_rows(h: Handle, fields: &[(String, bool)], mysql: bool) -> Result<()> {
+    result(h, |r| {
+        if r.columns.len() != fields.len() {
+            return Err("ORM column count mismatch".into());
+        }
+        for row in &mut r.rows {
+            for (index, (value, (kind, nullable))) in row.iter_mut().zip(fields).enumerate() {
+                // SQLx Any reports MySQL TEXT as bytes. The model supplies its declared
+                // text type; validate UTF-8 before adapting this private result cursor.
+                if mysql && kind == "string" {
+                    if let Cell::Blob(bytes) = value {
+                        let text = std::str::from_utf8(bytes)
+                            .map_err(|_| "ORM text column is not UTF-8")?
+                            .to_owned();
+                        *value = Cell::Text(text);
+                    }
+                }
+                let valid = match (kind.as_str(), &*value) {
+                    (_, Cell::Null) => *nullable,
+                    ("int", Cell::Integer(v)) => i32::try_from(*v).is_ok(),
+                    ("long", Cell::Integer(_)) => true,
+                    ("decimal", Cell::Real(_)) | ("decimal", Cell::Integer(_)) => true,
+                    ("bool", Cell::Bool(_) | Cell::Integer(0 | 1)) => true,
+                    ("string", Cell::Text(v)) => !v.contains('\0'),
+                    _ => false,
+                };
+                if !valid {
+                    let actual = match value {
+                        Cell::Null => "null",
+                        Cell::Bool(_) => "bool",
+                        Cell::Integer(_) => "integer",
+                        Cell::Real(_) => "real",
+                        Cell::Text(_) => "text",
+                        Cell::Blob(_) => "blob",
+                    };
+                    return Err(format!("ORM column {index} expects {kind}, got {actual}"));
+                }
+            }
+        }
+        Ok(())
+    })
 }
 
 #[cfg(test)]

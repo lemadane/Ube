@@ -343,6 +343,10 @@ impl TextualLlvmEmitter {
                 self.output.push_str(&format!("declare {} @{}({})\n", self.type_to_llvm(&method.result), method.symbol, params.join(", ")));
             }
         }
+        self.output.push_str("declare %OrmModel* @ube_orm_model(%SQL*, i8*, i8*)\ndeclare %OrmModel* @ube_orm_using(%OrmModel*, %SQLTransaction*)\ndeclare void @ube_orm_migrate(%OrmModel*)\ndeclare i64 @ube_orm_create(%OrmModel*, %SQLParams*)\ndeclare i64 @ube_orm_save(%OrmModel*, %SQLParams*)\ndeclare %SQLResult* @ube_orm_find(%OrmModel*, i64)\ndeclare %SQLResult* @ube_orm_get(%OrmModel*, i64)\ndeclare i64 @ube_orm_delete(%OrmModel*, i64)\ndeclare void @ube_orm_model_close(%OrmModel*)\ndeclare %OrmQuery* @ube_orm_query(%OrmModel*)\ndeclare %OrmQuery* @ube_orm_order_by(%OrmQuery*, i8*, i8*)\ndeclare %OrmQuery* @ube_orm_limit(%OrmQuery*, i32)\ndeclare %OrmQuery* @ube_orm_offset(%OrmQuery*, i32)\ndeclare %OrmQuery* @ube_orm_where_null(%OrmQuery*, i8*, i1)\ndeclare %SQLResult* @ube_orm_all(%OrmQuery*)\ndeclare %SQLResult* @ube_orm_first(%OrmQuery*)\ndeclare i64 @ube_orm_count(%OrmQuery*)\ndeclare void @ube_orm_query_close(%OrmQuery*)\n");
+        for (suffix, ty) in [("int", "i32"), ("long", "i64"), ("decimal", "double"), ("bool", "i1"), ("string", "i8*")] {
+            self.output.push_str(&format!("declare %OrmQuery* @ube_orm_where_{}(%OrmQuery*, i8*, i8*, {})\n", suffix, ty));
+        }
         for &class in crate::builtins::SQL_CLASSES {
             for method in crate::builtins::sql_methods(class) {
                 let mut params = Vec::new();
@@ -527,6 +531,10 @@ impl TextualLlvmEmitter {
             ("Statistics", "i8*"),
             ("Probability", "i8*"),
             ("File", "i8*, i1"),
+            ("Orm", "i8*"),
+            ("OrmModel", "i8*"),
+            ("OrmQuery", "i8*"),
+            ("OrmRows", "i8*"),
             ("SQL", "i8*"),
             ("SQLParams", "i8*"),
             ("SQLTransaction", "i8*"),
@@ -1386,6 +1394,7 @@ impl TextualLlvmEmitter {
                 "i8*".to_string()
             }
             Type::Class { name } => format!("%{}*", name),
+            Type::Orm { kind, .. } => format!("%{}*", if *kind == crate::orm::Kind::Rows { "SQLResult" } else { kind.class() }),
             Type::Nullable(inner) => {
                 if ty.nullable_scalar_inner().is_some() {
                     return format!("{{ i1, {} }}", self.type_to_llvm(inner));

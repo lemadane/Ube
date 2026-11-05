@@ -185,3 +185,115 @@ class Application {
     // A second fresh process must observe the same committed data after a rejected write.
     run(&reader, &directory.0, expected);
 }
+
+#[test]
+fn orm_cli_class_mapping_queries_transactions_and_persistence() {
+    let directory = Directory::new();
+    let writer = compile(&directory.0, "orm-writer", r#"
+class User(long id, var string name, var bool active, int? age, long? serial, decimal? score, bool? verified, string? email) {}
+class Application {
+    long countUsers(OrmModel<User> users) {
+        final query = users.query()
+        try { return query.count() } finally { query.close() }
+    }
+    main() {
+        final db = SQL.open('sqlite://orm.db?mode=rwc')
+        final users = Orm.model(db, User, 'users')
+        try {
+            users.migrate()
+            users.migrate()
+            users.create(User(1L, `Robert'); DROP TABLE users; --`, true, null, null, null, null, null))
+            users.create(User(2L, 'Ube 🍠', false, 42, 5000000000L, 1.5, true, 'ube@example.test'))
+            final user = users.get(1L)
+            print(user.name())
+            print(user.age() ?? -1)
+            print(user.verified() ?? false)
+            user.name('Ada')
+            user.active(false)
+            print(users.save(user))
+            print(users.find(99L) == null)
+            final found = users.find(1L) ?? User(0L, 'missing', false, null, null, null, null, null)
+            print(found.name())
+            try { users.get(99L) } catch (SQLError err) { print('missing caught') }
+
+            final selected = users.query().where('age', '>=', 40).whereNotNull('email').orderBy('id', 'desc').limit(1)
+            try {
+                final rows = selected.all()
+                try {
+                    for (rows.next()) {
+                        final item = rows.get()
+                        print(item.name())
+                        print(item.age() ?? 0)
+                        print(item.serial() ?? 0L)
+                        print(item.score() ?? 0.0)
+                        print(item.verified() ?? false)
+                        print(item.email() ?? 'missing')
+                    }
+                } finally { rows.close() }
+            } finally { selected.close() }
+
+            final tx = db.begin()
+            final transactional = users.using(tx)
+            try {
+                transactional.create(User(3L, 'rolled back', true, null, null, null, null, null))
+                final params = SQLParams.create()
+                try { tx.execute(`UPDATE users SET name = 'raw SQL in same transaction' WHERE id = 3`, params) }
+                finally { params.close() }
+                print(transactional.get(3L).name())
+                tx.rollback()
+            } finally { transactional.close() tx.close() }
+            print(users.find(3L) == null)
+
+            final committed = db.begin()
+            final committedUsers = users.using(committed)
+            try {
+                committedUsers.create(User(4L, 'committed', true, null, null, null, null, null))
+                committed.commit()
+                try { committedUsers.get(4L) } catch (SQLError err) { print('finished transaction rejected') }
+            } finally { committedUsers.close() committed.close() }
+            print(users.get(4L).name())
+            print(users.delete(4L))
+            print(users.save(User(99L, 'not inserted', true, null, null, null, null, null)))
+            print(this.countUsers(users))
+
+            final other = SQL.open('sqlite::memory:')
+            final otherTx = other.begin()
+            try { users.using(otherTx) }
+            catch (SQLError err) { print('wrong connection rejected') }
+            finally { otherTx.close() other.close() }
+        } finally { users.close() db.close() }
+    }
+}
+"#);
+    let reader = compile(&directory.0, "orm-reader", r#"
+class User(long id, string name, bool active, int? age, long? serial, decimal? score, bool? verified, string? email) {}
+class Application {
+    main() {
+        final db = SQL.open('sqlite://orm.db?mode=ro')
+        final users = Orm.model(db, User, 'users')
+        try {
+            final query = users.query().orderBy('id', 'asc')
+            try {
+                print(query.count())
+                final rows = query.all()
+                try {
+                    for (rows.next()) {
+                        final user = rows.get()
+                        print(user.id())
+                        print(user.name())
+                        print(user.active())
+                    }
+                } finally { rows.close() }
+                query.limit(1).offset(1)
+                final first = query.first() ?? User(0L, 'missing', false, null, null, null, null, null)
+                print(first.name())
+                query.limit(0)
+                print(query.first() == null)
+            } finally { query.close() }
+        } finally { users.close() db.close() }
+    }
+}
+"#);
+    run(&writer, &directory.0, "Robert'); DROP TABLE users; --\n-1\nfalse\n1\ntrue\nAda\nmissing caught\nUbe 🍠\n42\n5000000000\n1.5\ntrue\nube@example.test\nraw SQL in same transaction\ntrue\nfinished transaction rejected\ncommitted\n1\n0\n2\nwrong connection rejected\n");
+    run(&reader, &directory.0, "2\n1\nAda\nfalse\n2\nUbe 🍠\nfalse\nUbe 🍠\ntrue\n");
+}

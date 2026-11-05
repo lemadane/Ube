@@ -1,16 +1,18 @@
 # Unified SQL execution
 
 `SQL` connects to PostgreSQL, MySQL/MariaDB, and SQLite through one execution
-API. Raw SQL, the upcoming query builder, and the upcoming ORM can share its
+API. Raw SQL, the upcoming standalone query builder, and the ORM can share its
 parameter values, result metadata, connection pools, errors, and transaction
 handles. The existing [SQLite API](sqlite.md) remains available for
 SQLite-specific features such as backup and restore.
 
-This release implements the execution foundation. Schema-checked queries,
-generic class mapping, migrations, a query builder, an ORM, streaming, and
-asynchronous SQL built-ins are **not implemented yet**. SQL methods block their
-calling Ube thread while database IO runs on runtime workers. They do not return
-`Task` values. Runtime typed accessors are not compile-time schema validation.
+The [typed ORM](orm.md) now uses this execution foundation for class mapping,
+CRUD, fluent model queries, create-if-missing tables, and transaction-bound
+repositories. A standalone general query builder, live-schema-checked SQL,
+migration diffs, streaming, and asynchronous SQL built-ins are not implemented
+yet. SQL methods block their calling Ube thread while database IO runs on
+runtime workers. They do not return `Task` values. Runtime typed accessors are
+not compile-time database-schema validation.
 
 ## Opening a database
 
