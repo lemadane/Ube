@@ -1,5 +1,7 @@
 const BUILTIN_CLASS_NAMES: &[&str] = &[
     "AlreadyExistsError",
+    "Testicle",
+    "AssertionError",
     "Channel",
     "Console",
     "Cookie",
@@ -45,6 +47,8 @@ const BUILTIN_CLASS_NAMES: &[&str] = &[
     "MissingFieldError",
     "Money",
     "MoneyError",
+    "Mockery",
+    "MockeryError",
     "Path",
     "Percent",
     "PermissionError",

@@ -1,0 +1,20 @@
+trait UserLookup {
+    string name(int id)
+}
+
+class Profile(UserLookup users) {
+    string title(int id) { return this._users.name(id) }
+}
+
+class ProfileTests {
+    testTitle() {
+        final users = Mockery.mock(UserLookup)
+        try {
+            Mockery.returns(users, 'name', 'Ada')
+            Testicle.equal('Ada', Profile(users).title(42))
+            Mockery.verify(users, 'name', 1)
+        } finally {
+            Mockery.dispose(users)
+        }
+    }
+}

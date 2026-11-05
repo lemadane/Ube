@@ -1,3 +1,4 @@
+mod testing;
 use std::env;
 use std::fs;
 use std::path::Path;
@@ -17,6 +18,7 @@ fn print_usage() {
     eprintln!("  emit-ir <file.ube>                Emit custom Typed Ube IR representation");
     eprintln!("  emit-llvm <file.ube> [-o <out>]   Emit textual LLVM IR (.ll) file");
     eprintln!("  build <file.ube> [--release] [-o <out>] Compile source file to native executable");
+    eprintln!("  test [path] [--timeout <ms>]       Discover and run native tests (default: tests/)" );
     eprintln!("  run <file.ube>                    Compile and execute source file immediately");
 }
 
@@ -112,6 +114,10 @@ edition = "2026"
 // Return before main calls process::exit so TempDir's destructor runs on every
 // normal success/error path, including linking and execution failures.
 fn run_llvm(llvm_ir: &str) -> i32 {
+    run_llvm_timeout(llvm_ir, None)
+}
+
+fn run_llvm_timeout(llvm_ir: &str, timeout: Option<std::time::Duration>) -> i32 {
     let directory = match tempfile::Builder::new().prefix("ube-run-").tempdir() {
         Ok(directory) => directory,
         Err(error) => {
@@ -135,7 +141,28 @@ fn run_llvm(llvm_ir: &str) -> i32 {
             return 1;
         }
     }
-    match Command::new(&bin_path).status() {
+    let status = if let Some(limit) = timeout {
+        match Command::new(&bin_path).spawn() {
+            Ok(mut child) => {
+                let started = std::time::Instant::now();
+                loop {
+                    match child.try_wait() {
+                        Ok(Some(status)) => break Ok(status),
+                        Ok(None) if started.elapsed() < limit => std::thread::sleep(std::time::Duration::from_millis(5)),
+                        Ok(None) => {
+                            let _ = child.kill();
+                            let _ = child.wait();
+                            eprintln!("Test timed out after {} ms", limit.as_millis());
+                            return 1;
+                        }
+                        Err(error) => { let _ = child.kill(); let _ = child.wait(); break Err(error); }
+                    }
+                }
+            }
+            Err(error) => Err(error),
+        }
+    } else { Command::new(&bin_path).status() };
+    match status {
         Ok(status) => match status.code() {
             Some(code) => code,
             None => {
@@ -172,6 +199,10 @@ fn main() {
         }
         handle_new_project(&args[2]);
         return;
+    }
+
+    if command == "test" {
+        process::exit(testing::run(&args[2..]));
     }
 
     if args.len() < 3 {

@@ -52,7 +52,7 @@ impl TypeChecker {
     }
 
     fn register_builtins(&mut self) {
-        for (name, methods) in [("Log", vec!["info", "warn", "debug", "error", "setLevel"]), ("Console", vec!["print", "printLine"])] {
+        for (name, methods) in [("Mockery", vec![]), ("Log", vec!["info", "warn", "debug", "error", "setLevel"]), ("Console", vec!["print", "printLine"])] {
             self.classes.insert(name.into(), ClassInfo {
                 name: name.into(), fields: HashMap::new(),
                 methods: methods.into_iter().map(|name| (name.into(), (vec![Type::String], Type::Void))).collect(),
@@ -102,6 +102,10 @@ impl TypeChecker {
             },
         );
 
+        self.classes.insert("Testicle".into(), ClassInfo {
+            name: "Testicle".into(), fields: HashMap::new(), methods: HashMap::new(),
+            param_types: Vec::new(), min_constructor_args: 0, max_constructor_args: 0,
+        });
         self.classes.insert("Gc".into(), ClassInfo {
             name: "Gc".into(), fields: HashMap::new(),
             methods: [("collect".into(), (Vec::new(), Type::Bool)), ("objects".into(), (Vec::new(), Type::Long)), ("reclaimed".into(), (Vec::new(), Type::Long))].into_iter().collect(),
@@ -1230,6 +1234,8 @@ impl TypeChecker {
         );
 
         let file_errors = vec![
+            "MockeryError",
+            "AssertionError",
             "MoneyError",
             "CurrencyMismatchError",
             "SQLError",
@@ -1834,6 +1840,20 @@ impl TypeChecker {
 
     pub fn check_program(&mut self, program: &Program) -> bool {
         self.diagnostics.clear();
+        for item in &program.items {
+            let declaration = match item {
+                Item::Class(class) => Some((&class.name, class.span)),
+                Item::Trait(contract) => Some((&contract.name, contract.span)),
+                Item::Import(_) => None,
+            };
+            if let Some((name, span)) = declaration {
+                if name.starts_with(crate::mockery::PREFIX) {
+                    self.diagnostics.push(Diagnostic::error("UbeMockery_ type names are reserved for generated mocks", Some(span)));
+                }
+            }
+        }
+        let expanded = crate::mockery::expand(program);
+        let program = &expanded;
         self.orm_declarations = program.items.iter().filter_map(|item| if let Item::Class(c) = item { Some((c.name.clone(), c.clone())) } else { None }).collect();
         self.zero_init_classes = program.items.iter().filter_map(|item| {
             if let Item::Class(class) = item { Some(class.name.clone()) } else { None }
@@ -2390,6 +2410,16 @@ impl TypeChecker {
                 }
             }
             ExprKind::Call { callee, args } => {
+                if matches!(&callee.kind, ExprKind::MemberAccess { object, member, .. } if member == "mock" && matches!(&object.kind, ExprKind::Identifier(name) if name == "Mockery" && self.symbol_table.lookup(name).is_none())) {
+                    if let [Expr { kind: ExprKind::Identifier(contract), .. }] = args.as_slice() {
+                        let name = crate::mockery::class_name(contract);
+                        if self.symbol_table.lookup(contract).is_none() && self.traits.contains_key(contract) && self.classes.contains_key(&name) {
+                            return Some(Type::Class { name });
+                        }
+                    }
+                    self.diagnostics.push(Diagnostic::error("Mockery.mock requires a declared synchronous trait with primitive or implicit-void returns (mockeryId and _mockeryId are reserved)", Some(expr.span)));
+                    return None;
+                }
                 let mut arg_types = Vec::new();
                 for arg in args {
                     if let Some(t) = self.check_expr(cls, arg) {
@@ -2459,6 +2489,22 @@ impl TypeChecker {
                                         self.diagnostics.push(Diagnostic::error("Invalid authentication method argument types; strings must be non-null", Some(expr.span)));
                                     }
                                     return Some(method.result);
+                                }
+                                if name == "Mockery" {
+                                    return self.check_mockery_call(cls, member, args, &arg_types, class_receiver, expr.span);
+                                }
+                                if name == "Testicle" {
+                                    let valid = match member.as_str() {
+                                        "isTrue" | "isFalse" => arg_types == vec![Type::Bool],
+                                        "fail" => arg_types == vec![Type::String],
+                                        "equal" | "notEqual" => arg_types.len() == 2 && arg_types[0] == arg_types[1]
+                                            && matches!(arg_types[0], Type::Int | Type::Long | Type::Byte | Type::Decimal | Type::Bool | Type::String),
+                                        _ => false,
+                                    };
+                                    if !class_receiver || !valid || arg_types.len() != args.len() {
+                                        self.diagnostics.push(Diagnostic::error("Testicle requires a static call: isTrue/isFalse(bool), equal/notEqual(two values of the same primitive type), or fail(string)", Some(expr.span)));
+                                    }
+                                    return Some(Type::Void);
                                 }
                                 if name == "Gc" {
                                     if !class_receiver || !args.is_empty() { self.diagnostics.push(Diagnostic::error("Gc methods require a class call with no arguments", Some(expr.span))); }
@@ -2733,6 +2779,14 @@ impl TypeChecker {
                 args,
             } => {
                 let class_name = canonical_builtin_class_name(class_name).unwrap_or(class_name);
+                if class_name == "Mockery" || class_name.starts_with(crate::mockery::PREFIX) {
+                    self.diagnostics.push(Diagnostic::error("Use Mockery.mock(TraitName) to create a mock", Some(expr.span)));
+                    return None;
+                }
+                if class_name == "Testicle" {
+                    self.diagnostics.push(Diagnostic::error("Testicle does not create instances; use static assertion methods", Some(expr.span)));
+                    return None;
+                }
                 if class_name == "Gc" {
                     self.diagnostics.push(Diagnostic::error("Use Gc.collect(), Gc.objects(), or Gc.reclaimed(); Gc does not create instances", Some(expr.span)));
                     return None;
@@ -3200,3 +3254,5 @@ impl TypeChecker {
 }
 
 include!("orm.rs");
+
+include!("mockery.rs");

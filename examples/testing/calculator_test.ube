@@ -1,0 +1,15 @@
+class CalculatorTests {
+    testAddition() {
+        Testicle.equal(4, 2 + 2)
+        Testicle.notEqual(0, 4)
+        Testicle.isTrue(4 > 0)
+        Testicle.isFalse(4 < 0)
+    }
+
+    async testAsync() {
+        final values = Channel<int>(1)
+        final sent = await values.send(42)
+        Testicle.equal(42, await values.receive())
+        values.close()
+    }
+}

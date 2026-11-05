@@ -1,3 +1,5 @@
+pub mod mockery;
+pub mod testing;
 pub mod collections;
 pub mod concurrency;
 pub mod datetime;
@@ -33,6 +35,7 @@ pub extern "C" fn ube_runtime_cleanup() {
     logging::ube_log_clear();
     sessions::cleanup();
     auth::cleanup();
+    mockery::cleanup();
     exceptions::cleanup();
     memory::cleanup();
     // The explicit tracing heap is empty after cleanup.

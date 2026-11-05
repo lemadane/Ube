@@ -1,3 +1,4 @@
+pub mod mockery;
 pub mod builtins;
 pub mod orm;
 pub mod diagnostics;

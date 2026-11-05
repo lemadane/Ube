@@ -10,6 +10,22 @@
 
 ---
 
+## Testing Ube programs with Testicle
+
+Use `ube test` to discover `test*` methods in `tests/**/*_test.ube` and
+`tests/**/*.test.ube`. Native tests support `Testicle.equal`, `Testicle.notEqual`,
+`Testicle.isTrue`, `Testicle.isFalse`, and `Testicle.fail`, async tests, per-test
+setup/teardown, process isolation, and execution timeouts.
+
+```sh
+ube test
+ube test examples/testing
+```
+
+See [the native testing API](docs/testing.md) for examples and current limits.
+Use [Mockery](docs/mockery.md) for strict trait mocks, typed stubs, and call-count
+verification with `Mockery.mock`, `Mockery.returns`, and `Mockery.verify`.
+
 ## Language Core Principles & Policies
 
 ### 1. Pure Object-Oriented (No `static`, No Free Functions)

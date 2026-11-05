@@ -318,7 +318,7 @@ impl IrBuilder {
     fn emit(&mut self, instr: IrInstruction) {
         let check = matches!(instr, IrInstruction::CallMethod { .. } | IrInstruction::CallTrait { .. })
             || matches!(&instr, IrInstruction::CallRuntime { symbol, .. }
-                if symbol.starts_with("ube_exchange_") || symbol.starts_with("ube_money_") || symbol.starts_with("ube_orm_") || symbol.starts_with("ube_sql_") || symbol.starts_with("ube_jwt_") || symbol.starts_with("ube_oauth2_") || symbol.starts_with("ube_session_") || matches!(symbol.as_str(), "ube_request_session" | "ube_request_query" | "ube_request_header" | "ube_request_body" | "ube_response_redirect") || symbol.starts_with("ube_console_") || symbol.starts_with("ube_output_") || symbol.starts_with("ube_log_") || symbol.starts_with("ube_sqlite_") || symbol.starts_with("ube_file_") || symbol.starts_with("ube_directory_")
+                if symbol.starts_with("ube_mockery_") || symbol.starts_with("ube_testicle_") || symbol.starts_with("ube_exchange_") || symbol.starts_with("ube_money_") || symbol.starts_with("ube_orm_") || symbol.starts_with("ube_sql_") || symbol.starts_with("ube_jwt_") || symbol.starts_with("ube_oauth2_") || symbol.starts_with("ube_session_") || matches!(symbol.as_str(), "ube_request_session" | "ube_request_query" | "ube_request_header" | "ube_request_body" | "ube_response_redirect") || symbol.starts_with("ube_console_") || symbol.starts_with("ube_output_") || symbol.starts_with("ube_log_") || symbol.starts_with("ube_sqlite_") || symbol.starts_with("ube_file_") || symbol.starts_with("ube_directory_")
                     || symbol.starts_with("ube_stream_") || symbol.starts_with("ube_server_"));
         self.current_instructions.push(instr);
         if check {
@@ -785,8 +785,8 @@ impl IrBuilder {
     }
 
     pub fn build_program(&mut self, program: &Program) -> IrProgram {
-        let mut normalized = program.clone();
-        for name in ["MoneyError", "CurrencyMismatchError", "SQLError", "SQLiteError", "GenericError", "OutOfBoundsError", "FileError", "FileNotFoundError", "PermissionError", "AlreadyExistsError", "InvalidPathError", "DiskFullError", "LocationPermissionError", "LocationUnavailableError", "JsonError", "JsonParseError", "MissingFieldError", "InvalidTypeError", "XmlError", "XmlParseError"] {
+        let mut normalized = crate::mockery::expand(program);
+        for name in ["MockeryError", "AssertionError", "MoneyError", "CurrencyMismatchError", "SQLError", "SQLiteError", "GenericError", "OutOfBoundsError", "FileError", "FileNotFoundError", "PermissionError", "AlreadyExistsError", "InvalidPathError", "DiskFullError", "LocationPermissionError", "LocationUnavailableError", "JsonError", "JsonParseError", "MissingFieldError", "InvalidTypeError", "XmlError", "XmlParseError"] {
             if !normalized.items.iter().any(|i| matches!(i, Item::Class(c) if c.name == name)) {
                 normalized.items.push(Item::Class(ClassDecl { name: name.into(), primary_params: vec![ConstructorParam {
                     name: "message".into(), type_spec: TypeSpec::String, is_var: false,
@@ -795,7 +795,7 @@ impl IrBuilder {
             }
         }
         let mut checker = crate::semantics::TypeChecker::new();
-        checker.check_program(&normalized);
+        checker.check_program(program);
         // Materialize defaults only on classes that satisfy the complete trait.
         // Specialized calls then refer to real concrete implementations.
         let declared_traits = normalized.items.iter().filter_map(|item| {
@@ -1857,6 +1857,15 @@ impl IrBuilder {
                 }
             }
             ExprKind::Call { callee, args } => {
+                if matches!(&callee.kind, ExprKind::MemberAccess { object, member, .. } if member == "mock" && matches!(&object.kind, ExprKind::Identifier(name) if name == "Mockery" && self.lookup_var(name).is_none())) {
+                    if let [Expr { kind: ExprKind::Identifier(contract), .. }] = args.as_slice() {
+                        let id = self.runtime("ube_mockery_create", vec![], Type::Long);
+                        let dest = self.fresh_reg();
+                        let name = crate::mockery::class_name(contract);
+                        self.emit(IrInstruction::InstantiateClass { dest, class_name: name.clone(), args: vec![id] });
+                        return IrOperand::Register(dest, Type::Class { name });
+                    }
+                }
                 if let Some(result) = self.build_orm_call(callee, args) { return result; }
                 let mut prepared_receiver = None;
                 if let ExprKind::MemberAccess { object, member, .. } = &callee.kind {
@@ -2183,6 +2192,46 @@ impl IrBuilder {
                             return IrOperand::Register(dest, ret_ty);
                         }
 
+                        if class_name == "Mockery" {
+                            if let Some(kind) = member.strip_prefix("_call_") {
+                                let result = match kind { "int" => Type::Int, "long" => Type::Long, "byte" => Type::Byte, "bool" => Type::Bool, "decimal" => Type::Decimal, "string" => Type::String, _ => Type::Void };
+                                return self.runtime(&format!("ube_mockery_call_{kind}"), arg_ops, result);
+                            }
+                            let mut call_args = arg_ops;
+                            let Type::Class { name } = call_args[0].get_type() else { unreachable!() };
+                            let IrOperand::Register(pointer, _) = call_args[0] else { unreachable!() };
+                            let id = self.fresh_reg();
+                            self.emit(IrInstruction::GetField { dest: id, ptr: pointer, class_name: name, field_index: 0, field_ty: Type::Long });
+                            call_args[0] = IrOperand::Register(id, Type::Long);
+                            let (symbol, result) = match member.as_str() {
+                                "returns" => {
+                                    let kind = match call_args[2].get_type() { Type::Int => "int", Type::Long => "long", Type::Byte => "byte", Type::Bool => "bool", Type::Decimal => "decimal", _ => "string" };
+                                    (format!("ube_mockery_return_{kind}"), Type::Void)
+                                }
+                                "calls" => ("ube_mockery_calls".into(), Type::Long),
+                                "verifyNoCalls" => ("ube_mockery_verify_no_calls".into(), Type::Void),
+                                other => (format!("ube_mockery_{other}"), Type::Void),
+                            };
+                            return self.runtime(&symbol, call_args, result);
+                        }
+                        if class_name == "Testicle" {
+                            if member == "fail" {
+                                return self.runtime("ube_testicle_check", vec![IrOperand::ConstantBool(false), arg_ops[0].clone()], Type::Void);
+                            }
+                            let (condition, message) = if member == "isTrue" {
+                                (arg_ops[0].clone(), "Expected true")
+                            } else {
+                                let dest = self.fresh_reg();
+                                let (left, right, op, message) = match member.as_str() {
+                                    "isFalse" => (arg_ops[0].clone(), IrOperand::ConstantBool(false), BinaryOp::Equal, "Expected false"),
+                                    "equal" => (arg_ops[0].clone(), arg_ops[1].clone(), BinaryOp::Equal, "Expected equal values"),
+                                    _ => (arg_ops[0].clone(), arg_ops[1].clone(), BinaryOp::NotEqual, "Expected different values"),
+                                };
+                                self.emit(IrInstruction::Binary { dest, op, operand_ty: left.get_type(), left, right, result_ty: Type::Bool });
+                                (IrOperand::Register(dest, Type::Bool), message)
+                            };
+                            return self.runtime("ube_testicle_check", vec![condition, IrOperand::ConstantString(message.into())], Type::Void);
+                        }
                         if class_name == "Gc" {
                             let (symbol, result) = match member.as_str() {
                                 "collect" => ("ube_gc_try_collect", Type::Bool),
@@ -3353,6 +3402,8 @@ impl IrBuilder {
                             "Cookie" => "ube_cookie_create",
                             "LocationPermissionError"
                             | "LocationUnavailableError"
+                            | "MockeryError"
+                            | "AssertionError"
                             | "MoneyError"
                             | "CurrencyMismatchError"
                             | "FileError"

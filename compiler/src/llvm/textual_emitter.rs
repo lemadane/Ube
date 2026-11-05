@@ -44,6 +44,11 @@ impl TextualLlvmEmitter {
         self.output.push_str("target datalayout = \"e-m:e-p270:32:32-p271:32:32-p272:64:64-i64:64-f80:128-n8:16:32:64-S128\"\n\n");
 
         self.output.push_str("declare void @ube_type_method(i8*, i8*, i8*)\ndeclare i1 @ube_object_satisfies(i8*, i8*)\ndeclare i8* @ube_object_method(i8*, i8*)\ndeclare void @ube_object_register(i8*, i8*)\ndeclare i1 @ube_object_is(i8*, i8*)\ndeclare i8* @ube_exception_create(i8*, i8*, i8*, i8*)\ndeclare i8* @ube_exception_object(i8*)\ndeclare i8* @ube_exception_take()\ndeclare void @ube_exception_set(i8*)\ndeclare void @ube_exception_suppress(i8*, i8*)\ndeclare i8* @ube_exception_poll_cancel()\ndeclare void @ube_exception_fail_unhandled()\n");
+        self.output.push_str("declare i64 @ube_mockery_create()\ndeclare void @ube_mockery_allow(i64, i8*)\ndeclare void @ube_mockery_throws(i64, i8*, i8*)\ndeclare void @ube_mockery_verify(i64, i8*, i32)\ndeclare i64 @ube_mockery_calls(i64, i8*)\ndeclare void @ube_mockery_verify_no_calls(i64)\ndeclare void @ube_mockery_reset(i64)\ndeclare void @ube_mockery_clearCalls(i64)\ndeclare void @ube_mockery_dispose(i64)\ndeclare void @ube_mockery_call_void(i64, i8*)\n");
+        for (kind, ty) in [("int", "i32"), ("long", "i64"), ("byte", "i8"), ("bool", "i1"), ("decimal", "double"), ("string", "i8*")] {
+            self.output.push_str(&format!("declare void @ube_mockery_return_{kind}(i64, i8*, {ty})\ndeclare {ty} @ube_mockery_call_{kind}(i64, i8*)\n"));
+        }
+        self.output.push_str("declare void @ube_testicle_check(i1, i8*)\n");
         self.output.push_str("declare { i8*, i64 } @ube_gc_allocate(i64, i64, i64*, i64)\ndeclare void @ube_gc_frame_enter()\ndeclare void @ube_gc_frame_pin(i64, i8*)\ndeclare void @ube_gc_frame_leave(i8*)\ndeclare void @ube_gc_escape(i8*)\ndeclare i1 @ube_gc_root_remove(i64)\ndeclare void @ube_gc_store_reference(i8*, i64, i8*)\ndeclare i8* @ube_gc_load_reference(i8*, i64, i64)\ndeclare i1 @ube_gc_try_collect()\ndeclare i64 @ube_gc_object_count()\ndeclare i64 @ube_gc_reclaimed_count()\n");
         // External runtime declarations
         self.output.push_str("declare void @ube_runtime_init()\n");
@@ -522,6 +527,8 @@ impl TextualLlvmEmitter {
         let builtins = vec![
             ("GenericError", "i8*"),
             ("CurrencyMismatchError", "i8*"),
+            ("MockeryError", "i8*"),
+            ("AssertionError", "i8*"),
             ("MoneyError", "i8*"),
             ("OutOfBoundsError", "i8*"),
             ("Error", "i8*"),
@@ -724,7 +731,7 @@ impl TextualLlvmEmitter {
         };
 
         if func.blocks.is_empty() { return format!("declare {} @{}({})\n", ret_ty_str, fn_name, all_params); }
-        let linkage = if ["MoneyError", "CurrencyMismatchError", "SQLError", "SQLiteError", "GenericError", "OutOfBoundsError", "FileError", "FileNotFoundError", "PermissionError", "AlreadyExistsError", "InvalidPathError", "DiskFullError", "LocationPermissionError", "LocationUnavailableError", "JsonError", "JsonParseError", "MissingFieldError", "InvalidTypeError", "XmlError", "XmlParseError"].contains(&func.class_name.as_str()) { "linkonce_odr " } else { "" };
+        let linkage = if ["MockeryError", "AssertionError", "MoneyError", "CurrencyMismatchError", "SQLError", "SQLiteError", "GenericError", "OutOfBoundsError", "FileError", "FileNotFoundError", "PermissionError", "AlreadyExistsError", "InvalidPathError", "DiskFullError", "LocationPermissionError", "LocationUnavailableError", "JsonError", "JsonParseError", "MissingFieldError", "InvalidTypeError", "XmlError", "XmlParseError"].contains(&func.class_name.as_str()) { "linkonce_odr " } else { "" };
         buf.push_str(&format!("define {}{} @{}({}) {{\n", linkage, ret_ty_str, fn_name, all_params));
 
         for (index, block) in func.blocks.iter().enumerate() {
