@@ -1252,3 +1252,19 @@ class Application {
 }
 "#, "column rejected\noperator rejected\ndirection rejected\nlimit rejected\n1\nrow type rejected\nfalse\nclosed query rejected\n");
 }
+
+#[test]
+fn orm_join_columns_aliases_and_related_filters_are_checked() {
+    let prefix = "class User(long id, string name) {} class Order(long id, long userId, bool active) {} class Application { main() { final db = SQL.open('sqlite::memory:') final users = Orm.model(db, User, 'users') final orders = Orm.model(db, Order, 'orders') final q = users.query() ";
+    for (body,message) in [
+        ("q.join(orders,'o','missing','userId')", "Unknown ORM column 'missing'"),
+        ("q.join(orders,'o','id','missing')", "Unknown ORM column 'missing'"),
+        ("q.join(orders,'o','name','userId')", "compatible types"),
+        ("q.join(orders,'base','id','userId')", "alias must be unique"),
+        ("q.join(orders,'o','id','userId').join(orders,'O','id','userId')", "alias must be unique"),
+        ("q.join(orders,'o','id','userId').where('o.active','=',1)", "expects bool"),
+        ("q.join(orders,'o','id','userId').where('o.missing','=',true)", "Unknown ORM column 'missing'"),
+        ("q.join(orders,'o','id','userId').orderBy('unknown.id','asc')", "Unknown ORM join alias"),
+        ("q.join(orders,'o','id')", "join expects"),
+    ] { rejects(&format!("{prefix}{body} }} }}"),message); }
+}

@@ -237,6 +237,7 @@ To include a backtick in a one-line string, write it between single quotes. Doub
 - **Ordinary classes**: `Orm.model(db, User, 'users')` maps scalar constructor fields to columns, with an application-assigned `int` or `long` primary key named `id`.
 - **Explicit CRUD**: `users.create(user)`, `users.save(user)`, `users.get(id)`, `users.find(id)`, and `users.delete(id)` operate on typed objects. `migrate()` creates a missing table without altering existing schemas.
 - **Fluent typed queries**: `users.query().where('active', '=', true).orderBy('id', 'asc').limit(20)` binds values and preserves the result model type. Literal column names and predicate types are checked during compilation.
+- **Related-table joins**: `query.join(orders, 'o', 'id', 'userId')` and `leftJoin(...)` preserve typed base-model results, support related-column filters, and return a new query. See [the join example](examples/orm-joins.ube).
 - **Shared SQL transactions**: `users.using(tx)` pins ORM operations to a `SQLTransaction`, including raw SQL and savepoints. Changes are persisted explicitly with `save()`.
 - See [the ORM API and limitations](docs/orm.md) and [the runnable example](examples/orm.ube).
 

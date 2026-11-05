@@ -31,14 +31,35 @@ impl IrBuilder {
                     Type::Orm {
                         model,
                         kind: Kind::Model,
+                        ..
                     } if member == "query" => Some(handle(&model, Kind::Query)),
                     Type::Orm {
                         model,
                         kind: Kind::Model,
+                        ..
                     } if member == "using" => Some(handle(&model, Kind::Model)),
+                    ty @ Type::Orm {
+                        kind: Kind::Query, ..
+                    } if member == "join" || member == "leftJoin" => {
+                        let Type::Orm {
+                            model: target,
+                            kind: Kind::Model,
+                            ..
+                        } = self.orm_expr_type(&args[0])?
+                        else {
+                            return None;
+                        };
+                        let (ExprKind::StringLiteral(alias) | ExprKind::TextBlock(alias)) =
+                            &args[1].kind
+                        else {
+                            return None;
+                        };
+                        Some(crate::orm::joined(&ty, &target, alias))
+                    }
                     Type::Orm {
                         model,
                         kind: Kind::Query,
+                        ..
                     } if member == "all" => Some(handle(&model, Kind::Rows)),
                     ty @ Type::Orm {
                         kind: Kind::Query, ..
@@ -280,7 +301,8 @@ impl IrBuilder {
                 handle(model, Kind::Model),
             ));
         }
-        let Type::Orm { model, kind } = self.orm_expr_type(object)? else {
+        let receiver_ty = self.orm_expr_type(object)?;
+        let Type::Orm { model, kind, .. } = receiver_ty.clone() else {
             return None;
         };
         let receiver = self.build_expr(object);
@@ -336,6 +358,18 @@ impl IrBuilder {
             (Kind::Model, "query") => {
                 self.runtime("ube_orm_query", operands, handle(&model, Kind::Query))
             }
+            (Kind::Query, "join" | "leftJoin") => {
+                let Type::Orm { model: target, .. } = operands[1].get_type() else {
+                    unreachable!()
+                };
+                let (ExprKind::StringLiteral(alias) | ExprKind::TextBlock(alias)) = &args[1].kind
+                else {
+                    unreachable!()
+                };
+                let result = crate::orm::joined(&receiver_ty, &target, alias);
+                operands.push(IrOperand::ConstantBool(member == "leftJoin"));
+                self.runtime("ube_orm_join", operands, result)
+            }
             (Kind::Query, "where") => {
                 let suffix = match operands[3].get_type() {
                     Type::Int => "int",
@@ -347,12 +381,12 @@ impl IrBuilder {
                 self.runtime(
                     &format!("ube_orm_where_{suffix}"),
                     operands,
-                    handle(&model, Kind::Query),
+                    receiver_ty.clone(),
                 )
             }
             (Kind::Query, "whereNull" | "whereNotNull") => {
                 operands.push(IrOperand::ConstantBool(member == "whereNotNull"));
-                self.runtime("ube_orm_where_null", operands, handle(&model, Kind::Query))
+                self.runtime("ube_orm_where_null", operands, receiver_ty.clone())
             }
             (Kind::Query, "orderBy" | "limit" | "offset") => self.runtime(
                 &format!(
@@ -364,7 +398,7 @@ impl IrBuilder {
                     }
                 ),
                 operands,
-                handle(&model, Kind::Query),
+                receiver_ty.clone(),
             ),
             (Kind::Query, "all") => {
                 self.runtime("ube_orm_all", operands, handle(&model, Kind::Rows))

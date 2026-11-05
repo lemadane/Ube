@@ -70,12 +70,90 @@ struct Filter {
     value: Option<Param>,
 }
 #[derive(Clone)]
+struct Join {
+    model: Arc<Model>,
+    alias: String,
+    source: String,
+    target: String,
+    left: bool,
+}
+#[derive(Clone)]
 struct Query {
     model: Arc<Model>,
+    joins: Vec<Join>,
     filters: Vec<Filter>,
     order: Vec<(String, String)>,
     limit: Option<i32>,
     offset: i32,
+}
+impl Query {
+    fn column(&self, column: &str) -> Result<(&Model, &Field, String)> {
+        let (alias, name) = column.split_once('.').unwrap_or(("base", column));
+        let model = if alias == "base" {
+            self.model.as_ref()
+        } else {
+            self.joins
+                .iter()
+                .find(|j| j.alias == alias)
+                .map(|j| j.model.as_ref())
+                .ok_or("unknown join alias")?
+        };
+        let field = model.field(name)?;
+        let quoted = if self.joins.is_empty() {
+            model.quoted(name)?
+        } else {
+            format!(
+                "{}.{}",
+                self.model.dialect.identifier(alias)?,
+                model.quoted(name)?
+            )
+        };
+        Ok((model, field, quoted))
+    }
+    fn selection(&self, count: bool) -> Result<String> {
+        if self.joins.is_empty() {
+            return if count {
+                Ok(format!("SELECT COUNT(*) FROM {}", self.model.table()?))
+            } else {
+                self.model.select()
+            };
+        }
+        let m = &self.model;
+        let projection = if count {
+            "COUNT(*)".into()
+        } else {
+            m.fields
+                .iter()
+                .map(|f| {
+                    let col = self.column(&f.name)?.2;
+                    Ok(if m.dialect == Dialect::Mysql && f.kind == "bool" {
+                        format!("CAST({col} AS SIGNED) AS {}", m.quoted(&f.name)?)
+                    } else {
+                        col
+                    })
+                })
+                .collect::<Result<Vec<_>>>()?
+                .join(", ")
+        };
+        let mut result = format!(
+            "SELECT {projection} FROM {} AS {}",
+            m.table()?,
+            m.dialect.identifier("base")?
+        );
+        for j in &self.joins {
+            let alias = m.dialect.identifier(&j.alias)?;
+            result.push_str(&format!(
+                " {} JOIN {} AS {} ON {} = {}.{}",
+                if j.left { "LEFT" } else { "INNER" },
+                j.model.table()?,
+                alias,
+                self.column(&j.source)?.2,
+                alias,
+                j.model.quoted(&j.target)?
+            ));
+        }
+        Ok(result)
+    }
 }
 #[derive(Default)]
 struct Registry {
@@ -446,12 +524,68 @@ pub extern "C" fn ube_orm_query(h: Handle) -> Handle {
             id,
             Query {
                 model,
+                joins: vec![],
                 filters: vec![],
                 order: vec![],
                 limit: None,
                 offset: 0,
             },
         );
+        Ok(id as Handle)
+    })
+}
+#[no_mangle]
+pub extern "C" fn ube_orm_join(
+    h: Handle,
+    other: Handle,
+    alias: *const c_char,
+    source: *const c_char,
+    target: *const c_char,
+    left: bool,
+) -> Handle {
+    run(|| {
+        let mut q = query(h)?;
+        let other = model(other)?;
+        sql::orm_target(q.model.target, q.model.transaction)?;
+        sql::orm_target(other.target, other.transaction)?;
+        if q.model.target != other.target || q.model.transaction != other.transaction {
+            return Err("joined models must use the same SQL connection or transaction".into());
+        }
+        let alias = text(alias)?;
+        if alias.is_empty()
+            || alias.len() > 63
+            || alias.eq_ignore_ascii_case("base")
+            || !alias
+                .bytes()
+                .enumerate()
+                .all(|(i, b)| b.is_ascii_alphabetic() || b == b'_' || i > 0 && b.is_ascii_digit())
+            || q.joins.iter().any(|j| j.alias.eq_ignore_ascii_case(&alias))
+        {
+            return Err("join alias must be a unique ASCII identifier of 1..63 characters and cannot be base".into());
+        }
+        if q.joins.len() >= 16 {
+            return Err("query exceeds 16 joins".into());
+        }
+        let source = text(source)?;
+        let target = text(target)?;
+        let (_, a, _) = q.column(&source)?;
+        let b = other.field(&target)?;
+        if a.kind != b.kind
+            && !(matches!(a.kind.as_str(), "int" | "long")
+                && matches!(b.kind.as_str(), "int" | "long"))
+        {
+            return Err("join columns must have compatible types".into());
+        }
+        q.joins.push(Join {
+            model: other,
+            alias,
+            source,
+            target,
+            left,
+        });
+        let mut s = registry().lock().unwrap();
+        let id = s.id()?;
+        s.queries.insert(id, q);
         Ok(id as Handle)
     })
 }
@@ -479,7 +613,7 @@ fn filter(
         if q.filters.len() >= 128 {
             return Err("query exceeds 128 filters".into());
         }
-        let field = q.model.field(&column)?;
+        let (_, field, _) = q.column(&column)?;
         if operator.contains("LIKE") && field.kind != "string" {
             return Err("LIKE requires a string column".into());
         }
@@ -557,7 +691,7 @@ pub extern "C" fn ube_orm_where_null(h: Handle, c: *const c_char, not: bool) -> 
     run(|| {
         let column = text(c)?;
         mutate(h, |q| {
-            q.model.field(&column)?;
+            q.column(&column)?;
             if q.filters.len() >= 128 {
                 return Err("query exceeds 128 filters".into());
             }
@@ -583,7 +717,7 @@ pub extern "C" fn ube_orm_order_by(
             return Err("sort direction must be asc or desc".into());
         }
         mutate(h, |q| {
-            q.model.field(&column)?;
+            q.column(&column)?;
             if q.order.len() >= 128 {
                 return Err("too many sort columns".into());
             }
@@ -618,15 +752,11 @@ pub extern "C" fn ube_orm_offset(h: Handle, value: i32) -> Handle {
 }
 fn statement(q: &Query, count: bool, first: bool) -> Result<(String, Vec<Param>)> {
     let m = &q.model;
-    let mut sql = if count {
-        format!("SELECT COUNT(*) FROM {}", m.table()?)
-    } else {
-        m.select()?
-    };
+    let mut sql = q.selection(count)?;
     let mut params = vec![];
     let mut filters = vec![];
     for f in &q.filters {
-        let mut part = format!("{} {}", m.quoted(&f.column)?, f.operator);
+        let mut part = format!("{} {}", q.column(&f.column)?.2, f.operator);
         if let Some(v) = &f.value {
             params.push(v.clone());
             part.push_str(&format!(" {}", m.placeholder(params.len())));
@@ -642,7 +772,7 @@ fn statement(q: &Query, count: bool, first: bool) -> Result<(String, Vec<Param>)
                 " ORDER BY {}",
                 q.order
                     .iter()
-                    .map(|(c, d)| Ok(format!("{} {d}", m.quoted(c)?)))
+                    .map(|(c, d)| Ok(format!("{} {d}", q.column(c)?.2)))
                     .collect::<Result<Vec<_>>>()?
                     .join(", ")
             ));
@@ -731,6 +861,7 @@ mod tests {
             });
             let q = Query {
                 model,
+                joins: vec![],
                 filters: vec![
                     Filter {
                         column: "name".into(),
@@ -833,6 +964,78 @@ mod tests {
         assert!(sql::ube_sql_result_next(rows));
         sql::ube_sql_result_close(rows);
         ube_orm_query_close(q);
+        let related = ube_orm_model(
+            db,
+            c("ube_orm_related").as_ptr(),
+            c("id\tlong\nparentId\tlong\nname\tstring\n").as_ptr(),
+        );
+        ok();
+        let empty = sql::ube_sql_params_create();
+        sql::ube_sql_execute(
+            db,
+            c("DROP TABLE IF EXISTS ube_orm_related").as_ptr(),
+            empty,
+        );
+        ok();
+        sql::ube_sql_params_close(empty);
+        ube_orm_migrate(related);
+        ok();
+        let values = sql::ube_sql_params_create();
+        sql::ube_sql_params_add_long(values, 10);
+        sql::ube_sql_params_add_long(values, 1);
+        sql::ube_sql_params_add_string(values, c("related").as_ptr());
+        assert_eq!(ube_orm_create(related, values), 1);
+        ok();
+        let base = ube_orm_query(model);
+        let joined = ube_orm_join(
+            base,
+            related,
+            c("r").as_ptr(),
+            c("id").as_ptr(),
+            c("parentId").as_ptr(),
+            false,
+        );
+        ok();
+        ube_orm_where_string(
+            joined,
+            c("r.name").as_ptr(),
+            c("=").as_ptr(),
+            c("related").as_ptr(),
+        );
+        ok();
+        assert_eq!(ube_orm_count(joined), 1);
+        ok();
+        let rows = ube_orm_all(joined);
+        ok();
+        assert!(sql::ube_sql_result_next(rows));
+        assert!(sql::ube_sql_result_get_bool(rows, 2));
+        ok();
+        sql::ube_sql_result_close(rows);
+        assert_eq!(ube_orm_delete(related, 10), 1);
+        ok();
+        let left = ube_orm_join(
+            base,
+            related,
+            c("r").as_ptr(),
+            c("id").as_ptr(),
+            c("parentId").as_ptr(),
+            true,
+        );
+        ok();
+        ube_orm_where_null(left, c("r.id").as_ptr(), false);
+        ok();
+        assert_eq!(ube_orm_count(left), 1);
+        ok();
+        assert_eq!(ube_orm_count(base), 1);
+        ok();
+        ube_orm_query_close(left);
+        ube_orm_query_close(joined);
+        ube_orm_query_close(base);
+        ube_orm_model_close(related);
+        let empty = sql::ube_sql_params_create();
+        sql::ube_sql_execute(db, c("DROP TABLE ube_orm_related").as_ptr(), empty);
+        ok();
+        sql::ube_sql_params_close(empty);
         let tx = sql::ube_sql_begin(db);
         ok();
         let transactional = ube_orm_using(model, tx);

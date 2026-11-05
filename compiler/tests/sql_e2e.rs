@@ -297,3 +297,73 @@ class Application {
     run(&writer, &directory.0, "Robert'); DROP TABLE users; --\n-1\nfalse\n1\ntrue\nAda\nmissing caught\nUbe 🍠\n42\n5000000000\n1.5\ntrue\nube@example.test\nraw SQL in same transaction\ntrue\nfinished transaction rejected\ncommitted\n1\n0\n2\nwrong connection rejected\n");
     run(&reader, &directory.0, "2\n1\nAda\nfalse\n2\nUbe 🍠\nfalse\nUbe 🍠\ntrue\n");
 }
+
+#[test]
+fn orm_cli_inner_left_and_self_joins_keep_typed_results_and_transactions() {
+    let directory = Directory::new();
+    let executable = compile(&directory.0,"joins",r#"
+class User(long id, string name, long? managerId) {}
+class Order(long id, long userId, string status) {}
+class Line(long id, long orderId) {}
+class Application {
+    main() {
+        final db = SQL.open('sqlite::memory:')
+        final users = Orm.model(db, User, 'users')
+        final orders = Orm.model(db, Order, 'orders')
+        final lines = Orm.model(db, Line, 'lines')
+        try {
+            users.migrate() orders.migrate() lines.migrate()
+            users.create(User(1L,'Ada',null))
+            users.create(User(2L,'Grace',1L))
+            users.create(User(3L,'Lin',1L))
+            orders.create(Order(10L,1L,'paid'))
+            orders.create(Order(11L,1L,'pending'))
+            orders.create(Order(12L,2L,'paid'))
+            lines.create(Line(100L,10L))
+            final base = users.query()
+            final paid = base.join(orders,'o','id','userId').where('o.status','=','paid').orderBy('id','asc')
+            try {
+                print(base.count())
+                print(paid.count())
+                final rows = paid.all()
+                try { for (rows.next()) { print(rows.get().name()) } } finally { rows.close() }
+                final lineQuery = paid.join(lines,'line','o.id','orderId')
+                try {
+                    print(lineQuery.count())
+                    final first = lineQuery.first() ?? User(0L,'missing',null)
+                    print(first.name())
+                } finally { lineQuery.close() }
+                paid.offset(1).limit(1)
+                final first = paid.first() ?? User(0L,'missing',null)
+                print(first.name())
+            } finally { paid.close() }
+            final unmatched = base.leftJoin(orders,'o','id','userId').whereNull('o.id')
+            try {
+                final row = unmatched.first() ?? User(0L,'missing',null)
+                print(row.name())
+            } finally { unmatched.close() }
+            final managers = base.join(users,'manager','managerId','id').where('manager.name','=','Ada')
+            try { print(managers.count()) } finally { managers.close() }
+            base.close()
+
+            final tx = db.begin()
+            final txUsers = users.using(tx)
+            final txOrders = orders.using(tx)
+            final txBase = txUsers.query()
+            try {
+                txOrders.create(Order(13L,3L,'paid'))
+                final joined = txBase.join(txOrders,'o','id','userId')
+                try { print(joined.count()) } finally { joined.close() }
+                try { txBase.join(orders,'other','id','userId') }
+                catch (SQLError err) { print('transaction mismatch rejected') }
+                tx.rollback()
+            } finally { txBase.close() txUsers.close() txOrders.close() tx.close() }
+            final after = users.query()
+            final joined = after.join(orders,'o','id','userId')
+            try { print(joined.count()) } finally { joined.close() after.close() }
+        } finally { lines.close() orders.close() users.close() db.close() }
+    }
+}
+"#);
+    run(&executable,&directory.0,"3\n2\nAda\nGrace\n1\nAda\nGrace\nLin\n2\n4\ntransaction mismatch rejected\n3\n");
+}

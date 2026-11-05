@@ -22,6 +22,7 @@ pub fn handle(model: &str, kind: Kind) -> Type {
     Type::Orm {
         model: model.into(),
         kind,
+        joins: vec![],
     }
 }
 pub fn scalar(spec: &TypeSpec) -> Option<Type> {
@@ -75,5 +76,30 @@ pub fn generic(name: &str, spec: &TypeSpec) -> Option<Type> {
         Some(handle(model, kind))
     } else {
         None
+    }
+}
+
+pub fn alias_valid(alias: &str) -> bool {
+    !alias.is_empty()
+        && alias.len() <= 63
+        && !alias.eq_ignore_ascii_case("base")
+        && alias
+            .bytes()
+            .enumerate()
+            .all(|(i, b)| b.is_ascii_alphabetic() || b == b'_' || i > 0 && b.is_ascii_digit())
+}
+pub fn joined(query: &Type, model: &str, alias: &str) -> Type {
+    let Type::Orm {
+        model: base, joins, ..
+    } = query
+    else {
+        unreachable!()
+    };
+    let mut joins = joins.clone();
+    joins.push((alias.into(), model.into()));
+    Type::Orm {
+        model: base.clone(),
+        kind: Kind::Query,
+        joins,
     }
 }

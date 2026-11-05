@@ -120,9 +120,8 @@ field mismatches, invalid operators, and unsupported query values raise
 Query methods mutate and return the same query handle. Use a fresh `query()` for
 an independent filter set; assigning a query to another variable does not clone
 it. Execution takes a snapshot. Queries support at most 128 predicates and 128
-sort keys, and retain the SQL parameter/result size limits. Joins, OR/grouped
-predicates, projections, aggregates other than count, and streaming are future
-extensions.
+sort keys, and retain the SQL parameter/result size limits. OR/grouped predicates, projections, aggregates other than count, and streaming
+are future extensions.
 
 `OrmRows<User>` supports `next()`, `get()`, `rowCount()`, `reset()`, and `close()`.
 Call `next()` before `get()`. Rows are detached from the database connection and
@@ -130,6 +129,56 @@ remain readable after it closes. Close result, query, and repository handles in
 `finally` blocks; repeated close is safe. Closing a repository releases that
 handle; already-created queries retain their mapping, but still require an
 active underlying connection or transaction to execute.
+
+## Joining related models
+
+```ube
+final base = users.query()
+final paid = base.join(orders, 'o', 'id', 'userId').where('o.status', '=', 'paid')
+try {
+    final rows = paid.all()
+    try {
+        for (rows.next()) { print(rows.get().name()) }
+    } finally { rows.close() }
+} finally { paid.close() base.close() }
+```
+
+`join(repository, alias, sourceColumn, targetColumn)` creates an INNER JOIN;
+`leftJoin(...)` creates a LEFT JOIN with the same arguments. The example joins
+`base.id = o.userId` and returns typed `User` objects. `orders` is another
+`Orm.model(...)` repository on the same SQL client or exactly the same
+`SQLTransaction`. Joining a transaction-bound repository to a pool-bound one,
+a different client, or a different transaction raises `SQLError`.
+
+Both join methods return a **new** query containing a snapshot of the source
+query's filters, joins, ordering, and pagination. The source remains unchanged;
+close both handles. Existing filter and pagination methods continue to mutate
+and return their own query handle. Joined query execution follows SQL clause
+order: filtering and pagination apply to the complete joined result.
+
+Unqualified columns refer to the base model; `base.id` is its explicit form.
+Joined columns use their explicit aliases, such as `o.status`, in `where`,
+`whereNull`, `whereNotNull`, and `orderBy`. The alias must be a literal ASCII
+identifier of 1–63 characters, unique without regard to case, and cannot be
+`base`. Alias references are case-sensitive. Literal column names and join-key
+types are checked at compilation; dynamic column strings are validated at
+runtime. Join keys must have matching scalar types, allowing int/long pairs;
+nullable keys use normal SQL NULL equality semantics.
+
+Chaining can refer to an earlier join's columns, for example
+`paid.join(lines, 'line', 'o.id', 'orderId')`. Self-joins work with a distinct
+alias: `employees.query().join(employees, 'manager', 'managerId', 'id')`.
+Queries support up to 16 joins. A LEFT JOIN followed by `whereNull('o.id')`
+finds base records without a matching related record.
+
+Results contain **only the base model's fields**. A base object appears once
+per matching joined row; `count()` counts those joined rows, including repeated
+base IDs. `first`, ordering, and pagination operate on joined rows as well.
+Joined-object projections, distinct entity results, relationship hydration,
+RIGHT/FULL/CROSS joins, and custom ON expressions are not implemented yet.
+This is SQL JOIN, not a set-operation intersection.
+
+See [the runnable join example](../examples/orm-joins.ube).
 
 ## Shared transactions with raw SQL
 

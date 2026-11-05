@@ -3129,6 +3129,7 @@ impl TypeChecker {
             (Type::Class { name: from_name }, Type::Class { name: to_name }) => {
                 from_name == to_name || self.satisfies_trait(from_name, to_name)
             }
+            (Type::Orm { model: a, kind: ak, .. }, Type::Orm { model: b, kind: bk, joins }) if a == b && ak == bk && joins.is_empty() => true,
             (Type::Channel(from), Type::Channel(to)) => self.is_assignable_to(from, to),
             (from_ty, Type::Nullable(inner)) => {
                 from_ty == &Type::Nullable(Box::new(Type::Void))

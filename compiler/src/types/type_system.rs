@@ -15,7 +15,7 @@ pub enum Type {
     FileStream,
     Task(Box<Type>),
     Channel(Box<Type>),
-    Orm { model: String, kind: crate::orm::Kind },
+    Orm { model: String, kind: crate::orm::Kind, joins: Vec<(String, String)> },
     Class {
         name: std::string::String,
     },
@@ -56,7 +56,7 @@ impl fmt::Display for Type {
             Type::Task(result) => write!(f, "Task<{}>", result),
             Type::Channel(element) => write!(f, "Channel<{}>", element),
             Type::Class { name } => write!(f, "{}", name),
-            Type::Orm { model, kind } => write!(f, "{}<{}>", kind.class(), model),
+            Type::Orm { model, kind, .. } => write!(f, "{}<{}>", kind.class(), model),
 
             Type::Nullable(inner) => write!(f, "{}?", inner),
             Type::AnonymousObject { field_types } => {

@@ -1,4 +1,36 @@
 impl TypeChecker {
+    fn orm_column_type(
+        &self,
+        model: &str,
+        joins: &[(String, String)],
+        column: &str,
+    ) -> Result<Type, String> {
+        let (model, column) = if let Some((alias, column)) = column.split_once('.') {
+            if alias == "base" {
+                (model, column)
+            } else {
+                (
+                    joins
+                        .iter()
+                        .find(|(a, _)| a.eq_ignore_ascii_case(alias))
+                        .map(|(_, m)| m.as_str())
+                        .ok_or_else(|| format!("Unknown ORM join alias '{alias}'"))?,
+                    column,
+                )
+            }
+        } else {
+            (model, column)
+        };
+        let declaration = self
+            .orm_declarations
+            .get(model)
+            .ok_or_else(|| format!("Unknown ORM model '{model}'"))?;
+        crate::orm::fields(declaration)?
+            .into_iter()
+            .find(|(name, _)| name == column)
+            .map(|(_, ty)| ty)
+            .ok_or_else(|| format!("Unknown ORM column '{column}' on {model}"))
+    }
     fn check_orm_call(
         &mut self,
         receiver: &Type,
@@ -45,7 +77,7 @@ impl TypeChecker {
             }
             return Some(Some(handle(model, Kind::Model)));
         }
-        let Type::Orm { model, kind } = receiver else {
+        let Type::Orm { model, kind, joins } = receiver else {
             return None;
         };
         let Some(declaration) = self.orm_declarations.get(model) else {
@@ -78,6 +110,63 @@ impl TypeChecker {
                 }],
                 receiver.clone(),
             ),
+            (Kind::Query, "join" | "leftJoin") => {
+                if args.len() != 4 || actual.len() != 4 {
+                    return error(self,"ORM join expects a model repository, literal alias, source column, and target column".into());
+                }
+                let Type::Orm {
+                    model: target,
+                    kind: Kind::Model,
+                    ..
+                } = &actual[0]
+                else {
+                    return error(self, "ORM join requires an OrmModel repository".into());
+                };
+                let (ExprKind::StringLiteral(alias) | ExprKind::TextBlock(alias)) = &args[1].kind
+                else {
+                    return error(self, "ORM join alias must be a string literal".into());
+                };
+                if !crate::orm::alias_valid(alias)
+                    || joins.iter().any(|(a, _)| a.eq_ignore_ascii_case(alias))
+                {
+                    return error(self,"ORM join alias must be unique, use 1..63 ASCII identifier characters, and cannot be base".into());
+                }
+                if joins.len() >= 16 {
+                    return error(self, "ORM queries support at most 16 joins".into());
+                }
+                let source =
+                    if let ExprKind::StringLiteral(c) | ExprKind::TextBlock(c) = &args[2].kind {
+                        match self.orm_column_type(model, joins, c) {
+                            Ok(t) => Some(t),
+                            Err(e) => return error(self, e),
+                        }
+                    } else {
+                        None
+                    };
+                let target_ty =
+                    if let ExprKind::StringLiteral(c) | ExprKind::TextBlock(c) = &args[3].kind {
+                        match self.orm_column_type(target, &[], c) {
+                            Ok(t) => Some(t),
+                            Err(e) => return error(self, e),
+                        }
+                    } else {
+                        None
+                    };
+                if let (Some(a), Some(b)) = (source, target_ty) {
+                    let a = if let Type::Nullable(i) = a { *i } else { a };
+                    let b = if let Type::Nullable(i) = b { *i } else { b };
+                    if a != b
+                        && !(matches!(a, Type::Int | Type::Long)
+                            && matches!(b, Type::Int | Type::Long))
+                    {
+                        return error(self, "ORM join columns must have compatible types".into());
+                    }
+                }
+                (
+                    vec![actual[0].clone(), Type::String, Type::String, Type::String],
+                    crate::orm::joined(receiver, target, alias),
+                )
+            }
             (Kind::Query, "where") => {
                 if args.len() != 3 || actual.len() != 3 {
                     return error(
@@ -98,10 +187,11 @@ impl TypeChecker {
                 }
                 if let ExprKind::StringLiteral(column) | ExprKind::TextBlock(column) = &args[0].kind
                 {
-                    let Some((_, field_ty)) = fields.iter().find(|(name, _)| name == column) else {
-                        return error(self, format!("Unknown ORM column '{column}' on {model}"));
+                    let field_ty = match self.orm_column_type(model, joins, column) {
+                        Ok(ty) => ty,
+                        Err(e) => return error(self, e),
                     };
-                    let field_ty = match field_ty {
+                    let field_ty = match &field_ty {
                         Type::Nullable(inner) => inner.as_ref(),
                         ty => ty,
                     };
@@ -161,8 +251,8 @@ impl TypeChecker {
                 ..
             }) = args.first()
             {
-                if !fields.iter().any(|(name, _)| name == column) {
-                    return error(self, format!("Unknown ORM column '{column}' on {model}"));
+                if let Err(e) = self.orm_column_type(model, joins, column) {
+                    return error(self, e);
                 }
             }
         }
