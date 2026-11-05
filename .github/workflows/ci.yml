@@ -64,4 +64,4 @@ jobs:
           UBE_TEST_MYSQL_URL: mysql://ube:ube_ci@127.0.0.1:3306/ube_ci
         run: cargo test -p ube-runtime --locked -- --ignored --test-threads=1
       - name: Verify optimized compiler and runtime audit regressions
-        run: cargo test --release -p ube-compiler --test integration_tests --test runtime_audit_e2e --test testing_e2e --test mockery_e2e --locked -- --test-threads=2
+        run: cargo test --release -p ube-compiler --test integration_tests --test runtime_audit_e2e --test testing_e2e --test mockery_e2e --test rest_in_peace_e2e --locked -- --test-threads=2

@@ -1103,6 +1103,13 @@ impl TypeChecker {
                 param_types: vec![], min_constructor_args: 0, max_constructor_args: 0,
             });
         }
+        for &name in crate::rest_in_peace::CLASSES {
+            self.classes.insert(name.into(), ClassInfo {
+                name: name.into(), fields: HashMap::new(),
+                methods: crate::rest_in_peace::methods(name).into_iter().map(|m| (m.name.into(), (m.params, m.result))).collect(),
+                param_types: vec![], min_constructor_args: 0, max_constructor_args: 0,
+            });
+        }
         for &name in crate::builtins::AUTH_CLASSES {
             self.classes.insert(name.into(), ClassInfo {
                 name: name.into(), fields: HashMap::new(),
@@ -1234,6 +1241,7 @@ impl TypeChecker {
         );
 
         let file_errors = vec![
+            "RestInPeaceError",
             "MockeryError",
             "AssertionError",
             "MoneyError",
@@ -2472,6 +2480,16 @@ impl TypeChecker {
                                     }
                                     return Some(method.result);
                                 }
+                                if crate::rest_in_peace::CLASSES.contains(&name.as_str()) {
+                                    let Some(method) = crate::rest_in_peace::methods(name).into_iter().find(|m| m.name == member) else {
+                                        self.diagnostics.push(Diagnostic::error("Unknown RestInPeace method", Some(expr.span))); return None;
+                                    };
+                                    if class_receiver != method.is_static || args.len() != method.params.len() || arg_types.len() != method.params.len()
+                                        || !arg_types.iter().zip(&method.params).all(|(actual, expected)| actual == expected) {
+                                        self.diagnostics.push(Diagnostic::error("Invalid RestInPeace call: use class factories and instance methods with matching non-null arguments", Some(expr.span)));
+                                    }
+                                    return Some(method.result);
+                                }
                                 if crate::builtins::AUTH_CLASSES.contains(&name.as_str()) {
                                     let Some(method) = crate::builtins::auth_methods(name).into_iter().find(|m| m.name == member) else {
                                         self.diagnostics.push(Diagnostic::error(format!("Unknown {} method '{}'", name, member), Some(expr.span)));
@@ -2801,6 +2819,10 @@ impl TypeChecker {
                 }
                 if crate::builtins::SQL_CLASSES.contains(&class_name) {
                     self.diagnostics.push(Diagnostic::error("Use SQL.open(url), SQLParams.create(), or connection methods; SQL handles cannot be constructed", Some(expr.span)));
+                    return None;
+                }
+                if crate::rest_in_peace::CLASSES.contains(&class_name) {
+                    self.diagnostics.push(Diagnostic::error("Use RestInPeace.given() or RestInPeace.at(baseUrl); REST handles cannot be constructed", Some(expr.span)));
                     return None;
                 }
                 if crate::builtins::AUTH_CLASSES.contains(&class_name) {

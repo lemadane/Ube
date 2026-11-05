@@ -5,6 +5,8 @@ annotations are required.
 
 Use [Mockery](mockery.md) to inject strict trait mocks, configure primitive return
 values or failures, and verify call counts.
+Use [RestInPeace](rest-in-peace.md) for integration and end-to-end tests against
+running HTTP services, with fluent requests and Testicle assertions.
 
 Create `tests/calculator_test.ube`:
 

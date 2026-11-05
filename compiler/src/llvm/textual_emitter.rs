@@ -366,6 +366,14 @@ impl TextualLlvmEmitter {
                 self.output.push_str(&format!("declare {} @{}({})\n", self.type_to_llvm(&method.result), method.symbol, params.join(", ")));
             }
         }
+        for &class in crate::rest_in_peace::CLASSES {
+            for method in crate::rest_in_peace::methods(class) {
+                let mut params = Vec::new();
+                if !method.is_static { params.push(format!("%{}*", class)); }
+                params.extend(method.params.iter().map(|ty| self.type_to_llvm(ty)));
+                self.output.push_str(&format!("declare {} @{}({})\n", self.type_to_llvm(&method.result), method.symbol, params.join(", ")));
+            }
+        }
         for &class in crate::builtins::AUTH_CLASSES {
             for method in crate::builtins::auth_methods(class) {
                 let mut params = Vec::new();
@@ -527,6 +535,9 @@ impl TextualLlvmEmitter {
         let builtins = vec![
             ("GenericError", "i8*"),
             ("CurrencyMismatchError", "i8*"),
+            ("RestInPeaceError", "i8*"),
+            ("RestInPeaceRequest", "i8*"),
+            ("RestInPeaceResponse", "i8*"),
             ("MockeryError", "i8*"),
             ("AssertionError", "i8*"),
             ("MoneyError", "i8*"),
@@ -731,7 +742,7 @@ impl TextualLlvmEmitter {
         };
 
         if func.blocks.is_empty() { return format!("declare {} @{}({})\n", ret_ty_str, fn_name, all_params); }
-        let linkage = if ["MockeryError", "AssertionError", "MoneyError", "CurrencyMismatchError", "SQLError", "SQLiteError", "GenericError", "OutOfBoundsError", "FileError", "FileNotFoundError", "PermissionError", "AlreadyExistsError", "InvalidPathError", "DiskFullError", "LocationPermissionError", "LocationUnavailableError", "JsonError", "JsonParseError", "MissingFieldError", "InvalidTypeError", "XmlError", "XmlParseError"].contains(&func.class_name.as_str()) { "linkonce_odr " } else { "" };
+        let linkage = if ["RestInPeaceError", "MockeryError", "AssertionError", "MoneyError", "CurrencyMismatchError", "SQLError", "SQLiteError", "GenericError", "OutOfBoundsError", "FileError", "FileNotFoundError", "PermissionError", "AlreadyExistsError", "InvalidPathError", "DiskFullError", "LocationPermissionError", "LocationUnavailableError", "JsonError", "JsonParseError", "MissingFieldError", "InvalidTypeError", "XmlError", "XmlParseError"].contains(&func.class_name.as_str()) { "linkonce_odr " } else { "" };
         buf.push_str(&format!("define {}{} @{}({}) {{\n", linkage, ret_ty_str, fn_name, all_params));
 
         for (index, block) in func.blocks.iter().enumerate() {

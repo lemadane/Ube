@@ -318,7 +318,7 @@ impl IrBuilder {
     fn emit(&mut self, instr: IrInstruction) {
         let check = matches!(instr, IrInstruction::CallMethod { .. } | IrInstruction::CallTrait { .. })
             || matches!(&instr, IrInstruction::CallRuntime { symbol, .. }
-                if symbol.starts_with("ube_mockery_") || symbol.starts_with("ube_testicle_") || symbol.starts_with("ube_exchange_") || symbol.starts_with("ube_money_") || symbol.starts_with("ube_orm_") || symbol.starts_with("ube_sql_") || symbol.starts_with("ube_jwt_") || symbol.starts_with("ube_oauth2_") || symbol.starts_with("ube_session_") || matches!(symbol.as_str(), "ube_request_session" | "ube_request_query" | "ube_request_header" | "ube_request_body" | "ube_response_redirect") || symbol.starts_with("ube_console_") || symbol.starts_with("ube_output_") || symbol.starts_with("ube_log_") || symbol.starts_with("ube_sqlite_") || symbol.starts_with("ube_file_") || symbol.starts_with("ube_directory_")
+                if symbol.starts_with("ube_rest_") || symbol.starts_with("ube_mockery_") || symbol.starts_with("ube_testicle_") || symbol.starts_with("ube_exchange_") || symbol.starts_with("ube_money_") || symbol.starts_with("ube_orm_") || symbol.starts_with("ube_sql_") || symbol.starts_with("ube_jwt_") || symbol.starts_with("ube_oauth2_") || symbol.starts_with("ube_session_") || matches!(symbol.as_str(), "ube_request_session" | "ube_request_query" | "ube_request_header" | "ube_request_body" | "ube_response_redirect") || symbol.starts_with("ube_console_") || symbol.starts_with("ube_output_") || symbol.starts_with("ube_log_") || symbol.starts_with("ube_sqlite_") || symbol.starts_with("ube_file_") || symbol.starts_with("ube_directory_")
                     || symbol.starts_with("ube_stream_") || symbol.starts_with("ube_server_"));
         self.current_instructions.push(instr);
         if check {
@@ -786,7 +786,7 @@ impl IrBuilder {
 
     pub fn build_program(&mut self, program: &Program) -> IrProgram {
         let mut normalized = crate::mockery::expand(program);
-        for name in ["MockeryError", "AssertionError", "MoneyError", "CurrencyMismatchError", "SQLError", "SQLiteError", "GenericError", "OutOfBoundsError", "FileError", "FileNotFoundError", "PermissionError", "AlreadyExistsError", "InvalidPathError", "DiskFullError", "LocationPermissionError", "LocationUnavailableError", "JsonError", "JsonParseError", "MissingFieldError", "InvalidTypeError", "XmlError", "XmlParseError"] {
+        for name in ["RestInPeaceError", "MockeryError", "AssertionError", "MoneyError", "CurrencyMismatchError", "SQLError", "SQLiteError", "GenericError", "OutOfBoundsError", "FileError", "FileNotFoundError", "PermissionError", "AlreadyExistsError", "InvalidPathError", "DiskFullError", "LocationPermissionError", "LocationUnavailableError", "JsonError", "JsonParseError", "MissingFieldError", "InvalidTypeError", "XmlError", "XmlParseError"] {
             if !normalized.items.iter().any(|i| matches!(i, Item::Class(c) if c.name == name)) {
                 normalized.items.push(Item::Class(ClassDecl { name: name.into(), primary_params: vec![ConstructorParam {
                     name: "message".into(), type_spec: TypeSpec::String, is_var: false,
@@ -1943,6 +1943,14 @@ impl IrBuilder {
                                 if !method.is_static { args.push(obj_op); }
                                 args.extend(arg_ops.into_iter().zip(&method.params).map(|(arg, ty)| self.cast(arg, ty.clone())));
                                 return self.runtime(method.symbol, args, method.result);
+                            }
+                        }
+                        if crate::rest_in_peace::CLASSES.contains(&class_name.as_str()) {
+                            if let Some(method) = crate::rest_in_peace::methods(&class_name).into_iter().find(|m| m.name == member) {
+                                let mut call_args = Vec::new();
+                                if !method.is_static { call_args.push(obj_op); }
+                                call_args.extend(arg_ops);
+                                return self.runtime(method.symbol, call_args, method.result);
                             }
                         }
                         if crate::builtins::AUTH_CLASSES.contains(&class_name.as_str()) {
@@ -3402,6 +3410,7 @@ impl IrBuilder {
                             "Cookie" => "ube_cookie_create",
                             "LocationPermissionError"
                             | "LocationUnavailableError"
+                            | "RestInPeaceError"
                             | "MockeryError"
                             | "AssertionError"
                             | "MoneyError"

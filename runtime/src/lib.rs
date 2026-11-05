@@ -1,3 +1,4 @@
+pub mod rest_in_peace;
 pub mod mockery;
 pub mod testing;
 pub mod collections;
@@ -34,6 +35,7 @@ pub extern "C" fn ube_runtime_cleanup() {
     concurrency::ube_concurrency_cleanup();
     logging::ube_log_clear();
     sessions::cleanup();
+    rest_in_peace::cleanup();
     auth::cleanup();
     mockery::cleanup();
     exceptions::cleanup();

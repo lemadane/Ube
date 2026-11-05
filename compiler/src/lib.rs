@@ -1,3 +1,4 @@
+pub mod rest_in_peace;
 pub mod mockery;
 pub mod builtins;
 pub mod orm;

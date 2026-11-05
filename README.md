@@ -25,6 +25,9 @@ ube test examples/testing
 See [the native testing API](docs/testing.md) for examples and current limits.
 Use [Mockery](docs/mockery.md) for strict trait mocks, typed stubs, and call-count
 verification with `Mockery.mock`, `Mockery.returns`, and `Mockery.verify`.
+Use [RestInPeace](docs/rest-in-peace.md) to test running HTTP services with fluent
+requests, typed JSON getters, and Testicle assertions. It supports HTTP/1.x,
+verified HTTPS/HTTP/2, response-size limits, and request timeouts.
 
 ## Language Core Principles & Policies
 
