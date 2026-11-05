@@ -1,3 +1,4 @@
+use rust_decimal::Decimal;
 use std::ffi::{CStr, CString};
 use std::os::raw::c_char;
 
@@ -10,6 +11,7 @@ pub struct UbeCurrency {
 pub struct UbeMoney {
     pub amount: f64,
     pub currency: *mut UbeCurrency,
+    exact: Decimal,
 }
 
 #[repr(C)]
@@ -45,18 +47,159 @@ pub extern "C" fn ube_currency_code(ptr: *mut UbeCurrency) -> *mut c_char {
     }
 }
 
-#[no_mangle]
-pub extern "C" fn ube_money_create(amount: f64, curr_ptr: *mut UbeCurrency) -> *mut UbeMoney {
-    let curr = if !curr_ptr.is_null() {
-        curr_ptr
-    } else {
-        ube_currency_create(CString::new("PHP").unwrap().as_ptr())
+fn money_error(message: impl Into<String>) -> *mut UbeMoney {
+    crate::exceptions::set_pending(crate::exceptions::named("MoneyError", message.into()));
+    std::ptr::null_mut()
+}
+
+fn decimal_text(text: &str) -> Result<Decimal, &'static str> {
+    // Fixed-point input only: no exponent, separators, whitespace, or rounding.
+    let digits = text.strip_prefix('-').unwrap_or(text);
+    if text.len() > 64
+        || digits.is_empty()
+        || !digits.bytes().all(|b| b.is_ascii_digit() || b == b'.')
+        || digits.matches('.').count() > 1
+        || !digits.bytes().any(|b| b.is_ascii_digit())
+    {
+        return Err("Money requires fixed-point decimal text");
+    }
+    Decimal::from_str_exact(text)
+        .map_err(|_| "Money decimal is out of range or exceeds 28 fractional digits")
+}
+
+fn exact_result(mut mantissa: i128, mut scale: u32) -> Result<Decimal, &'static str> {
+    while scale > 0 && mantissa % 10 == 0 {
+        mantissa /= 10;
+        scale -= 1;
+    }
+    Decimal::try_from_i128_with_scale(mantissa, scale)
+        .map_err(|_| "Money arithmetic overflow or precision loss")
+}
+
+fn exact_add(left: Decimal, right: Decimal, subtract: bool) -> Result<Decimal, &'static str> {
+    let scale = left.scale().max(right.scale());
+    let align = |value: Decimal| {
+        value
+            .mantissa()
+            .checked_mul(10i128.checked_pow(scale - value.scale())?)
     };
-    let money = Box::new(UbeMoney {
-        amount,
-        currency: curr,
-    });
-    Box::into_raw(money)
+    let left = align(left).ok_or("Money arithmetic overflow or precision loss")?;
+    let right = align(right).ok_or("Money arithmetic overflow or precision loss")?;
+    let result = if subtract {
+        left.checked_sub(right)
+    } else {
+        left.checked_add(right)
+    };
+    exact_result(
+        result.ok_or("Money arithmetic overflow or precision loss")?,
+        scale,
+    )
+}
+
+fn exact_multiply(left: Decimal, right: Decimal, percent: bool) -> Result<Decimal, &'static str> {
+    exact_result(
+        left.mantissa()
+            .checked_mul(right.mantissa())
+            .ok_or("Money arithmetic overflow or precision loss")?,
+        left.scale() + right.scale() + if percent { 2 } else { 0 },
+    )
+}
+
+fn exact_money(amount: Decimal, currency: *mut UbeCurrency) -> *mut UbeMoney {
+    let currency = if currency.is_null() {
+        ube_currency_create(c"PHP".as_ptr())
+    } else {
+        currency
+    };
+    Box::into_raw(Box::new(UbeMoney {
+        amount: amount.as_f64(),
+        currency,
+        exact: amount,
+    }))
+}
+
+#[no_mangle]
+pub extern "C" fn ube_money_create(amount: f64, currency: *mut UbeCurrency) -> *mut UbeMoney {
+    match decimal_text(&amount.to_string()) {
+        Ok(amount) => exact_money(amount, currency),
+        Err(message) => money_error(message),
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn ube_money_parse(amount: *const c_char, code: *const c_char) -> *mut UbeMoney {
+    if amount.is_null() || code.is_null() {
+        return money_error("Money.parse requires decimal text and a currency code");
+    }
+    let code_bytes = unsafe { CStr::from_ptr(code) }.to_bytes();
+    if code_bytes.len() != 3 || !code_bytes.iter().all(u8::is_ascii_uppercase) {
+        return money_error("Money currency codes require three uppercase ASCII letters");
+    }
+    let amount = unsafe { CStr::from_ptr(amount) }
+        .to_str()
+        .ok()
+        .and_then(|text| decimal_text(text).ok());
+    match amount {
+        Some(amount) => exact_money(amount, ube_currency_create(code)),
+        None => money_error("Money.parse requires an exact decimal within the supported range"),
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn ube_money_amount_text(ptr: *mut UbeMoney) -> *mut c_char {
+    if ptr.is_null() {
+        money_error("Money.amountText requires an instance");
+        return std::ptr::null_mut();
+    }
+    CString::new(unsafe { &*ptr }.exact.normalize().to_string())
+        .unwrap()
+        .into_raw()
+}
+
+#[no_mangle]
+pub extern "C" fn ube_money_multiply_percent_text(
+    ptr: *mut UbeMoney,
+    value: *const c_char,
+) -> *mut UbeMoney {
+    if ptr.is_null() || value.is_null() {
+        return money_error("Money.multiplyPercent requires an instance and decimal text");
+    }
+    let parsed = unsafe { CStr::from_ptr(value) }
+        .to_str()
+        .ok()
+        .and_then(|text| decimal_text(text).ok());
+    let Some(percent) = parsed else {
+        return money_error("Money.multiplyPercent requires exact decimal text");
+    };
+    match exact_multiply(unsafe { &*ptr }.exact, percent, true) {
+        Ok(amount) => exact_money(amount, unsafe { &*ptr }.currency),
+        Err(message) => money_error(message),
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn ube_money_convert_exact(
+    ptr: *mut UbeMoney,
+    code: *const c_char,
+    value: *const c_char,
+) -> *mut UbeMoney {
+    if ptr.is_null() || value.is_null() {
+        return money_error("Money.convertExact requires an instance and decimal text");
+    }
+    let parsed = unsafe { CStr::from_ptr(value) }
+        .to_str()
+        .ok()
+        .and_then(|text| decimal_text(text).ok());
+    let Some(rate) = parsed else {
+        return money_error("Money.convertExact requires exact decimal text");
+    };
+    match exact_multiply(unsafe { &*ptr }.exact, rate, false) {
+        Ok(amount) => {
+            let text = CString::new(amount.to_string()).unwrap();
+            ube_money_parse(text.as_ptr(), code)
+        }
+        Err(message) => money_error(message),
+    }
 }
 
 #[no_mangle]
@@ -131,7 +274,10 @@ pub extern "C" fn ube_money_add(m1: *mut UbeMoney, m2: *mut UbeMoney) -> *mut Ub
                 crate::exceptions::set_pending(error);
                 return std::ptr::null_mut();
             }
-            ube_money_create((*m1).amount + (*m2).amount, (*m1).currency)
+            match exact_add((*m1).exact, (*m2).exact, false) {
+                Ok(amount) => exact_money(amount, (*m1).currency),
+                Err(message) => money_error(message),
+            }
         }
     } else {
         m1
@@ -152,7 +298,10 @@ pub extern "C" fn ube_money_subtract(m1: *mut UbeMoney, m2: *mut UbeMoney) -> *m
                 crate::exceptions::set_pending(error);
                 return std::ptr::null_mut();
             }
-            ube_money_create((*m1).amount - (*m2).amount, (*m1).currency)
+            match exact_add((*m1).exact, (*m2).exact, true) {
+                Ok(amount) => exact_money(amount, (*m1).currency),
+                Err(message) => money_error(message),
+            }
         }
     } else {
         m1
@@ -166,8 +315,14 @@ pub extern "C" fn ube_money_multiply_percent(
 ) -> *mut UbeMoney {
     if !m.is_null() && !p.is_null() {
         unsafe {
-            let res_amt = (*m).amount * ((*p).value / 100.0);
-            ube_money_create(res_amt, (*m).currency)
+            let percent = match decimal_text(&(*p).value.to_string()) {
+                Ok(value) => value,
+                Err(message) => return money_error(message),
+            };
+            match exact_multiply((*m).exact, percent, true) {
+                Ok(amount) => exact_money(amount, (*m).currency),
+                Err(message) => money_error(message),
+            }
         }
     } else {
         m
@@ -182,8 +337,14 @@ pub extern "C" fn ube_exchange_convert(
 ) -> *mut UbeMoney {
     if !m.is_null() {
         unsafe {
-            let converted_amount = (*m).amount * rate;
-            ube_money_create(converted_amount, target_curr)
+            let rate = match decimal_text(&rate.to_string()) {
+                Ok(value) => value,
+                Err(message) => return money_error(message),
+            };
+            match exact_multiply((*m).exact, rate, false) {
+                Ok(amount) => exact_money(amount, target_curr),
+                Err(message) => money_error(message),
+            }
         }
     } else {
         m

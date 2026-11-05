@@ -1,80 +1,87 @@
-# Financial runtime behavior
+# Exact Money and recoverable financial errors
 
-`Money.add(other)` and `Money.subtract(other)` require identical currency codes.
-A mismatch returns no result through the native ABI and sets a pending
-`CurrencyMismatchError`. Generated code checks the exception before using the
-result, so normal catches, propagation through calls and awaited tasks, and
-`finally` cleanup apply.
+Use string inputs and outputs when exact decimal values matter:
 
 ```ube
 class Application {
     main() {
-        try {
-            final total = Money.php(10.0).add(Money.usd(5.0))
-        } catch (CurrencyMismatchError error) {
-            print(error.message())
-        } finally {
-            print('cleanup')
-        }
-        print('still running')
+        final subtotal = Money.parse('0.10', 'PHP')
+        final shipping = Money.parse('0.20', 'PHP')
+        print(subtotal.add(shipping).amountText()) // 0.3
+        print(Money.parse('100', 'PHP').multiplyPercent('12.5').amountText()) // 12.5
+        final dollars = Money.parse('3.5', 'PHP').convertExact('USD', '0.1')
+        print(dollars.amountText()) // 0.35
     }
 }
 ```
 
-The message is `Money currency mismatch: PHP vs USD` for these operands. The
-operands remain unchanged. Operations with matching currency codes return a new
-money value. Currency conversion remains an explicit operation.
-
-`CurrencyMismatchError(message)` also constructs an ordinary error object.
-`catch (Error error)` can handle it through the structural error contract. If
-uncaught at an application entry point, it follows normal unhandled-exception
-reporting and exits after cleanup. If uncaught inside a server route, the existing
-request boundary returns HTTP 500 and the server continues serving requests.
-
-## Audit status and remaining limitations
-
-| Concern | Current status |
+| API | Behavior |
 | --- | --- |
-| Currency mismatch terminates inside arithmetic | Fixed: typed pending exception, checked by generated code. Native tests cover addition, subtraction, cleanup, async propagation, and unhandled reporting. A compiled-server test covers continued service after caught and uncaught errors. |
-| Binary floating-point amounts | Still a limitation: `Money.amount`, percentage/exchange arithmetic, and the language `decimal` use `f64`. Exact decimal money is not implemented. The README's exact-arithmetic claim has been corrected. Representation, scale, overflow, rounding, and conversion rules need a coordinated API/ABI change; see the existing [roadmap](../MILESTONES.md). |
-| Collection lookup returns zero for absence | Still a limitation of the raw `ube_list_get` and `ube_map_get` exports. Generated list indexing performs bounds checks, but generated map lookup still cannot consistently distinguish a missing entry from a stored zero. A presence-aware map lookup and compiler lowering remain follow-up work. |
-| Failed array allocation retains capacity | Fixed: checked size multiplication and zero capacity whenever allocation fails. Tests cover overflow, invalid allocator layout, and normal allocation. No enormous OS allocation is needed for these tests. |
-| Automated CI evidence | No GitHub Actions workflow files are present in this checkout. Local test results do not establish remote CI health or prove that no remote runs exist. No remote CI verification or workflow publication was performed as part of this fix. |
+| `Money.parse(amountText, currencyCode)` | Exact fixed-point input; three uppercase ASCII letters for the currency code. |
+| `money.amountText()` | Exact normalized decimal output, without implied currency-specific formatting. |
+| `money.add(other)`, `money.subtract(other)` | Checked exact arithmetic, requiring matching currency codes. |
+| `money.multiplyPercent(percentText)` | Exact percentage multiplication, including division by 100. |
+| `money.convertExact(currencyCode, rateText)` | Exact multiplication by the supplied rate, with an explicit target code. |
 
-## End-to-end audit tests
+Money uses a decimal significand of up to 96 bits and up to 28 fractional digits.
+Inputs are bounded to 64 characters, accept fixed-point decimal notation, and
+reject exponents, separators, and whitespace. Arithmetic uses checked integer
+intermediates and rejects overflow or any required rounding with `MoneyError`.
+An intermediate overflow is rejected even if a more elaborate algorithm could
+represent the final result. No implicit currency scale or rounding policy is
+applied. Choose those policies at the application boundary.
 
-[The audit suite](../compiler/tests/runtime_audit_e2e.rs) covers all four runtime
-concerns. The currency, list, and precision/map programs run through the real CLI,
-compiler, LLVM generation, native linking, and execution. The test fixture pairs
-the compiler with the current runtime archive, avoiding stale installed libraries.
-Array allocation has no Ube-language binding, so that test compiles and executes
-a C consumer of the exported runtime ABI, including the returned struct layout.
+Numeric factories such as `Money.php(0.1)`, the numeric `Money(...)` constructor,
+`Percent`, and numeric exchange rates still accept `f64`. Their shortest decimal
+representation is converted into checked Money arithmetic, but information
+already lost in a floating-point expression cannot be recovered. `amount()` is
+an approximate floating-point compatibility view. Use `parse()` and
+`amountText()` throughout exact workflows. **Language `decimal` remains `f64`.**
+Compiler and runtime must be rebuilt together; Money's runtime object now carries
+its canonical decimal amount alongside the compatibility view.
 
-On Unix with `clang` and `timeout` installed:
+## Errors and process survival
+
+`add()` and `subtract()` set a pending `CurrencyMismatchError` on a mismatch.
+Invalid exact inputs, overflow, or precision loss set `MoneyError`. Generated
+code checks these errors before using the returned value. Concrete catches,
+structural `catch (Error error)`, propagation through awaited tasks, and `finally`
+cleanup use the normal exception ABI.
+
+```ube
+try {
+    Money.parse('10', 'PHP').add(Money.parse('5', 'USD'))
+} catch (CurrencyMismatchError error) {
+    print(error.message())
+} finally {
+    print('cleanup')
+}
+```
+
+Operands remain unchanged. Uncaught errors at application entry follow normal
+unhandled-exception reporting and exit after cleanup. Uncaught server-route
+errors produce HTTP 500 while the server continues serving requests.
+
+## Audit and validation status
+
+| Concern | Status |
+| --- | --- |
+| Currency mismatch terminates inside arithmetic | Fixed with typed exceptions, native execution, async propagation, cleanup, and compiled-server recovery tests. |
+| Floating-point money | Exact text API and checked internal decimal arithmetic implemented. Numeric compatibility APIs and language `decimal` remain approximate boundaries. |
+| Collection lookup ambiguity | Integer map indexing now preserves missing entries separately from stored zero. Legacy raw `ube_map_get`/`ube_list_get` exports retain their payload-only ABI; compiler map lowering performs a presence check and list indexing performs bounds checks. |
+| Failed array allocation retains capacity | Fixed with checked size multiplication and zero capacity on failure; tested through the exported C ABI. |
+| CI evidence | A [workflow](../.github/workflows/ci.yml) now runs debug, optimized native, and isolated database tests. A remote run has not yet been observed. |
+
+The [audit suite](../compiler/tests/runtime_audit_e2e.rs) compiles and executes
+real Ube programs through the CLI and current runtime archive. It also compiles C
+consumers for array and tracing-heap APIs without public Ube-language bindings.
+Both former known-failure regressions (decimal Money and missing map entries)
+are now enabled; no audit correctness tests are ignored.
 
 ```sh
 cargo test -p ube-compiler --test runtime_audit_e2e -- --test-threads=2
-```
-
-Current result: **3 passed, 2 ignored**. Passing cases cover typed currency
-recovery and cleanup, list zero values versus out-of-bounds access, allocation
-failure invariants, and successful allocations after failure. Server recovery is
-covered separately:
-
-```sh
 cargo test -p ube-compiler --test server_e2e compiled_server_survives_caught_and_uncaught_currency_mismatches
 ```
 
-The two ignored cases assert the intended behavior for exact decimal money and
-missing map entries. They are explicitly marked as known unresolved bugs; they do
-not assert that the incorrect behavior is acceptable. Run them deliberately with:
-
-```sh
-cargo test -p ube-compiler --test runtime_audit_e2e -- --ignored --test-threads=2
-```
-
-Both currently **fail**, as confirmed locally: money comparisons print `false`
-where exact arithmetic requires `true`, and a missing map lookup returns zero
-instead of selecting the `?? -1` fallback. Enable these regressions by removing
-their ignore annotations when the implementations are fixed. These results are
-local verification, not evidence of a successful remote CI run.
+See [stabilization progress](stabilization.md) for remaining release gates,
+including runtime-resource tracing and sustained service reliability.

@@ -1316,3 +1316,25 @@ fn unhandled_money_currency_mismatch_uses_normal_exception_reporting() {
         assert!(stderr.contains("PHP vs USD"), "{stderr}");
     }
 }
+
+#[test]
+fn exact_money_api_checks_receiver_arity_and_non_null_text() {
+    for (source, expected) in [
+        ("Money.parse('1')", "2 arguments"),
+        ("Money.parse(1, 'PHP')", "non-null parameter types"),
+        ("Money.parse(null, 'PHP')", "non-null parameter types"),
+        ("Money.amountText()", "an instance"),
+        ("Money.php(1.0).parse('1', 'PHP')", "a class call"),
+        ("Money.php(1.0).multiplyPercent(12)", "non-null parameter types"),
+    ] {
+        rejects(&format!("class Application {{ main() {{ {source} }} }}"), expected);
+    }
+}
+
+#[test]
+fn gc_api_requires_static_calls_and_no_arguments() {
+    for source in ["Gc()", "Gc.collect(1)", "Gc.objects(1)", "Gc.reclaimed(1)"] {
+        let errors = diagnostics(&format!("class Application {{ main() {{ {source} }} }}"));
+        assert!(!errors.is_empty(), "invalid collector call accepted: {source}");
+    }
+}

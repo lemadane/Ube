@@ -318,7 +318,7 @@ impl IrBuilder {
     fn emit(&mut self, instr: IrInstruction) {
         let check = matches!(instr, IrInstruction::CallMethod { .. } | IrInstruction::CallTrait { .. })
             || matches!(&instr, IrInstruction::CallRuntime { symbol, .. }
-                if symbol.starts_with("ube_money_") || symbol.starts_with("ube_orm_") || symbol.starts_with("ube_sql_") || symbol.starts_with("ube_jwt_") || symbol.starts_with("ube_oauth2_") || symbol.starts_with("ube_session_") || matches!(symbol.as_str(), "ube_request_session" | "ube_request_query" | "ube_request_header" | "ube_request_body" | "ube_response_redirect") || symbol.starts_with("ube_console_") || symbol.starts_with("ube_output_") || symbol.starts_with("ube_log_") || symbol.starts_with("ube_sqlite_") || symbol.starts_with("ube_file_") || symbol.starts_with("ube_directory_")
+                if symbol.starts_with("ube_exchange_") || symbol.starts_with("ube_money_") || symbol.starts_with("ube_orm_") || symbol.starts_with("ube_sql_") || symbol.starts_with("ube_jwt_") || symbol.starts_with("ube_oauth2_") || symbol.starts_with("ube_session_") || matches!(symbol.as_str(), "ube_request_session" | "ube_request_query" | "ube_request_header" | "ube_request_body" | "ube_response_redirect") || symbol.starts_with("ube_console_") || symbol.starts_with("ube_output_") || symbol.starts_with("ube_log_") || symbol.starts_with("ube_sqlite_") || symbol.starts_with("ube_file_") || symbol.starts_with("ube_directory_")
                     || symbol.starts_with("ube_stream_") || symbol.starts_with("ube_server_"));
         self.current_instructions.push(instr);
         if check {
@@ -786,7 +786,7 @@ impl IrBuilder {
 
     pub fn build_program(&mut self, program: &Program) -> IrProgram {
         let mut normalized = program.clone();
-        for name in ["CurrencyMismatchError", "SQLError", "SQLiteError", "GenericError", "OutOfBoundsError", "FileError", "FileNotFoundError", "PermissionError", "AlreadyExistsError", "InvalidPathError", "DiskFullError", "LocationPermissionError", "LocationUnavailableError", "JsonError", "JsonParseError", "MissingFieldError", "InvalidTypeError", "XmlError", "XmlParseError"] {
+        for name in ["MoneyError", "CurrencyMismatchError", "SQLError", "SQLiteError", "GenericError", "OutOfBoundsError", "FileError", "FileNotFoundError", "PermissionError", "AlreadyExistsError", "InvalidPathError", "DiskFullError", "LocationPermissionError", "LocationUnavailableError", "JsonError", "JsonParseError", "MissingFieldError", "InvalidTypeError", "XmlError", "XmlParseError"] {
             if !normalized.items.iter().any(|i| matches!(i, Item::Class(c) if c.name == name)) {
                 normalized.items.push(Item::Class(ClassDecl { name: name.into(), primary_params: vec![ConstructorParam {
                     name: "message".into(), type_spec: TypeSpec::String, is_var: false,
@@ -794,9 +794,28 @@ impl IrBuilder {
                 }], cases: vec![], methods: vec![], span: Default::default() }));
             }
         }
-        let program = &normalized;
         let mut checker = crate::semantics::TypeChecker::new();
-        checker.check_program(program);
+        checker.check_program(&normalized);
+        // Materialize defaults only on classes that satisfy the complete trait.
+        // Specialized calls then refer to real concrete implementations.
+        let declared_traits = normalized.items.iter().filter_map(|item| {
+            if let Item::Trait(decl) = item { Some(decl.clone()) } else { None }
+        }).collect::<Vec<_>>();
+        for item in &mut normalized.items {
+            if let Item::Class(class) = item {
+                for contract in &declared_traits {
+                    if checker.satisfies_trait(&class.name, &contract.name) {
+                        for method in &contract.methods {
+                            if !method.body.is_empty() && !class.methods.iter().any(|own| own.name == method.name)
+                                && !class.primary_params.iter().any(|field| field.name == method.name) {
+                                class.methods.push(method.clone());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        let program = &normalized;
         self.trait_members.clear();
         self.trait_signatures.clear();
         let mut traits = vec!["Error".to_string()];
@@ -885,10 +904,12 @@ impl IrBuilder {
                         let has_trait_param = method
                             .params
                             .iter()
-                            .any(|p| matches!(&p.type_spec, TypeSpec::Class(name) if canonical_builtin_class_name(name).is_none() || self.trait_members.contains_key(name)));
+                            .any(|p| matches!(&p.type_spec, TypeSpec::Class(name) if self.trait_members.contains_key(name)));
                         if has_trait_param {
                             for target_cls in &concrete_classes {
-                                if target_cls.name != cls.name {
+                                if method.params.iter().filter_map(|p| match &p.type_spec {
+                                    TypeSpec::Class(name) => self.trait_members.get(name), _ => None
+                                }).all(|members| members.contains(&target_cls.name)) {
                                     let spec_name = format!("{}_{}", method.name, target_cls.name);
                                     self.method_return_types
                                         .insert((cls.name.clone(), spec_name), ret_ty.clone());
@@ -997,15 +1018,17 @@ impl IrBuilder {
             let has_trait_param = method
                 .params
                 .iter()
-                .any(|p| matches!(&p.type_spec, TypeSpec::Class(name) if canonical_builtin_class_name(name).is_none() || self.trait_members.contains_key(name)));
+                .any(|p| matches!(&p.type_spec, TypeSpec::Class(name) if self.trait_members.contains_key(name)));
             if has_trait_param {
                 // Monomorphize method for each concrete class
                 for target_cls in concrete_classes {
-                    if target_cls.name != cls.name {
+                    if method.params.iter().filter_map(|p| match &p.type_spec {
+                        TypeSpec::Class(name) => self.trait_members.get(name), _ => None
+                    }).all(|members| members.contains(&target_cls.name)) {
                         let mut specialized_method = method.clone();
                         specialized_method.name = format!("{}_{}", method.name, target_cls.name);
                         for p in &mut specialized_method.params {
-                            if matches!(&p.type_spec, TypeSpec::Class(name) if canonical_builtin_class_name(name).is_none() || self.trait_members.contains_key(name)) {
+                            if matches!(&p.type_spec, TypeSpec::Class(name) if self.trait_members.contains_key(name)) {
                                 p.type_spec = TypeSpec::Class(target_cls.name.clone());
                             }
                         }
@@ -2005,8 +2028,17 @@ impl IrBuilder {
 
                         if self.class_decls.get(&class_name).is_some_and(|c| c.methods.iter().any(|m| m.name == *member) || c.primary_params.iter().any(|p| p.name == *member)) {
                             let mut method_name = member.clone();
-                            if member == "render" {
-                                if let Some(IrOperand::Register(_, Type::Class { name })) = arg_ops.first() { method_name = format!("{}_{}", member, name); }
+                            let specialize_first = self.class_decls.get(&class_name)
+                                .and_then(|class| class.methods.iter().find(|method| method.name == *member))
+                                .is_some_and(|method| {
+                                    matches!(method.params.first().map(|p| &p.type_spec), Some(TypeSpec::Class(name)) if self.trait_members.contains_key(name))
+                                        && method.params.iter().filter(|p| matches!(&p.type_spec, TypeSpec::Class(name) if self.trait_members.contains_key(name))).count() == 1
+                                });
+                            if specialize_first {
+                                if let Some(IrOperand::Register(_, Type::Class { name })) = arg_ops.first() {
+                                    let specialized = format!("{}_{}", member, name);
+                                    if self.method_return_types.contains_key(&(class_name.clone(), specialized.clone())) { method_name = specialized; }
+                                }
                             }
                             let ret_ty = self.method_return_types.get(&(class_name.clone(), method_name.clone())).cloned().unwrap_or(Type::Void);
                             let dest = (ret_ty != Type::Void).then(|| self.fresh_reg());
@@ -2142,6 +2174,60 @@ impl IrBuilder {
                             } else {
                                 call_args.extend(arg_ops);
                             }
+                            self.emit(IrInstruction::CallRuntime {
+                                dest: Some(dest),
+                                symbol: symbol.into(),
+                                args: call_args,
+                                ret_ty: ret_ty.clone(),
+                            });
+                            return IrOperand::Register(dest, ret_ty);
+                        }
+
+                        if class_name == "Gc" {
+                            let (symbol, result) = match member.as_str() {
+                                "collect" => ("ube_gc_try_collect", Type::Bool),
+                                "objects" => ("ube_gc_object_count", Type::Long),
+                                _ => ("ube_gc_reclaimed_count", Type::Long),
+                            };
+                            return self.runtime(symbol, Vec::new(), result);
+                        }
+                        if class_name == "Money"
+                        {
+                            let symbol = match member.as_str() {
+                                "php" => "ube_money_php",
+                                "usd" => "ube_money_usd",
+                                "eur" => "ube_money_eur",
+                                "jpy" => "ube_money_jpy",
+                                "gbp" => "ube_money_gbp",
+                                "amount" => "ube_money_amount",
+                                "amountText" => "ube_money_amount_text",
+                                "parse" => "ube_money_parse",
+                                "multiplyPercent" => "ube_money_multiply_percent_text",
+                                "convertExact" => "ube_money_convert_exact",
+                                "currency" => "ube_money_currency",
+                                "add" => "ube_money_add",
+                                "subtract" => "ube_money_subtract",
+                                "multiply" => "ube_money_multiply_percent",
+                                _ => "ube_money_create",
+                            };
+                            let dest = self.fresh_reg();
+                            let mut call_args = Vec::new();
+                            if ["amount", "amountText", "currency", "add", "subtract", "multiply", "multiplyPercent", "convertExact"]
+                                .contains(&member.as_str())
+                            {
+                                call_args.push(obj_op);
+                            }
+                            call_args.extend(arg_ops);
+                            let ret_ty = match member.as_str() {
+                                "amount" => Type::Decimal,
+                                "amountText" => Type::String,
+                                "currency" => Type::Class {
+                                    name: "Currency".into(),
+                                },
+                                _ => Type::Class {
+                                    name: "Money".into(),
+                                },
+                            };
                             self.emit(IrInstruction::CallRuntime {
                                 dest: Some(dest),
                                 symbol: symbol.into(),
@@ -2319,52 +2405,6 @@ impl IrBuilder {
                                 Type::Class {
                                     name: "Currency".into(),
                                 }
-                            };
-                            self.emit(IrInstruction::CallRuntime {
-                                dest: Some(dest),
-                                symbol: symbol.into(),
-                                args: call_args,
-                                ret_ty: ret_ty.clone(),
-                            });
-                            return IrOperand::Register(dest, ret_ty);
-                        }
-
-                        if class_name == "Money"
-                            || [
-                                "php", "usd", "eur", "jpy", "gbp", "amount", "currency", "add",
-                                "subtract", "multiply",
-                            ]
-                            .contains(&member.as_str())
-                        {
-                            let symbol = match member.as_str() {
-                                "php" => "ube_money_php",
-                                "usd" => "ube_money_usd",
-                                "eur" => "ube_money_eur",
-                                "jpy" => "ube_money_jpy",
-                                "gbp" => "ube_money_gbp",
-                                "amount" => "ube_money_amount",
-                                "currency" => "ube_money_currency",
-                                "add" => "ube_money_add",
-                                "subtract" => "ube_money_subtract",
-                                "multiply" => "ube_money_multiply_percent",
-                                _ => "ube_money_create",
-                            };
-                            let dest = self.fresh_reg();
-                            let mut call_args = Vec::new();
-                            if ["amount", "currency", "add", "subtract", "multiply"]
-                                .contains(&member.as_str())
-                            {
-                                call_args.push(obj_op);
-                            }
-                            call_args.extend(arg_ops);
-                            let ret_ty = match member.as_str() {
-                                "amount" => Type::Decimal,
-                                "currency" => Type::Class {
-                                    name: "Currency".into(),
-                                },
-                                _ => Type::Class {
-                                    name: "Money".into(),
-                                },
                             };
                             self.emit(IrInstruction::CallRuntime {
                                 dest: Some(dest),
@@ -3313,6 +3353,7 @@ impl IrBuilder {
                             "Cookie" => "ube_cookie_create",
                             "LocationPermissionError"
                             | "LocationUnavailableError"
+                            | "MoneyError"
                             | "CurrencyMismatchError"
                             | "FileError"
                             | "FileNotFoundError"
@@ -3618,14 +3659,29 @@ impl IrBuilder {
                 let index_op = self.build_expr(index);
                 if let Type::Class { ref name } = target_op.get_type() {
                     if name == "Map" {
-                        let dest = self.fresh_reg();
-                        self.emit(IrInstruction::CallRuntime {
-                            dest: Some(dest),
-                            symbol: "ube_map_get".into(),
-                            args: vec![target_op, index_op],
-                            ret_ty: Type::Int,
-                        });
-                        return IrOperand::Register(dest, Type::Int);
+                        let ty = Type::Nullable(Box::new(Type::Int));
+                        let slot = self.fresh_reg();
+                        self.emit(IrInstruction::Alloca { dest: slot, ty: ty.clone() });
+                        let present = self.runtime("ube_map_contains_key", vec![target_op.clone(), index_op.clone()], Type::Bool);
+                        let found = self.fresh_block();
+                        let absent = self.fresh_block();
+                        let merge = self.fresh_block();
+                        self.emit(IrInstruction::Branch { cond: present, then_block: found, else_block: absent });
+                        self.end_block();
+                        self.current_block_id = Some(found);
+                        let value = self.runtime("ube_map_get", vec![target_op, index_op], Type::Int);
+                        let value = self.cast(value, ty.clone());
+                        self.emit(IrInstruction::Store { val: value, ptr: slot });
+                        self.emit(IrInstruction::Jump { target: merge });
+                        self.end_block();
+                        self.current_block_id = Some(absent);
+                        self.emit(IrInstruction::Store { val: IrOperand::NullOf(ty.clone()), ptr: slot });
+                        self.emit(IrInstruction::Jump { target: merge });
+                        self.end_block();
+                        self.current_block_id = Some(merge);
+                        let result = self.fresh_reg();
+                        self.emit(IrInstruction::Load { dest: result, ptr: slot, ty: ty.clone() });
+                        return IrOperand::Register(result, ty);
                     }
                 }
                 let len_reg = self.fresh_reg();

@@ -23,6 +23,13 @@ fn print_usage() {
 fn configure_runtime_linkage(cmd: &mut Command) {
     if let Ok(executable) = env::current_exe() {
         if let Some(executable_dir) = executable.parent() {
+            // Cargo updates dependency archives in deps even when an older
+            // standalone runtime build remains beside the compiler binary.
+            // Prefer the paired development archive over that stale copy.
+            let dependencies = executable_dir.join("deps");
+            if dependencies.join("libube_runtime.a").exists() || dependencies.join("ube_runtime.lib").exists() {
+                cmd.arg("-L").arg(dependencies);
+            }
             if executable_dir.join("libube_runtime.a").exists()
                 || executable_dir.join("ube_runtime.lib").exists()
             {

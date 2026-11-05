@@ -35,6 +35,6 @@ pub extern "C" fn ube_runtime_cleanup() {
     auth::cleanup();
     exceptions::cleanup();
     memory::cleanup();
-    // Perform final garbage collection sweep on exit
+    // The explicit tracing heap is empty after cleanup.
     gc::ube_gc_collect();
 }

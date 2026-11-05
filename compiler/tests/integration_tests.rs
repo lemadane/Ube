@@ -247,7 +247,24 @@ fn test_e2e_trait_polymorphism() {
     assert!(llvm_ir.contains("define void @App_render_Invoice(%App*"));
     assert!(llvm_ir.contains("call void @User_printDetails(%User*"));
     assert!(llvm_ir.contains("call void @Invoice_printDetails(%Invoice*"));
-    assert!(!llvm_ir.contains("void %"));
+    // Indirect calls returning void are legal LLVM, including generated trait
+    // dispatch. Verify and execute this program instead of banning that syntax.
+    let directory = tempfile::tempdir().unwrap();
+    let source = directory.path().join("traits.ll");
+    std::fs::write(&source, &llvm_ir).unwrap();
+    let runtime = std::env::current_exe().unwrap().parent().unwrap().join("libube_runtime.a");
+    for optimization in ["-O0", "-O2"] {
+        let binary = directory.path().join(format!("traits{optimization}"));
+        let compiled = std::process::Command::new("clang")
+            .args(["-Wno-override-module", optimization])
+            .arg(&source).arg(&runtime).args(["-ldl", "-lpthread", "-lm"])
+            .arg("-o").arg(&binary).output().unwrap();
+        assert!(compiled.status.success(), "{}", String::from_utf8_lossy(&compiled.stderr));
+        let output = std::process::Command::new("timeout").arg("15s").arg(&binary).output().unwrap();
+        assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+        assert_eq!(String::from_utf8_lossy(&output.stdout),
+            "=== PRINTABLE ITEM ===\nUser #1000: Lem\n=== PRINTABLE ITEM ===\nInvoice #5001: $199.99\n");
+    }
 }
 
 #[test]
@@ -451,7 +468,7 @@ fn test_e2e_go_style_zero_values() {
     let mut emitter = TextualLlvmEmitter::new();
     let llvm_ir = emitter.emit_program(&ir_program);
 
-    assert!(llvm_ir.contains("call i8* @ube_alloc"));
+    assert!(llvm_ir.contains("call { i8*, i64 } @ube_gc_allocate"));
     assert!(llvm_ir.contains("store i32 18"));
     assert!(llvm_ir.contains("store i32 35"));
 }

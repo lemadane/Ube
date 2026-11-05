@@ -143,3 +143,7 @@ pub fn cleanup() {
     records().lock().unwrap().clear();
     objects().lock().unwrap().clear();
 }
+
+// Type metadata is weak: reclaiming an ordinary generated object must not leave
+// a stale class registration for a subsequently reused address.
+pub(crate) fn forget_object(pointer: usize) { objects().lock().unwrap().remove(&pointer); }

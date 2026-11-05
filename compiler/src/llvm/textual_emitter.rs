@@ -44,6 +44,7 @@ impl TextualLlvmEmitter {
         self.output.push_str("target datalayout = \"e-m:e-p270:32:32-p271:32:32-p272:64:64-i64:64-f80:128-n8:16:32:64-S128\"\n\n");
 
         self.output.push_str("declare void @ube_type_method(i8*, i8*, i8*)\ndeclare i1 @ube_object_satisfies(i8*, i8*)\ndeclare i8* @ube_object_method(i8*, i8*)\ndeclare void @ube_object_register(i8*, i8*)\ndeclare i1 @ube_object_is(i8*, i8*)\ndeclare i8* @ube_exception_create(i8*, i8*, i8*, i8*)\ndeclare i8* @ube_exception_object(i8*)\ndeclare i8* @ube_exception_take()\ndeclare void @ube_exception_set(i8*)\ndeclare void @ube_exception_suppress(i8*, i8*)\ndeclare i8* @ube_exception_poll_cancel()\ndeclare void @ube_exception_fail_unhandled()\n");
+        self.output.push_str("declare { i8*, i64 } @ube_gc_allocate(i64, i64, i64*, i64)\ndeclare void @ube_gc_frame_enter()\ndeclare void @ube_gc_frame_pin(i64, i8*)\ndeclare void @ube_gc_frame_leave(i8*)\ndeclare void @ube_gc_escape(i8*)\ndeclare i1 @ube_gc_root_remove(i64)\ndeclare void @ube_gc_store_reference(i8*, i64, i8*)\ndeclare i8* @ube_gc_load_reference(i8*, i64, i64)\ndeclare i1 @ube_gc_try_collect()\ndeclare i64 @ube_gc_object_count()\ndeclare i64 @ube_gc_reclaimed_count()\n");
         // External runtime declarations
         self.output.push_str("declare void @ube_runtime_init()\n");
         self.output
@@ -74,6 +75,7 @@ impl TextualLlvmEmitter {
         self.output
             .push_str("declare void @ube_map_put(i8*, i64, i64)\n");
         self.output.push_str("declare i64 @ube_map_get(i8*, i64)\n");
+        self.output.push_str("declare i1 @ube_map_contains_key(i8*, i64)\n");
         self.output.push_str("declare i64 @ube_map_len(i8*)\n");
         self.output.push_str("declare i8* @ube_task_create(i64)\n");
         self.output
@@ -179,6 +181,10 @@ impl TextualLlvmEmitter {
             .push_str("declare i8* @ube_currency_code(i8*)\n");
         self.output
             .push_str("declare i8* @ube_money_create(double, i8*)\n");
+        self.output.push_str("declare i8* @ube_money_parse(i8*, i8*)\n");
+        self.output.push_str("declare i8* @ube_money_amount_text(i8*)\n");
+        self.output.push_str("declare i8* @ube_money_multiply_percent_text(i8*, i8*)\n");
+        self.output.push_str("declare i8* @ube_money_convert_exact(i8*, i8*, i8*)\n");
         self.output.push_str("declare i8* @ube_money_php(double)\n");
         self.output.push_str("declare i8* @ube_money_usd(double)\n");
         self.output.push_str("declare i8* @ube_money_eur(double)\n");
@@ -506,9 +512,17 @@ impl TextualLlvmEmitter {
                 .push_str(&format!("%{} = type {{ {} }}\n", cls.name, field_types));
         }
 
+        for class in &ir_program.classes {
+            let edges = class.fields.iter().enumerate().filter_map(|(index, (_, ty))| {
+                let field = self.type_to_llvm(ty);
+                field.ends_with('*').then(|| format!("i64 ptrtoint ({}* getelementptr (%{}, %{}* null, i32 0, i32 {}) to i64)", field, class.name, class.name, index))
+            }).collect::<Vec<_>>();
+            self.output.push_str(&format!("@ube_gc_layout_{} = private constant [{} x i64] [{}]\n", class.name, edges.len(), edges.join(", ")));
+        }
         let builtins = vec![
             ("GenericError", "i8*"),
             ("CurrencyMismatchError", "i8*"),
+            ("MoneyError", "i8*"),
             ("OutOfBoundsError", "i8*"),
             ("Error", "i8*"),
             ("Task", "i8*"),
@@ -710,13 +724,69 @@ impl TextualLlvmEmitter {
         };
 
         if func.blocks.is_empty() { return format!("declare {} @{}({})\n", ret_ty_str, fn_name, all_params); }
-        let linkage = if ["CurrencyMismatchError", "SQLError", "SQLiteError", "GenericError", "OutOfBoundsError", "FileError", "FileNotFoundError", "PermissionError", "AlreadyExistsError", "InvalidPathError", "DiskFullError", "LocationPermissionError", "LocationUnavailableError", "JsonError", "JsonParseError", "MissingFieldError", "InvalidTypeError", "XmlError", "XmlParseError"].contains(&func.class_name.as_str()) { "linkonce_odr " } else { "" };
+        let linkage = if ["MoneyError", "CurrencyMismatchError", "SQLError", "SQLiteError", "GenericError", "OutOfBoundsError", "FileError", "FileNotFoundError", "PermissionError", "AlreadyExistsError", "InvalidPathError", "DiskFullError", "LocationPermissionError", "LocationUnavailableError", "JsonError", "JsonParseError", "MissingFieldError", "InvalidTypeError", "XmlError", "XmlParseError"].contains(&func.class_name.as_str()) { "linkonce_odr " } else { "" };
         buf.push_str(&format!("define {}{} @{}({}) {{\n", linkage, ret_ty_str, fn_name, all_params));
 
-        for block in &func.blocks {
+        for (index, block) in func.blocks.iter().enumerate() {
             buf.push_str(&format!("{}:\n", block.id));
-            for instr in &block.instructions {
-                buf.push_str(&format!("  {}\n", self.emit_instruction(instr)));
+            if index == 0 {
+                // Stack slots have function lifetime. Allocate them once, not
+                // on every loop iteration. Named slots preserve numeric SSA order.
+                for allocation in func.blocks.iter().flat_map(|block| &block.instructions) {
+                    if matches!(allocation, IrInstruction::Alloca { .. }) {
+                        buf.push_str(&format!("  {}\n", self.emit_instruction(allocation)));
+                    }
+                }
+                buf.push_str("  call void @ube_gc_frame_enter()\n");
+                for (register, ty) in std::iter::once(&func.receiver).chain(func.params.iter()) {
+                    let pin = self.gc_pin(&format!("%{}", register.0), ty, register.0 * 2);
+                    if !pin.is_empty() { buf.push_str(&format!("  {}\n", pin)); }
+                }
+            }
+            for instruction in &block.instructions {
+                if matches!(instruction, IrInstruction::Alloca { .. }) { continue; }
+                let escaping = match instruction {
+                    IrInstruction::CallRuntime { symbol, args, .. } if !matches!(symbol.as_str(), "ube_object_register" | "ube_object_is" | "ube_object_satisfies" | "ube_object_method") && !symbol.starts_with("ube_gc_") => args.clone(),
+                    IrInstruction::SpawnAsyncCall { receiver, args, .. } => std::iter::once(receiver.clone()).chain(args.iter().cloned()).collect(),
+                    IrInstruction::SpawnAsyncExpression { captures, .. } => captures.clone(),
+                    IrInstruction::ServerRoute { context, .. } => vec![context.clone()],
+                    _ => Vec::new(),
+                };
+                for value in escaping {
+                    let escape = self.gc_escape(&value);
+                    if !escape.is_empty() { buf.push_str(&format!("  {}\n", escape)); }
+                }
+                if let IrInstruction::Return { val } = instruction {
+                    let returned = val.as_ref().filter(|value| self.type_to_llvm(&value.get_type()).ends_with('*'));
+                    let pointer = if let Some(value) = returned { { let operand = self.emit_operand(value); self.gc_pointer(&operand, &value.get_type()) } } else { (Vec::new(), "null".into()) };
+                    for cast in pointer.0 { buf.push_str(&format!("  {}\n", cast)); }
+                    buf.push_str(&format!("  call void @ube_gc_frame_leave(i8* {})\n", pointer.1));
+                }
+                buf.push_str(&format!("  {}\n", self.emit_instruction(instruction)));
+                let result = match instruction {
+                    IrInstruction::Cast { dest, ty, .. } | IrInstruction::Load { dest, ty, .. } => Some((*dest, ty.clone())),
+                    IrInstruction::GetField { dest, field_ty, .. } => Some((*dest, field_ty.clone())),
+                    IrInstruction::CallMethod { dest: Some(dest), ret_ty, .. } | IrInstruction::CallRuntime { dest: Some(dest), ret_ty, .. } | IrInstruction::CallTrait { dest: Some(dest), ret_ty, .. } => Some((*dest, ret_ty.clone())),
+                    IrInstruction::InstantiateClass { dest, .. } => Some((*dest, Type::Bytes)),
+                    IrInstruction::AwaitTask { dest, result_ty, .. } => Some((*dest, result_ty.clone())),
+                    _ => None,
+                };
+                if let Some((register, ty)) = result {
+                    let pin = self.gc_pin(&format!("%{}", register.0), &ty, register.0 * 2);
+                    if !pin.is_empty() { buf.push_str(&format!("  {}\n", pin)); }
+                    if matches!(instruction, IrInstruction::InstantiateClass { .. }) {
+                        buf.push_str(&format!("  %gc_initial_drop_{} = call i1 @ube_gc_root_remove(i64 %gc_handle_{})\n", register.0, register.0));
+                    }
+                }
+                if let IrInstruction::Store { val, ptr } = instruction {
+                    let ty = self.slots.get(ptr).cloned().unwrap_or_else(|| val.get_type());
+                    if self.type_to_llvm(&ty).ends_with('*') {
+                        let (casts, value) = self.coerce(val, &ty);
+                        for cast in casts { buf.push_str(&format!("  {}\n", cast)); }
+                        let pin = self.gc_pin(&value, &ty, ptr.0 * 2 + 1);
+                        buf.push_str(&format!("  {}\n", pin));
+                    }
+                }
             }
         }
 
@@ -743,12 +813,12 @@ impl TextualLlvmEmitter {
                 if ty_str == "void" {
                     ty_str = "i8*".to_string();
                 }
-                format!("%{} = alloca {}, align 8", dest.0, ty_str)
+                format!("%slot_{} = alloca {}, align 1", dest.0, ty_str)
             }
             IrInstruction::Load { dest, ptr, ty } => {
                 let ty_str = self.type_to_llvm(ty);
                 format!(
-                    "%{} = load {}, {}* %{}, align 8",
+                    "%{} = load {}, {}* %slot_{}, align 1",
                     dest.0, ty_str, ty_str, ptr.0
                 )
             }
@@ -756,7 +826,7 @@ impl TextualLlvmEmitter {
                 let ty = self.slots.get(ptr).cloned().unwrap_or_else(|| val.get_type());
                 let ty_str = self.type_to_llvm(&ty);
                 let (mut instructions, value) = self.coerce(val, &ty);
-                instructions.push(format!("store {} {}, {}* %{}, align 8", ty_str, value, ty_str, ptr.0));
+                instructions.push(format!("store {} {}, {}* %slot_{}, align 1", ty_str, value, ty_str, ptr.0));
                 instructions.join("\n  ")
             }
             IrInstruction::GetField {
@@ -770,11 +840,20 @@ impl TextualLlvmEmitter {
                 let field_ty_str = self.type_to_llvm(field_ty);
                 let gep_reg = format!("gep_{}_{}", ptr.0, self.string_counter);
                 self.string_counter += 1;
-                format!(
-                    "%{} = getelementptr inbounds {}, {}* %{}, i32 0, i32 {}\n  %{} = load {}, {}* %{}, align 8",
-                    gep_reg, class_type, class_type, ptr.0, field_index,
-                    dest.0, field_ty_str, field_ty_str, gep_reg
-                )
+                if field_ty_str.ends_with('*') {
+                    let mut instructions = vec![format!("%{} = getelementptr inbounds {}, {}* %{}, i32 0, i32 {}", gep_reg, class_type, class_type, ptr.0, field_index)];
+                    let (casts, object) = self.gc_pointer(&format!("%{}", ptr.0), &Type::Class { name: class_name.clone() });
+                    instructions.extend(casts);
+                    let number = self.string_counter; self.string_counter += 1;
+                    instructions.push(format!("%gc_load_offset_{} = ptrtoint {}* %{} to i64", number, field_ty_str, gep_reg));
+                    instructions.push(format!("%gc_load_base_{} = ptrtoint i8* {} to i64", number, object));
+                    instructions.push(format!("%gc_load_index_{} = sub i64 %gc_load_offset_{}, %gc_load_base_{}", number, number, number));
+                    instructions.push(format!("%gc_loaded_{} = call i8* @ube_gc_load_reference(i8* {}, i64 %gc_load_index_{}, i64 {})", number, object, number, dest.0 * 2));
+                    instructions.push(format!("%{} = bitcast i8* %gc_loaded_{} to {}", dest.0, number, field_ty_str));
+                    instructions.join("\n  ")
+                } else {
+                    format!("%{} = getelementptr inbounds {}, {}* %{}, i32 0, i32 {}\n  %{} = load {}, {}* %{}, align 1", gep_reg, class_type, class_type, ptr.0, field_index, dest.0, field_ty_str, field_ty_str, gep_reg)
+                }
             }
             IrInstruction::StoreField {
                 ptr,
@@ -788,13 +867,21 @@ impl TextualLlvmEmitter {
                 let (casts, val_str) = self.coerce(val, &val_ty);
                 let gep_reg = format!("gep_store_{}_{}", ptr.0, self.string_counter);
                 self.string_counter += 1;
-                let store = format!(
-                    "%{} = getelementptr inbounds {}, {}* %{}, i32 0, i32 {}\n  store {} {}, {}* %{}, align 8",
-                    gep_reg, class_type, class_type, ptr.0, field_index,
-                    val_ty_str, val_str, val_ty_str, gep_reg
-                );
                 let mut instructions = casts;
-                instructions.push(store);
+                instructions.push(format!("%{} = getelementptr inbounds {}, {}* %{}, i32 0, i32 {}", gep_reg, class_type, class_type, ptr.0, field_index));
+                if val_ty_str.ends_with('*') {
+                    let (casts, object) = self.gc_pointer(&format!("%{}", ptr.0), &Type::Class { name: class_name.clone() });
+                    instructions.extend(casts);
+                    let (casts, value) = self.gc_pointer(&val_str, &val_ty);
+                    instructions.extend(casts);
+                    let number = self.string_counter; self.string_counter += 1;
+                    instructions.push(format!("%gc_offset_{} = ptrtoint {}* %{} to i64", number, val_ty_str, gep_reg));
+                    instructions.push(format!("%gc_base_{} = ptrtoint i8* {} to i64", number, object));
+                    instructions.push(format!("%gc_index_{} = sub i64 %gc_offset_{}, %gc_base_{}", number, number, number));
+                    instructions.push(format!("call void @ube_gc_store_reference(i8* {}, i64 %gc_index_{}, i8* {})", object, number, value));
+                } else {
+                    instructions.push(format!("store {} {}, {}* %{}, align 1", val_ty_str, val_str, val_ty_str, gep_reg));
+                }
                 instructions.join("\n  ")
             }
             IrInstruction::Binary {
@@ -956,10 +1043,10 @@ impl TextualLlvmEmitter {
                     "%{} = ptrtoint {}* %{} to i64",
                     sz_val, class_type, sz_ptr
                 ));
-                instrs.push(format!(
-                    "%{} = call i8* @ube_alloc(i64 %{}, i64 8)",
-                    dest.0, sz_val
-                ));
+                let edge_count = self.class_map.get(class_name).map(|class| class.fields.iter().filter(|(_, ty)| self.type_to_llvm(ty).ends_with('*')).count()).unwrap_or(0);
+                instrs.push(format!("%gc_allocation_{} = call {{ i8*, i64 }} @ube_gc_allocate(i64 %{}, i64 8, i64* getelementptr inbounds ([{} x i64], [{} x i64]* @ube_gc_layout_{}, i32 0, i32 0), i64 {})", dest.0, sz_val, edge_count, edge_count, class_name, edge_count));
+                instrs.push(format!("%{} = extractvalue {{ i8*, i64 }} %gc_allocation_{}, 0", dest.0, dest.0));
+                instrs.push(format!("%gc_handle_{} = extractvalue {{ i8*, i64 }} %gc_allocation_{}, 1", dest.0, dest.0));
                 instrs.push(format!(
                     "%{} = bitcast i8* %{} to {}*",
                     bitcast_reg, dest.0, class_type
@@ -986,7 +1073,14 @@ impl TextualLlvmEmitter {
                         gep_reg, class_type, class_type, bitcast_reg, i
                     ));
 
-                    instrs.push(format!("store {} {}, {}* %{}, align 8", field_ty_str, val_str, field_ty_str, gep_reg));
+                    if field_ty_str.ends_with('*') {
+                        let (casts, pointer) = self.gc_pointer(&val_str, &field_ty);
+                        instrs.extend(casts);
+                        instrs.push(format!("%gc_field_offset_{}_{} = ptrtoint {}* %{} to i64", dest.0, i, field_ty_str, gep_reg));
+                        instrs.push(format!("%gc_field_base_{}_{} = ptrtoint i8* %{} to i64", dest.0, i, dest.0));
+                        instrs.push(format!("%gc_field_index_{}_{} = sub i64 %gc_field_offset_{}_{}, %gc_field_base_{}_{}", dest.0, i, dest.0, i, dest.0, i));
+                        instrs.push(format!("call void @ube_gc_store_reference(i8* %{}, i64 %gc_field_index_{}_{}, i8* {})", dest.0, dest.0, i, pointer));
+                    } else { instrs.push(format!("store {} {}, {}* %{}, align 1", field_ty_str, val_str, field_ty_str, gep_reg)); }
                 }
                 let type_name = self.emit_operand(&IrOperand::ConstantString(class_name.clone()));
                 instrs.push(format!("call void @ube_object_register(i8* %{}, i8* {})", dest.0, type_name));
@@ -1303,6 +1397,28 @@ impl TextualLlvmEmitter {
                 }
             }
         }
+    }
+
+    fn gc_pointer(&mut self, value: &str, ty: &Type) -> (Vec<String>, String) {
+        let llvm = self.type_to_llvm(ty);
+        if llvm == "i8*" { return (Vec::new(), value.into()); }
+        let name = format!("gc_pointer_{}", self.string_counter); self.string_counter += 1;
+        (vec![format!("%{} = bitcast {} {} to i8*", name, llvm, value)], format!("%{}", name))
+    }
+
+    fn gc_pin(&mut self, value: &str, ty: &Type, key: usize) -> String {
+        if !self.type_to_llvm(ty).ends_with('*') { return String::new(); }
+        let (mut instructions, value) = self.gc_pointer(value, ty);
+        instructions.push(format!("call void @ube_gc_frame_pin(i64 {}, i8* {})", key, value));
+        instructions.join("\n  ")
+    }
+
+    fn gc_escape(&mut self, value: &IrOperand) -> String {
+        if !self.type_to_llvm(&value.get_type()).ends_with('*') { return String::new(); }
+        let operand = self.emit_operand(value);
+        let (mut instructions, value) = self.gc_pointer(&operand, &value.get_type());
+        instructions.push(format!("call void @ube_gc_escape(i8* {})", value));
+        instructions.join("\n  ")
     }
 
     fn coerce(&mut self, value: &IrOperand, target: &Type) -> (Vec<String>, String) {

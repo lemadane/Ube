@@ -1,0 +1,67 @@
+name: Native correctness
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: native-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  native:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: ube
+          POSTGRES_PASSWORD: ube_ci
+          POSTGRES_DB: ube_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ube -d ube_ci"
+          --health-interval 10s --health-timeout 5s --health-retries 10
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: ube_ci
+          MYSQL_USER: ube
+          MYSQL_PASSWORD: ube_ci
+          MYSQL_DATABASE: ube_ci
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd "mysqladmin ping -h127.0.0.1 -pube_ci"
+          --health-interval 10s --health-timeout 5s --health-retries 10
+    env:
+      CARGO_BUILD_JOBS: 2
+      RUST_BACKTRACE: 1
+      RUST_TEST_THREADS: 2
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Install native toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang cmake pkg-config libssl-dev
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+      - name: Check workspace
+        run: cargo check --workspace --locked
+      - name: Run complete debug suite, including native and server tests
+        run: cargo test --workspace --locked -- --test-threads=2
+      - name: Run isolated PostgreSQL and MySQL regressions
+        env:
+          UBE_TEST_POSTGRES_URL: postgres://ube:ube_ci@127.0.0.1:5432/ube_ci
+          UBE_TEST_MYSQL_URL: mysql://ube:ube_ci@127.0.0.1:3306/ube_ci
+        run: cargo test -p ube-runtime --locked -- --ignored --test-threads=1
+      - name: Verify optimized compiler and runtime audit regressions
+        run: cargo test --release -p ube-compiler --test integration_tests --test runtime_audit_e2e --locked -- --test-threads=2

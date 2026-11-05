@@ -102,6 +102,11 @@ impl TypeChecker {
             },
         );
 
+        self.classes.insert("Gc".into(), ClassInfo {
+            name: "Gc".into(), fields: HashMap::new(),
+            methods: [("collect".into(), (Vec::new(), Type::Bool)), ("objects".into(), (Vec::new(), Type::Long)), ("reclaimed".into(), (Vec::new(), Type::Long))].into_iter().collect(),
+            param_types: Vec::new(), min_constructor_args: 0, max_constructor_args: 0,
+        });
         let mut channel_methods = HashMap::new();
         channel_methods.insert(
             "send".into(),
@@ -501,6 +506,10 @@ impl TypeChecker {
             ),
         );
         money_methods.insert("amount".into(), (Vec::new(), Type::Decimal));
+        money_methods.insert("amountText".into(), (Vec::new(), Type::String));
+        money_methods.insert("parse".into(), (vec![Type::String, Type::String], Type::Class { name: "Money".into() }));
+        money_methods.insert("multiplyPercent".into(), (vec![Type::String], Type::Class { name: "Money".into() }));
+        money_methods.insert("convertExact".into(), (vec![Type::String, Type::String], Type::Class { name: "Money".into() }));
         money_methods.insert(
             "currency".into(),
             (
@@ -1221,6 +1230,7 @@ impl TypeChecker {
         );
 
         let file_errors = vec![
+            "MoneyError",
             "CurrencyMismatchError",
             "SQLError",
             "SQLiteError",
@@ -2450,6 +2460,22 @@ impl TypeChecker {
                                     }
                                     return Some(method.result);
                                 }
+                                if name == "Gc" {
+                                    if !class_receiver || !args.is_empty() { self.diagnostics.push(Diagnostic::error("Gc methods require a class call with no arguments", Some(expr.span))); }
+                                    return self.classes["Gc"].methods.get(member).map(|(_, result)| result.clone()).or_else(|| { self.diagnostics.push(Diagnostic::error("Unknown Gc method", Some(expr.span))); None });
+                                }
+                                if name == "Money" {
+                                    let static_method = matches!(member.as_str(), "php" | "usd" | "eur" | "jpy" | "gbp" | "parse");
+                                    let method = self.classes["Money"].methods.get(member).cloned();
+                                    if let Some((params, result)) = method {
+                                        if class_receiver != static_method || args.len() != params.len() || arg_types.len() != params.len() {
+                                            self.diagnostics.push(Diagnostic::error(format!("Money.{} requires {} with {} arguments", member, if static_method { "a class call" } else { "an instance" }, params.len()), Some(expr.span)));
+                                        } else if !arg_types.iter().zip(&params).all(|(actual, expected)| self.is_assignable_to(actual, expected)) {
+                                            self.diagnostics.push(Diagnostic::error("Money arguments must match their non-null parameter types", Some(expr.span)));
+                                        }
+                                        return Some(result);
+                                    }
+                                }
                                 if name == "Session" || (name == "Request" && matches!(member.as_str(), "session" | "body")) {
                                     if class_receiver {
                                         self.diagnostics.push(Diagnostic::error(format!("{}.{} requires an instance", name, member), Some(expr.span)));
@@ -2707,6 +2733,10 @@ impl TypeChecker {
                 args,
             } => {
                 let class_name = canonical_builtin_class_name(class_name).unwrap_or(class_name);
+                if class_name == "Gc" {
+                    self.diagnostics.push(Diagnostic::error("Use Gc.collect(), Gc.objects(), or Gc.reclaimed(); Gc does not create instances", Some(expr.span)));
+                    return None;
+                }
                 if class_name == "Log" || class_name == "Console" {
                     self.diagnostics.push(Diagnostic::error("Use log(value), Log.info(value), or Console.printLine(value); these built-ins do not create instances", Some(expr.span)));
                     return None;

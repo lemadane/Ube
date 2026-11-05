@@ -9,6 +9,7 @@ fn allocations() -> &'static Mutex<HashMap<usize, Layout>> {
 }
 
 pub fn cleanup() {
+    crate::gc::cleanup();
     let allocations = std::mem::take(&mut *allocations().lock().unwrap());
     for (pointer, layout) in allocations {
         unsafe { dealloc(pointer as *mut u8, layout); }
@@ -39,6 +40,11 @@ pub extern "C" fn ube_free(ptr: *mut c_void, _size: usize, _align: usize) {
     // registry establishes ownership and supplies a valid allocation layout.
     // Reject foreign, interior, and already-freed pointers without allocating
     // an error object on this allocator path.
+    if crate::gc::is_managed(ptr) { return; }
+    free_registered(ptr);
+}
+
+pub(crate) fn free_registered(ptr: *mut c_void) {
     let registered = allocations().lock().unwrap().remove(&(ptr as usize));
     if let Some(layout) = registered {
         unsafe {
@@ -90,4 +96,8 @@ mod tests {
         ube_free(std::ptr::dangling_mut::<u64>().cast(), 8, 8);
         ube_free(std::ptr::null_mut(), 0, 0);
     }
+}
+
+pub(crate) fn registered_range(pointer: *mut c_void, bytes: usize) -> bool {
+    allocations().lock().unwrap().get(&(pointer as usize)).is_some_and(|layout| bytes <= layout.size())
 }

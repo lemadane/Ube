@@ -88,6 +88,12 @@ pub extern "C" fn ube_map_put(ptr: *mut UbeMap, key: i64, val: i64) {
     }
 }
 
+// Presence is separate from the payload: zero is a valid stored value.
+#[no_mangle]
+pub extern "C" fn ube_map_contains_key(ptr: *mut UbeMap, key: i64) -> bool {
+    !ptr.is_null() && unsafe { &*ptr }.entries.contains_key(&key)
+}
+
 #[no_mangle]
 pub extern "C" fn ube_map_get(ptr: *mut UbeMap, key: i64) -> i64 {
     if !ptr.is_null() {

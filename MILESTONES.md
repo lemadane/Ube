@@ -7,11 +7,11 @@ The sequence is foundation, one working financial API, then extensions justified
 ## Current Starting Point
 
 - The compiler emits textual LLVM IR and invokes `clang` to produce native executables.
-- Classes, structural traits, control flow, collections, and explicit exception propagation exist, but native correctness still needs broader coverage. The known trait-polymorphism test failure must be resolved before a foundation release.
+- Classes, structural traits, control flow, collections, and explicit exception propagation exist, but native correctness still needs broader coverage. The trait-polymorphism regression now compiles and executes at `-O0` and `-O2`; unrelated-class specialization and default-method lowering have been corrected. This does not establish correctness for every program.
 - Domain-specific names and lowering are embedded in the compiler. Its Cargo manifest directly depends on `ube-runtime`, whose dependencies include Tokio, TLS, and QUIC libraries. Package separation is a target, not the current architecture.
-- The HTTP server implements blocking, loopback-only HTTP/1.1 with exact method/path matching. Request bodies and several advertised advanced APIs remain unfinished or placeholders.
-- `Money` amounts and the language `decimal` currently use binary floating point (`f64`). Exact monetary arithmetic is not implemented and must precede a credible financial API demonstration.
-- Memory tracking and shutdown cleanup exist; the tracing-GC entry points remain stubs. Long-lived service behavior must be measured before reliability claims.
+- The calling-thread, loopback server supports HTTP/1.x, HTTP/2, and HTTP/3 with bounded request bodies and compiled-server integration tests. Middleware, WebSockets, and other advertised advanced APIs remain incomplete.
+- `Money` now has an exact text-based API and checked decimal arithmetic. Numeric factory inputs, `.amount()`, and language `decimal` remain `f64` boundaries; use decimal strings for exact financial inputs and outputs.
+- Generated class objects now have tracing GC, method roots, pointer barriers, and automatic collection, with native and generated cycle/concurrency tests. Opaque escapes remain conservatively pinned and several runtime resources retain shutdown lifetimes. Whole-process reclamation and sustained service reliability remain release blockers.
 
 ## Phase 1 — Stabilize the Foundation
 

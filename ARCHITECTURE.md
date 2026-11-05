@@ -68,7 +68,7 @@ Ube/
 │       ├── logging.rs              # Severity filtering and Console/Log output
 │       ├── exceptions.rs           # Pending errors, structural identity & suppression
 │       ├── concurrency.rs          # Tokio tasks/channels & one-shot cancellation
-│       ├── gc.rs                   # Precise incremental GC stubs
+│       ├── gc.rs                   # Precise tracing heap, method roots, and pointer barriers
 │       └── collections.rs          # Runtime collection array/map representations
 └── standard-library/               # Core Ube standard library packages
     └── prelude.ube               # Standard library prelude definitions
@@ -214,7 +214,7 @@ cleanup; the process-wide severity threshold is independent of context.
 
 ## 5. Memory Management & Garbage Collector Architecture
 
-A precise garbage collector is a roadmap goal. Currently `ube_alloc` tracks raw allocations for explicit release or runtime-shutdown cleanup, and the GC entry points are stubs. Generated objects contain their declared fields directly; they do not currently have the proposed object header below. This is not yet a production tracing collector.
+Generated class objects use a precise mark-and-sweep heap with compiler-emitted pointer descriptors, method roots, return-root transfer, automatic collection, and serialized pointer-field barriers. Native and generated concurrent-mutator regressions exercise cycle collection and root handoff. Opaque runtime escapes are conservatively pinned; resource registries and several native object types retain explicit/shutdown lifetimes. See [the tracing heap boundary](docs/memory.md). Generated objects contain their declared fields directly and do not have the proposed object header below. Whole-process memory bounds and production service reliability are not established.
 
 ```text
   [ Ube Heap Allocator ]
