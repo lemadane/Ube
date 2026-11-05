@@ -1,0 +1,16 @@
+class Application {
+    main() {
+        final server = Server()
+        server.tls('cert.pem', 'key.pem')
+        server.enableHttp2()
+        server.enableHttp3(8443)
+        server.get('/') { request ->
+            return Response.ok('Hello over ${request.protocol()}')
+        }
+        server.get('/theme') { request ->
+            request.session().set('theme', 'dark')
+            return Response.ok('Theme saved')
+        }
+        server.start(8443)
+    }
+}

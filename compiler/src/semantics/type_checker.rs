@@ -1081,6 +1081,13 @@ impl TypeChecker {
             });
         }
 
+        for &name in crate::builtins::AUTH_CLASSES {
+            self.classes.insert(name.into(), ClassInfo {
+                name: name.into(), fields: HashMap::new(),
+                methods: crate::builtins::auth_methods(name).into_iter().map(|m| (m.name.into(), (m.params, m.result))).collect(),
+                param_types: vec![], min_constructor_args: 0, max_constructor_args: 0,
+            });
+        }
         let mut file_methods = HashMap::new();
         file_methods.insert(
             "open".into(),
@@ -1323,6 +1330,7 @@ impl TypeChecker {
         server_methods.insert("tls".into(), (vec![Type::String, Type::String], Type::Void));
         server_methods.insert("enableHttp2".into(), (Vec::new(), Type::Void));
         server_methods.insert("enableHttp3".into(), (vec![Type::Int], Type::Void));
+        server_methods.insert("http3Port".into(), (vec![], Type::Int));
 
         self.classes.insert(
             "Server".into(),
@@ -1336,7 +1344,19 @@ impl TypeChecker {
             },
         );
 
+        let session_methods = HashMap::from([
+            ("get".into(), (vec![Type::String], Type::Nullable(Box::new(Type::String)))),
+            ("set".into(), (vec![Type::String, Type::String], Type::Void)),
+            ("remove".into(), (vec![Type::String], Type::Void)),
+            ("regenerate".into(), (vec![], Type::Void)),
+            ("destroy".into(), (vec![], Type::Void)),
+        ]);
+        self.classes.insert("Session".into(), ClassInfo {
+            name: "Session".into(), fields: HashMap::new(), methods: session_methods,
+            param_types: vec![], min_constructor_args: 0, max_constructor_args: 0,
+        });
         let mut request_methods = HashMap::new();
+        request_methods.insert("session".into(), (vec![], Type::Class { name: "Session".into() }));
         request_methods.insert("path".into(), (vec![Type::String], Type::String));
         request_methods.insert("pathLong".into(), (vec![Type::String], Type::Long));
         request_methods.insert("pathInt".into(), (vec![Type::String], Type::Int));
@@ -2370,6 +2390,51 @@ impl TypeChecker {
                                         return Some(Type::String);
                                     }
                                 }
+                                if name == "Server" && ["enableHttp3", "http3Port"].contains(&member.as_str()) {
+                                    let (params, result) = self.classes[name].methods[member].clone();
+                                    if class_receiver || args.len() != params.len() {
+                                        self.diagnostics.push(Diagnostic::error(format!("Server.{} requires an instance and {} arguments", member, params.len()), Some(expr.span)));
+                                        return None;
+                                    }
+                                    if !arg_types.iter().zip(&params).all(|(actual, expected)| self.is_assignable_to(actual, expected)) {
+                                        self.diagnostics.push(Diagnostic::error("HTTP/3 port must be an int", Some(expr.span)));
+                                    }
+                                    return Some(result);
+                                }
+                                if crate::builtins::AUTH_CLASSES.contains(&name.as_str()) {
+                                    let Some(method) = crate::builtins::auth_methods(name).into_iter().find(|m| m.name == member) else {
+                                        self.diagnostics.push(Diagnostic::error(format!("Unknown {} method '{}'", name, member), Some(expr.span)));
+                                        return None;
+                                    };
+                                    if class_receiver != method.is_static {
+                                        self.diagnostics.push(Diagnostic::error("Authentication factory methods require the class; other methods require an instance", Some(expr.span)));
+                                        return None;
+                                    }
+                                    if args.len() != method.params.len() || arg_types.len() != method.params.len() {
+                                        self.diagnostics.push(Diagnostic::error(format!("{}.{} expects {} arguments", name, member, method.params.len()), Some(expr.span)));
+                                        return None;
+                                    }
+                                    if !arg_types.iter().zip(&method.params).all(|(actual, expected)| self.is_assignable_to(actual, expected)) {
+                                        self.diagnostics.push(Diagnostic::error("Invalid authentication method argument types; strings must be non-null", Some(expr.span)));
+                                    }
+                                    return Some(method.result);
+                                }
+                                if name == "Session" || (name == "Request" && member == "session") {
+                                    if class_receiver {
+                                        self.diagnostics.push(Diagnostic::error(format!("{}.{} requires an instance", name, member), Some(expr.span)));
+                                        return None;
+                                    }
+                                    let Some((params, result)) = self.classes[name].methods.get(member).cloned() else {
+                                        self.diagnostics.push(Diagnostic::error(format!("Unknown Session method '{}'", member), Some(expr.span)));
+                                        return None;
+                                    };
+                                    if args.len() != params.len() || arg_types.len() != params.len() {
+                                        self.diagnostics.push(Diagnostic::error(format!("{}.{} expects {} arguments", name, member, params.len()), Some(expr.span)));
+                                    } else if !arg_types.iter().zip(&params).all(|(actual, expected)| actual == expected) {
+                                        self.diagnostics.push(Diagnostic::error("Session keys and values must be non-null strings", Some(expr.span)));
+                                    }
+                                    return Some(result);
+                                }
                                 if name == "Log" || name == "Console" {
                                     let static_call = matches!(&object.kind, ExprKind::Identifier(n) if self.symbol_table.lookup(n).is_none() && canonical_builtin_class_name(n).is_some());
                                     if name == "Console" && ["read", "readLine"].contains(&member.as_str()) {
@@ -2613,6 +2678,14 @@ impl TypeChecker {
                 let class_name = canonical_builtin_class_name(class_name).unwrap_or(class_name);
                 if class_name == "Log" || class_name == "Console" {
                     self.diagnostics.push(Diagnostic::error("Use log(value), Log.info(value), or Console.printLine(value); these built-ins do not create instances", Some(expr.span)));
+                    return None;
+                }
+                if crate::builtins::AUTH_CLASSES.contains(&class_name) {
+                    self.diagnostics.push(Diagnostic::error("Use Jwt static methods or OAuth2.create(); authentication handles cannot be constructed", Some(expr.span)));
+                    return None;
+                }
+                if class_name == "Session" {
+                    self.diagnostics.push(Diagnostic::error("Use request.session() to access a Session; Session cannot be constructed", Some(expr.span)));
                     return None;
                 }
                 if crate::builtins::SQLITE_CLASSES.contains(&class_name) {

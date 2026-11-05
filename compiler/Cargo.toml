@@ -10,3 +10,11 @@ ube-runtime = { path = "../runtime" }
 h2 = "0.4"
 http = "1"
 tokio = { version = "1.38", features = ["net", "rt", "time"] }
+url = "2"
+quinn = "0.11"
+h3 = "0.0.8"
+h3-quinn = "0.0.10"
+bytes = "1.6"
+rcgen = "0.13"
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+tokio-rustls = "0.26"

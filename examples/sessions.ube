@@ -1,0 +1,25 @@
+class Application {
+    main() {
+        final server = Server()
+        server.enableHttp2()
+        // Enable HTTPS when serving authenticated sessions:
+        // server.tls('cert.pem', 'key.pem')
+        server.get('/') { request ->
+            final theme = request.session().get('theme') ?? 'light'
+            return Response.ok('Theme: ${theme}')
+        }
+        server.post('/theme') { request ->
+            request.session().set('theme', 'dark')
+            return Response.ok('Theme saved')
+        }
+        server.post('/rotate') { request ->
+            request.session().regenerate()
+            return Response.ok('Session ID replaced')
+        }
+        server.post('/logout') { request ->
+            request.session().destroy()
+            return Response.ok('Session deleted')
+        }
+        server.start(8080)
+    }
+}

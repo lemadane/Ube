@@ -7,6 +7,7 @@ use std::path::Path as StdPath;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 mod http;
+mod http3;
 
 use crate::collections::{ube_list_add, ube_list_create, UbeList};
 use crate::datetime::{ube_datetime_from_unix, UbeDateTime};
@@ -352,7 +353,9 @@ pub struct UbeServer {
     pub is_running: AtomicBool,
     routes: Vec<UbeServerRoute>,
     http2: bool,
+    http3: Option<u16>,
     tls: Option<std::sync::Arc<rustls::ServerConfig>>,
+    sessions: crate::sessions::Store,
 }
 
 #[derive(Clone)]
@@ -368,12 +371,17 @@ pub struct UbeRequest {
     pub method: *mut c_char,
     pub url: *mut c_char,
     protocol: &'static str,
+    sessions: crate::sessions::Store,
+    cookies: String,
+    headers: Vec<(String, String)>,
+    session: usize,
 }
 
 #[repr(C)]
 pub struct UbeResponse {
     pub status: i32,
     pub body: *mut c_char,
+    location: Option<String>,
 }
 
 #[repr(C)]
@@ -394,7 +402,9 @@ pub extern "C" fn ube_server_create() -> *mut UbeServer {
         is_running: AtomicBool::new(false),
         routes: Vec::new(),
         http2: false,
+        http3: None,
         tls: None,
+        sessions: Default::default(),
     }))
 }
 
@@ -412,6 +422,10 @@ pub extern "C" fn ube_server_start(ptr: *mut UbeServer, port: i32) {
     };
 
     let server = unsafe { &mut *ptr };
+    if server.http3.is_some() && server.tls.is_none() {
+        fail("HTTP/3 requires server.tls(certPath, keyPath) before start()");
+        return;
+    }
     let listener = match TcpListener::bind(("127.0.0.1", port)) {
         Ok(listener) => listener,
         Err(error) => {
@@ -436,6 +450,29 @@ pub extern "C" fn ube_server_start(ptr: *mut UbeServer, port: i32) {
             return;
         }
     };
+    let udp = if let Some(port) = server.http3 {
+        match std::net::UdpSocket::bind(("127.0.0.1", port)) {
+            Ok(socket) => {
+                match socket.local_addr().and_then(|address| {
+                    socket.set_nonblocking(true)?;
+                    Ok(address.port())
+                }) {
+                    Ok(port) => server.http3 = Some(port),
+                    Err(error) => {
+                        fail(format!("HTTP/3 listener configuration failed: {error}"));
+                        return;
+                    }
+                }
+                Some(socket)
+            }
+            Err(error) => {
+                fail(format!("HTTP/3 could not bind UDP port {port}: {error}"));
+                return;
+            }
+        }
+    } else {
+        None
+    };
     server.port = i32::from(bound_port);
     server.is_running.store(true, Ordering::Release);
     let routes = server.routes.clone();
@@ -446,16 +483,17 @@ pub extern "C" fn ube_server_start(ptr: *mut UbeServer, port: i32) {
     };
     eprintln!("Ube server listening at {scheme}://127.0.0.1:{bound_port}");
 
-    if let Err(error) = http::serve_listener(
-        listener,
-        &routes,
-        server.tls.clone(),
-        server.http2,
-        &server.is_running,
-    ) {
+    let tls = server.tls.clone();
+    let http2 = server.http2;
+    let sessions = server.sessions.clone();
+    // Callbacks may inspect the server and stop its atomic running flag. Do not
+    // retain an exclusive borrow of the entire server across those callbacks.
+    let running = unsafe { &(*ptr).is_running };
+    if let Err(error) = http::serve_listener(listener, &routes, tls, http2, running, sessions, udp)
+    {
         fail(format!("Ube server accept error: {error}"));
     }
-    server.is_running.store(false, Ordering::Release);
+    running.store(false, Ordering::Release);
 }
 
 #[no_mangle]
@@ -536,16 +574,99 @@ pub extern "C" fn ube_request_path_long(_ptr: *mut UbeRequest, _key: *const c_ch
     1
 }
 #[no_mangle]
-pub extern "C" fn ube_request_query(_ptr: *mut UbeRequest, _key: *const c_char) -> *mut c_char {
-    CString::new("").unwrap().into_raw()
+pub extern "C" fn ube_request_query(ptr: *mut UbeRequest, key: *const c_char) -> *mut c_char {
+    if ptr.is_null() || key.is_null() {
+        fail("Request.query requires a request and a key");
+        return std::ptr::null_mut();
+    }
+    let url = unsafe { CStr::from_ptr((*ptr).url) }.to_string_lossy();
+    let key = unsafe { CStr::from_ptr(key) }.to_string_lossy();
+    let query = url.split_once('?').map(|(_, query)| query).unwrap_or("");
+    let mut values = url::form_urlencoded::parse(query.as_bytes())
+        .filter(|(name, _)| name == &key)
+        .map(|(_, value)| value.into_owned());
+    let value = values.next().unwrap_or_default();
+    if values.next().is_some() {
+        fail("Request.query rejects duplicate parameter names");
+        return std::ptr::null_mut();
+    }
+    match CString::new(value) {
+        Ok(value) => value.into_raw(),
+        Err(_) => {
+            fail("Request.query value contains a null byte");
+            std::ptr::null_mut()
+        }
+    }
 }
 #[no_mangle]
-pub extern "C" fn ube_request_header(_ptr: *mut UbeRequest, _key: *const c_char) -> *mut c_char {
-    CString::new("Bearer token").unwrap().into_raw()
+pub extern "C" fn ube_request_header(ptr: *mut UbeRequest, key: *const c_char) -> *mut c_char {
+    if ptr.is_null() || key.is_null() {
+        fail("Request.header requires a request and a key");
+        return std::ptr::null_mut();
+    }
+    let request = unsafe { &*ptr };
+    let key = unsafe { CStr::from_ptr(key) }.to_string_lossy();
+    let mut values = request
+        .headers
+        .iter()
+        .filter(|(name, _)| name.eq_ignore_ascii_case(&key));
+    let value = values.next().map(|(_, value)| value.as_str()).unwrap_or("");
+    if values.next().is_some() {
+        fail("Request.header rejects duplicate header names");
+        return std::ptr::null_mut();
+    }
+    match CString::new(value) {
+        Ok(value) => value.into_raw(),
+        Err(_) => {
+            fail("Request.header value contains a null byte");
+            std::ptr::null_mut()
+        }
+    }
 }
 #[no_mangle]
-pub extern "C" fn ube_request_has_bearer_token(_ptr: *mut UbeRequest) -> bool {
-    true
+pub extern "C" fn ube_request_has_bearer_token(ptr: *mut UbeRequest) -> bool {
+    if ptr.is_null() {
+        return false;
+    }
+    let request = unsafe { &*ptr };
+    let mut values = request
+        .headers
+        .iter()
+        .filter(|(name, _)| name.eq_ignore_ascii_case("authorization"));
+    let Some((_, value)) = values.next() else {
+        return false;
+    };
+    values.next().is_none()
+        && value.split_once(' ').is_some_and(|(kind, token)| {
+            kind.eq_ignore_ascii_case("Bearer")
+                && !token.is_empty()
+                && token
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || b"-._~+/=".contains(&b))
+        })
+}
+
+#[no_mangle]
+pub extern "C" fn ube_response_redirect(location: *const c_char) -> *mut UbeResponse {
+    if location.is_null() {
+        fail("Redirect location must not be null");
+        return std::ptr::null_mut();
+    }
+    let location = unsafe { CStr::from_ptr(location) }
+        .to_string_lossy()
+        .into_owned();
+    let relative = location.starts_with('/') && !location.starts_with("//");
+    let absolute =
+        url::Url::parse(&location).is_ok_and(|url| matches!(url.scheme(), "http" | "https"));
+    if (!relative && !absolute) || ::http::HeaderValue::from_str(&location).is_err() {
+        fail("Redirect requires an HTTP URL or absolute path without header control characters");
+        return std::ptr::null_mut();
+    }
+    Box::into_raw(Box::new(UbeResponse {
+        status: 302,
+        body: CString::new("").unwrap().into_raw(),
+        location: Some(location),
+    }))
 }
 
 #[no_mangle]
@@ -558,7 +679,37 @@ pub extern "C" fn ube_response_create(status: i32, body_ptr: *const c_char) -> *
             .unwrap()
             .into_raw()
     };
-    Box::into_raw(Box::new(UbeResponse { status, body }))
+    Box::into_raw(Box::new(UbeResponse {
+        status,
+        body,
+        location: None,
+    }))
+}
+
+struct ServerContext<'a> {
+    routes: &'a [UbeServerRoute],
+    sessions: crate::sessions::Store,
+    secure: bool,
+    alt_svc: Option<String>,
+}
+
+#[no_mangle]
+pub extern "C" fn ube_request_session(ptr: *mut UbeRequest) -> *mut std::ffi::c_void {
+    if ptr.is_null() {
+        fail("Session requires an active request");
+        return std::ptr::null_mut();
+    }
+    let request = unsafe { &mut *ptr };
+    if request.session == 0 {
+        match crate::sessions::begin(request.sessions.clone(), &request.cookies) {
+            Ok(handle) => request.session = handle,
+            Err(error) => {
+                fail(format!("Session: {error}"));
+                return std::ptr::null_mut();
+            }
+        }
+    }
+    request.session as *mut std::ffi::c_void
 }
 
 // The route callback ABI is shared by HTTP/1.1 and HTTP/2. Keep all generated
@@ -567,22 +718,29 @@ fn dispatch_request(
     method: &str,
     url: &str,
     protocol: &'static str,
-    routes: &[UbeServerRoute],
-) -> (u16, Vec<u8>) {
+    context: &ServerContext<'_>,
+    cookies: &str,
+    headers: Vec<(String, String)>,
+) -> (u16, Vec<u8>, Option<String>, Option<String>) {
     let path = url.split('?').next().unwrap_or(url);
-    let Some(route) = routes
+    let Some(route) = context
+        .routes
         .iter()
         .find(|route| route.method == method && route.path == path)
     else {
-        return (404, b"Not Found".to_vec());
+        return (404, b"Not Found".to_vec(), None, None);
     };
     let (Ok(method_string), Ok(url_string)) = (CString::new(method), CString::new(url)) else {
-        return (400, b"Bad Request".to_vec());
+        return (400, b"Bad Request".to_vec(), None, None);
     };
     let mut request = UbeRequest {
         method: method_string.into_raw(),
         url: url_string.into_raw(),
         protocol,
+        sessions: context.sessions.clone(),
+        cookies: cookies.into(),
+        headers,
+        session: 0,
     };
     let handler: unsafe extern "C" fn(*mut std::ffi::c_void, *mut UbeRequest) -> *mut UbeResponse =
         unsafe { std::mem::transmute(route.handler) };
@@ -591,9 +749,10 @@ fn dispatch_request(
         drop(CString::from_raw(request.method));
         drop(CString::from_raw(request.url));
     }
+    let cookie = crate::sessions::finish(request.session, context.secure);
     let failed = crate::exceptions::take_pending() != 0;
     if response.is_null() {
-        return (500, b"Internal Server Error".to_vec());
+        return (500, b"Internal Server Error".to_vec(), cookie, None);
     }
     let response = unsafe { Box::from_raw(response) };
     let body = if response.body.is_null() {
@@ -603,14 +762,14 @@ fn dispatch_request(
         body.as_bytes().to_vec()
     };
     if failed {
-        return (500, b"Internal Server Error".to_vec());
+        return (500, b"Internal Server Error".to_vec(), cookie, None);
     }
     let status = if (200..600).contains(&response.status) {
         response.status as u16
     } else {
         500
     };
-    (status, body)
+    (status, body, cookie, response.location)
 }
 
 #[no_mangle]
@@ -644,11 +803,28 @@ pub extern "C" fn ube_server_enable_http2(ptr: *mut UbeServer) {
 }
 #[no_mangle]
 pub extern "C" fn ube_server_enable_http3(ptr: *mut UbeServer, port: i32) {
-    if !ptr.is_null() {
-        unsafe {
-            (*ptr).port = port;
-        }
+    if ptr.is_null() {
+        fail("HTTP/3 requires a server");
+        return;
     }
+    if unsafe { (*ptr).is_running.load(Ordering::Acquire) } {
+        fail("Configure HTTP/3 before starting the server");
+        return;
+    }
+    let Ok(port) = u16::try_from(port) else {
+        fail("HTTP/3 UDP port must be between 0 and 65535");
+        return;
+    };
+    unsafe {
+        (*ptr).http3 = Some(port);
+    }
+}
+#[no_mangle]
+pub extern "C" fn ube_server_http3_port(ptr: *mut UbeServer) -> i32 {
+    if ptr.is_null() {
+        return -1;
+    }
+    unsafe { (*ptr).http3.map(i32::from).unwrap_or(-1) }
 }
 
 #[no_mangle]
@@ -874,6 +1050,7 @@ pub extern "C" fn ube_response_stream(
     Box::into_raw(Box::new(UbeResponse {
         status,
         body: CString::new(body_desc).unwrap().into_raw(),
+        location: None,
     }))
 }
 

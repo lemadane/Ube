@@ -1,0 +1,15 @@
+class Application {
+    main() {
+        // Create a local development secret first: openssl rand -hex 32 > jwt-secret.txt
+        final key = File.read('jwt-secret.txt')
+        final expires = DateTime.now().timestamp() + 3600L
+        final payload = '{"sub":"user-123","iss":"ube-example","aud":"ube-api","exp":${expires}}'
+        final token = Jwt.sign(payload, key, 'HS256')
+        final claims = Jwt.verify(token, key, 'HS256', 'ube-example', 'ube-api')
+        try {
+            print(claims.get('sub') ?? 'missing subject')
+        } finally {
+            claims.close()
+        }
+    }
+}

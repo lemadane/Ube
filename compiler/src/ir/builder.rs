@@ -317,7 +317,7 @@ impl IrBuilder {
     fn emit(&mut self, instr: IrInstruction) {
         let check = matches!(instr, IrInstruction::CallMethod { .. } | IrInstruction::CallTrait { .. })
             || matches!(&instr, IrInstruction::CallRuntime { symbol, .. }
-                if symbol.starts_with("ube_console_") || symbol.starts_with("ube_output_") || symbol.starts_with("ube_log_") || symbol.starts_with("ube_sqlite_") || symbol.starts_with("ube_file_") || symbol.starts_with("ube_directory_")
+                if symbol.starts_with("ube_jwt_") || symbol.starts_with("ube_oauth2_") || symbol.starts_with("ube_session_") || matches!(symbol.as_str(), "ube_request_session" | "ube_request_query" | "ube_request_header" | "ube_response_redirect") || symbol.starts_with("ube_console_") || symbol.starts_with("ube_output_") || symbol.starts_with("ube_log_") || symbol.starts_with("ube_sqlite_") || symbol.starts_with("ube_file_") || symbol.starts_with("ube_directory_")
                     || symbol.starts_with("ube_stream_") || symbol.starts_with("ube_server_"));
         self.current_instructions.push(instr);
         if check {
@@ -884,7 +884,7 @@ impl IrBuilder {
                         let has_trait_param = method
                             .params
                             .iter()
-                            .any(|p| matches!(p.type_spec, TypeSpec::Class(_)));
+                            .any(|p| matches!(&p.type_spec, TypeSpec::Class(name) if canonical_builtin_class_name(name).is_none() || self.trait_members.contains_key(name)));
                         if has_trait_param {
                             for target_cls in &concrete_classes {
                                 if target_cls.name != cls.name {
@@ -996,7 +996,7 @@ impl IrBuilder {
             let has_trait_param = method
                 .params
                 .iter()
-                .any(|p| matches!(p.type_spec, TypeSpec::Class(_)));
+                .any(|p| matches!(&p.type_spec, TypeSpec::Class(name) if canonical_builtin_class_name(name).is_none() || self.trait_members.contains_key(name)));
             if has_trait_param {
                 // Monomorphize method for each concrete class
                 for target_cls in concrete_classes {
@@ -1004,7 +1004,7 @@ impl IrBuilder {
                         let mut specialized_method = method.clone();
                         specialized_method.name = format!("{}_{}", method.name, target_cls.name);
                         for p in &mut specialized_method.params {
-                            if matches!(p.type_spec, TypeSpec::Class(_)) {
+                            if matches!(&p.type_spec, TypeSpec::Class(name) if canonical_builtin_class_name(name).is_none() || self.trait_members.contains_key(name)) {
                                 p.type_spec = TypeSpec::Class(target_cls.name.clone());
                             }
                         }
@@ -1903,6 +1903,20 @@ impl IrBuilder {
                                 },
                                 _ => "Application".into(),
                             });
+                        if crate::builtins::AUTH_CLASSES.contains(&class_name.as_str()) {
+                            if let Some(method) = crate::builtins::auth_methods(&class_name).into_iter().find(|m| m.name == member) {
+                                let mut args = Vec::new();
+                                if !method.is_static { args.push(obj_op); }
+                                args.extend(arg_ops.into_iter().zip(&method.params).map(|(arg, ty)| self.cast(arg, ty.clone())));
+                                return self.runtime(method.symbol, args, method.result);
+                            }
+                        }
+                        if class_name == "Session" {
+                            let mut args = vec![obj_op];
+                            args.extend(arg_ops);
+                            let result = if member == "get" { Type::Nullable(Box::new(Type::String)) } else { Type::Void };
+                            return self.runtime(&format!("ube_session_{}", member), args, result);
+                        }
                         if class_name == "Log" || class_name == "Console" {
                             if class_name == "Console" && ["read", "readLine"].contains(&member.as_str()) {
                                 let symbol = if member == "read" { "ube_console_read" } else { "ube_console_read_line" };
@@ -2928,6 +2942,7 @@ impl IrBuilder {
                                 "tls",
                                 "enableHttp2",
                                 "enableHttp3",
+                                "http3Port",
                             ]
                             .contains(&member.as_str())
                         {
@@ -2939,12 +2954,13 @@ impl IrBuilder {
                                 "use" => "ube_server_use",
                                 "enableHttp2" => "ube_server_enable_http2",
                                 "enableHttp3" => "ube_server_enable_http3",
+                                "http3Port" => "ube_server_http3_port",
                                 _ => "ube_server_route",
                             };
                             let dest = self.fresh_reg();
                             let mut call_args = vec![obj_op];
                             call_args.extend(arg_ops);
-                            let ret_ty = if member == "port" {
+                            let ret_ty = if member == "port" || member == "http3Port" {
                                 Type::Int
                             } else {
                                 Type::Void
@@ -2967,6 +2983,9 @@ impl IrBuilder {
                             };
                         }
 
+                        if class_name == "Request" && member == "session" {
+                            return self.runtime("ube_request_session", vec![obj_op], Type::Class { name: "Session".into() });
+                        }
                         if class_name == "Request"
                             || [
                                 "path",
@@ -3029,6 +3048,9 @@ impl IrBuilder {
                             ]
                             .contains(&member.as_str())
                         {
+                            if member == "redirect" {
+                                return self.runtime("ube_response_redirect", arg_ops, Type::Class { name: "Response".into() });
+                            }
                             let status_code = match member.as_str() {
                                 "created" => 201,
                                 "notFound" => 404,

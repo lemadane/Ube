@@ -42,6 +42,6 @@ Callbacks run serially on the server thread; concurrent streams do not make
 blocking Ube handlers execute in parallel. `server.stop()` stops accepting new
 connections and allows active connections up to ten seconds to finish.
 
-Request body/header access and middleware retain their existing runtime
-limitations. This change implements the HTTP/2 server transport; it does not
-add an HTTP client, HTTP/3 transport, or WebTransport.
+Request-body parsing and middleware retain their existing runtime limitations.
+HTTP/3 uses a separate QUIC listener; see [HTTP/3 setup](http3.md). A Ube HTTP
+client API and WebTransport are not implemented.

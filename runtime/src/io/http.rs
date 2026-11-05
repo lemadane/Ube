@@ -1,5 +1,5 @@
 //! HTTP transports for the shared Ube route callback ABI.
-use super::{dispatch_request, UbeServerRoute};
+use super::{dispatch_request, ServerContext, UbeServerRoute};
 use bytes::{Buf, Bytes};
 use rustls::pki_types::{pem::PemObject, CertificateDer, PrivateKeyDer};
 use std::{
@@ -40,17 +40,41 @@ pub(super) fn serve_listener(
     tls: Option<Arc<rustls::ServerConfig>>,
     http2: bool,
     running: &AtomicBool,
+    sessions: crate::sessions::Store,
+    udp: Option<std::net::UdpSocket>,
 ) -> io::Result<()> {
     use futures_util::{stream::FuturesUnordered, StreamExt};
+    let alt_svc = udp
+        .as_ref()
+        .map(|socket| {
+            socket
+                .local_addr()
+                .map(|address| format!("h3=\":{}\"; ma=3600", address.port()))
+        })
+        .transpose()?;
+    let context = ServerContext {
+        routes,
+        sessions,
+        secure: tls.is_some(),
+        alt_svc,
+    };
     crate::net::get_runtime().block_on(async {
         let listener = tokio::net::TcpListener::from_std(listener)?;
+        let endpoint = udp.map(|socket| super::http3::endpoint(socket, tls.clone().ok_or_else(|| error("HTTP/3 requires TLS"))?)).transpose()?;
+        let mut quic_connections = FuturesUnordered::new();
         let mut connections = FuturesUnordered::new();
         let mut stopped = tokio::time::interval(Duration::from_millis(20));
         loop {
             tokio::select! {
                 accepted = listener.accept() => {
                     let (stream, _) = accepted?;
-                    connections.push(serve_connection(stream, routes, tls.clone(), http2, running));
+                    connections.push(serve_connection(stream, &context, tls.clone(), http2, running));
+                },
+                incoming = async { endpoint.as_ref().unwrap().accept().await }, if endpoint.is_some() => {
+                    if let Some(incoming) = incoming { quic_connections.push(super::http3::serve_connection(incoming, &context, running)); }
+                },
+                Some(result) = quic_connections.next(), if !quic_connections.is_empty() => {
+                    if let Err(error) = result { eprintln!("Ube HTTP/3 connection error: {error}"); }
                 },
                 Some(result) = connections.next(), if !connections.is_empty() => {
                     if let Err(error) = result { eprintln!("Ube server request error: {error}"); }
@@ -60,16 +84,19 @@ pub(super) fn serve_listener(
         }
         // Allow queued responses to finish after a handler calls server.stop().
         let _ = tokio::time::timeout(IO_TIMEOUT, async {
-            while connections.next().await.is_some() {}
-        })
-        .await;
+            tokio::join!(async { while connections.next().await.is_some() {} }, async { while quic_connections.next().await.is_some() {} });
+        }).await;
+        if let Some(endpoint) = endpoint {
+            endpoint.close(quinn::VarInt::from_u32(0x100), b"server stopped");
+            let _ = tokio::time::timeout(Duration::from_secs(1), endpoint.wait_idle()).await;
+        }
         Ok(())
     })
 }
 
 async fn serve_connection(
     stream: tokio::net::TcpStream,
-    routes: &[UbeServerRoute],
+    context: &ServerContext<'_>,
     tls: Option<Arc<rustls::ServerConfig>>,
     http2: bool,
     running: &AtomicBool,
@@ -86,9 +113,9 @@ async fn serve_connection(
             .await
             .map_err(error)??;
         if stream.get_ref().1.alpn_protocol() == Some(b"h2") {
-            serve_h2(stream, routes, running).await
+            serve_h2(stream, context, running).await
         } else {
-            tokio::time::timeout(IO_TIMEOUT, serve_h1(stream, routes))
+            tokio::time::timeout(IO_TIMEOUT, serve_h1(stream, context))
                 .await
                 .map_err(error)?
         }
@@ -97,9 +124,9 @@ async fn serve_connection(
             .await
             .map_err(error)??
     {
-        serve_h2(stream, routes, running).await
+        serve_h2(stream, context, running).await
     } else {
-        tokio::time::timeout(IO_TIMEOUT, serve_h1(stream, routes))
+        tokio::time::timeout(IO_TIMEOUT, serve_h1(stream, context))
             .await
             .map_err(error)?
     }
@@ -123,7 +150,7 @@ async fn is_h2(stream: &tokio::net::TcpStream) -> io::Result<bool> {
 
 async fn serve_h1<S: AsyncRead + AsyncWrite + Unpin>(
     stream: S,
-    routes: &[UbeServerRoute],
+    context: &ServerContext<'_>,
 ) -> io::Result<()> {
     let mut reader = BufReader::new(stream);
     let mut head = Vec::new();
@@ -135,9 +162,21 @@ async fn serve_h1<S: AsyncRead + AsyncWrite + Unpin>(
             break;
         }
     }
-    let (status, body) = if head.len() == 16 * 1024 {
-        (431, b"Request header too large".to_vec())
+    let (status, body, cookie, location) = if head.len() == 16 * 1024 {
+        (431, b"Request header too large".to_vec(), None, None)
     } else if let Ok(head) = std::str::from_utf8(&head) {
+        let headers = head
+            .lines()
+            .skip(1)
+            .filter_map(|line| line.split_once(':'))
+            .map(|(name, value)| (name.to_owned(), value.trim().to_owned()))
+            .collect::<Vec<_>>();
+        let cookies = headers
+            .iter()
+            .filter(|(name, _)| name.eq_ignore_ascii_case("cookie"))
+            .map(|(_, value)| value.as_str())
+            .collect::<Vec<_>>()
+            .join("; ");
         let mut parts = head.lines().next().unwrap_or("").split_whitespace();
         match (parts.next(), parts.next(), parts.next(), parts.next()) {
             (Some(method), Some(url), Some(version @ ("HTTP/1.0" | "HTTP/1.1")), None) => {
@@ -149,27 +188,40 @@ async fn serve_h1<S: AsyncRead + AsyncWrite + Unpin>(
                     } else {
                         "HTTP/1.1"
                     },
-                    routes,
+                    context,
+                    &cookies,
+                    headers,
                 )
             }
-            _ => (400, b"Bad Request".to_vec()),
+            _ => (400, b"Bad Request".to_vec(), None, None),
         }
     } else {
-        (400, b"Bad Request".to_vec())
+        (400, b"Bad Request".to_vec(), None, None)
     };
     let stream = reader.get_mut();
     let reason = http::StatusCode::from_u16(status)
         .ok()
         .and_then(|s| s.canonical_reason())
         .unwrap_or("Response");
-    stream.write_all(format!("HTTP/1.1 {status} {reason}\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", body.len()).as_bytes()).await?;
+    let cookie = cookie
+        .map(|value| format!("Set-Cookie: {value}\r\n"))
+        .unwrap_or_default();
+    let location = location
+        .map(|value| format!("Location: {value}\r\n"))
+        .unwrap_or_default();
+    let alt_svc = context
+        .alt_svc
+        .as_ref()
+        .map(|value| format!("Alt-Svc: {value}\r\n"))
+        .unwrap_or_default();
+    stream.write_all(format!("HTTP/1.1 {status} {reason}\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Length: {}\r\n{cookie}{location}{alt_svc}Connection: close\r\n\r\n", body.len()).as_bytes()).await?;
     stream.write_all(&body).await?;
     stream.shutdown().await
 }
 
 async fn serve_h2<S: AsyncRead + AsyncWrite + Unpin>(
     stream: S,
-    routes: &[UbeServerRoute],
+    context: &ServerContext<'_>,
     running: &AtomicBool,
 ) -> io::Result<()> {
     let mut connection = tokio::time::timeout(
@@ -191,8 +243,14 @@ async fn serve_h2<S: AsyncRead + AsyncWrite + Unpin>(
                     let method = request.method().as_str();
                     let url = request.uri().path_and_query().map(|p| p.as_str()).unwrap_or("/");
                     let head = method == "HEAD";
-                    let (status, body) = dispatch_request(method, url, "HTTP/2", routes);
-                    responses.spawn(send_h2_response(request.into_body(), respond, status, body, head));
+                    let cookies = request.headers().get_all(http::header::COOKIE).iter()
+                        .filter_map(|value| value.to_str().ok()).collect::<Vec<_>>().join("; ");
+                    let headers = request.headers().iter().map(|(name, value)| value.to_str().map(|value| (name.as_str().to_owned(), value.to_owned()))).collect::<Result<Vec<_>, _>>();
+                    let (status, body, cookie, location) = match headers {
+                        Ok(headers) => dispatch_request(method, url, "HTTP/2", context, &cookies, headers),
+                        Err(_) => (400, b"Bad Request".to_vec(), None, None),
+                    };
+                    responses.spawn(send_h2_response(request.into_body(), respond, status, body, head, cookie, location, context.alt_svc.clone()));
                 }
                 Some(Err(failure)) => return Err(error(failure)),
                 None => break,
@@ -222,6 +280,9 @@ async fn send_h2_response(
     status: u16,
     body: Vec<u8>,
     head: bool,
+    cookie: Option<String>,
+    location: Option<String>,
+    alt_svc: Option<String>,
 ) -> io::Result<()> {
     let no_body = head || status == 204 || status == 304;
     let mut response = http::Response::builder()
@@ -229,6 +290,15 @@ async fn send_h2_response(
         .header("content-type", "text/plain; charset=utf-8");
     if status != 204 {
         response = response.header("content-length", body.len());
+    }
+    if let Some(cookie) = cookie {
+        response = response.header(http::header::SET_COOKIE, cookie);
+    }
+    if let Some(location) = location {
+        response = response.header(http::header::LOCATION, location);
+    }
+    if let Some(value) = alt_svc {
+        response = response.header(http::header::ALT_SVC, value);
     }
     let response = response.body(()).map_err(error)?;
     let mut outgoing = respond
@@ -292,6 +362,7 @@ mod tests {
             let thread = thread::spawn(move || {
                 let routes = [
                     ("GET", "/protocol"),
+                    ("GET", "/session"),
                     ("GET", "/large"),
                     ("GET", "/empty"),
                     ("HEAD", "/large"),
@@ -305,7 +376,15 @@ mod tests {
                     handler: handler as *const () as usize,
                 })
                 .collect::<Vec<_>>();
-                serve_listener(listener, &routes, tls, http2, &state)
+                serve_listener(
+                    listener,
+                    &routes,
+                    tls,
+                    http2,
+                    &state,
+                    Default::default(),
+                    None,
+                )
             });
             Self {
                 address,
@@ -328,6 +407,11 @@ mod tests {
         let protocol = unsafe { CString::from_raw(ube_request_protocol(request)) };
         assert!(!ube_request_is_http3(request));
         let (status, body) = match url {
+            "/session" => {
+                let handle = crate::io::ube_request_session(request);
+                crate::sessions::ube_session_set(handle, c"theme".as_ptr(), c"dark".as_ptr());
+                (200, "session".into())
+            }
             "/large" => (200, "x".repeat(256 * 1024)),
             "/empty" => (204, String::new()),
             "/stop" => {
@@ -465,6 +549,22 @@ mod tests {
                             response(client.send_request(request, true).unwrap().0).await,
                             (200, b"HTTP/2 /protocol".to_vec())
                         );
+                        let request = http::Request::builder()
+                            .uri("https://localhost/session")
+                            .body(())
+                            .unwrap();
+                        let response = client.send_request(request, true).unwrap().0.await.unwrap();
+                        let cookie = response.headers()[http::header::SET_COOKIE]
+                            .to_str()
+                            .unwrap();
+                        assert!(cookie.contains("; Secure"));
+                        assert!(cookie.contains("HttpOnly; SameSite=Lax"));
+                        let mut body = response.into_body();
+                        while let Some(data) = body.data().await {
+                            let data = data.unwrap();
+                            body.flow_control().release_capacity(data.len()).unwrap();
+                        }
+                        drop(body);
                         drop(client);
                         driver.await.unwrap().unwrap();
                     } else {

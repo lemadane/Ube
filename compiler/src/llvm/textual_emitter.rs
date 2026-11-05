@@ -343,6 +343,14 @@ impl TextualLlvmEmitter {
                 self.output.push_str(&format!("declare {} @{}({})\n", self.type_to_llvm(&method.result), method.symbol, params.join(", ")));
             }
         }
+        for &class in crate::builtins::AUTH_CLASSES {
+            for method in crate::builtins::auth_methods(class) {
+                let mut params = Vec::new();
+                if !method.is_static { params.push(format!("%{}*", class)); }
+                params.extend(method.params.iter().map(|ty| self.type_to_llvm(ty)));
+                self.output.push_str(&format!("declare {} @{}({})\n", self.type_to_llvm(&method.result), method.symbol, params.join(", ")));
+            }
+        }
         self.output.push_str("declare i8* @ube_file_open(i8*)\n");
         self.output.push_str("declare i8* @ube_file_read(i8*)\n");
         self.output
@@ -415,6 +423,14 @@ impl TextualLlvmEmitter {
             .push_str("declare i8* @ube_request_protocol(i8*)\n");
         self.output
             .push_str("declare i1 @ube_request_is_http3(i8*)\n");
+        self.output.push_str("declare i32 @ube_server_http3_port(%Server*)\n");
+        self.output.push_str("declare %Response* @ube_response_redirect(i8*)\n");
+        self.output.push_str("declare %Session* @ube_request_session(%Request*)\n");
+        self.output.push_str("declare i8* @ube_session_get(%Session*, i8*)\n");
+        self.output.push_str("declare void @ube_session_set(%Session*, i8*, i8*)\n");
+        self.output.push_str("declare void @ube_session_remove(%Session*, i8*)\n");
+        self.output.push_str("declare void @ube_session_regenerate(%Session*)\n");
+        self.output.push_str("declare void @ube_session_destroy(%Session*)\n");
         self.output.push_str("declare i8* @ube_bytes_create(i64)\n");
         self.output.push_str("declare void @ube_bytes_free(i8*)\n");
         self.output
@@ -520,6 +536,11 @@ impl TextualLlvmEmitter {
             ("Request", "i8*, i8*"),
             ("Response", "i32, i8*"),
             ("Cookie", "i8*, i8*"),
+            ("Session", "i8*"),
+            ("Jwt", "i8*"),
+            ("JwtClaims", "i8*"),
+            ("OAuth2", "i8*"),
+            ("OAuth2Token", "i8*"),
             ("WebSocket", "i64"),
             ("Json", "i8*"),
             ("JsonObject", "i64"),

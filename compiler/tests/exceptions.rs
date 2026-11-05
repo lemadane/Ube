@@ -1013,3 +1013,130 @@ fn invalid_server_tls_configuration_is_catchable() {
         catch (GenericError err) { print('invalid TLS configuration') }
     } }"#, "invalid TLS configuration\n");
 }
+
+#[test]
+fn session_api_validates_instances_types_arity_and_construction() {
+    rejects(
+        "class Application { main() { final session = Session() } }",
+        "request.session()",
+    );
+    rejects(
+        "class Application { main() { Session.get('key') } }",
+        "requires an instance",
+    );
+    rejects(
+        "class Application { main() { Request.session() } }",
+        "requires an instance",
+    );
+    for call in [
+        "get()",
+        "get('a', 'b')",
+        "set('a')",
+        "remove()",
+        "regenerate(1)",
+        "destroy(1)",
+    ] {
+        rejects(&format!("class Application {{ main() {{ final server = Server() server.get('/') {{ request -> request.session().{call} return Response.ok('ok') }} }} }}"), "expects");
+    }
+    for call in [
+        "get(1)",
+        "set('key', null)",
+        "set('key', 42)",
+        "remove(true)",
+    ] {
+        rejects(&format!("class Application {{ main() {{ final server = Server() server.get('/') {{ request -> request.session().{call} return Response.ok('ok') }} }} }}"), "non-null strings");
+    }
+    rejects("class Application { main() { final server = Server() server.get('/') { request -> request.session(1) return Response.ok('ok') } } }", "expects 0 arguments");
+}
+
+#[test]
+fn jwt_sign_verify_claims_and_failure_paths_run_natively() {
+    runs(
+        r#"class Application { main() {
+        final secret = 'test-only-32-byte-secret-0123456789'
+        final token = Jwt.sign('{"sub":"user-123","iss":"ube-test","aud":"ube-api","exp":4102444800}', secret, 'HS256')
+        final claims = Jwt.verify(token, secret, 'HS256', 'ube-test', 'ube-api')
+        print(claims.get('sub') ?? 'missing')
+        print(claims.get('missing'))
+        claims.close()
+        try { claims.get('sub') } catch (GenericError err) { print('closed') }
+        try { Jwt.verify(token, secret, 'HS256', 'wrong', 'ube-api') }
+        catch (GenericError err) { print('wrong issuer') }
+        try { Jwt.verify(token, secret, 'HS256', 'ube-test', 'wrong') }
+        catch (GenericError err) { print('wrong audience') }
+        try { Jwt.sign('{"exp":1,"iss":"i","aud":"a"}', secret, 'HS256') }
+        catch (GenericError err) { print('expired') }
+        try { Jwt.sign('{"exp":4102444800,"iss":"i","aud":"a"}', 'weak', 'HS256') }
+        catch (GenericError err) { print('weak secret') }
+    } }"#,
+        "user-123\nnull\nclosed\nwrong issuer\nwrong audience\nexpired\nweak secret\n",
+    );
+}
+#[test]
+fn auth_builtins_validate_methods_types_and_factories() {
+    for class in ["Jwt", "JwtClaims", "OAuth2", "OAuth2Token"] {
+        rejects(
+            &format!("class Application {{ main() {{ {class}() }} }}"),
+            "cannot be constructed",
+        );
+    }
+    rejects(
+        "class Application { main() { Jwt.sign('a', 'b') } }",
+        "expects 3 arguments",
+    );
+    rejects(
+        "class Application { main() { Jwt.verify('a', 'b', 'HS256', 'issuer', null) } }",
+        "non-null",
+    );
+    rejects(
+        "class Application { main() { OAuth2.create('a','b','c','d',42) } }",
+        "argument types",
+    );
+    rejects(
+        "class Application { main() { JwtClaims.get('sub') } }",
+        "require an instance",
+    );
+    rejects(
+        "class Application { main() { OAuth2.authorize('a', 'b') } }",
+        "require an instance",
+    );
+    runs(
+        r#"class Application { main() {
+        try { OAuth2.create('http://provider.example/auth', 'https://provider.example/token', 'id', '', 'https://client.example/callback') }
+        catch (GenericError err) { print('requires HTTPS') }
+    } }"#,
+        "requires HTTPS\n",
+    );
+}
+
+#[test]
+fn http3_configuration_and_startup_errors_are_catchable() {
+    runs(
+        r#"class Application { main() {
+        final server = Server()
+        print(server.http3Port())
+        try { server.enableHttp3(-1) } catch (GenericError err) { print('invalid port') }
+        try { server.enableHttp3(65536) } catch (GenericError err) { print('invalid port') }
+        server.enableHttp3(0)
+        print(server.http3Port())
+        try { server.start(0) } catch (GenericError err) { print('TLS required') }
+    } }"#,
+        "-1\ninvalid port\ninvalid port\n0\nTLS required\n",
+    );
+    rejects(
+        "class Application { main() { Server.http3Port() } }",
+        "requires an instance",
+    );
+    rejects(
+        "class Application { main() { final server = Server() server.enableHttp3() } }",
+        "1 arguments",
+    );
+    rejects(
+        "class Application { main() { final server = Server() server.http3Port(1) } }",
+        "0 arguments",
+    );
+    rejects(
+        "class Application { main() { final server = Server() server.enableHttp3('port') } }",
+        "port must be an int",
+    );
+}

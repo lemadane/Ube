@@ -1,0 +1,46 @@
+class Application {
+    Response callback(OAuth2 client, Request request) {
+        try {
+            if (request.query('error') != '') {
+                return Response.unauthorized('Authorization was denied')
+            }
+            final session = request.session()
+            final token = client.exchange(session, request.query('code'), request.query('state'))
+            try {
+                session.regenerate()
+                session.set('accessToken', token.accessToken())
+                final refresh = token.refreshToken() ?? ''
+                if (refresh != '') {
+                    session.set('refreshToken', refresh)
+                }
+                return Response.ok('Authorization complete')
+            } finally {
+                token.close()
+            }
+        } catch (GenericError err) {
+            return Response.unauthorized('Authorization failed; start again')
+        }
+    }
+
+    main() {
+        // Replace endpoints, client ID, and scopes with your provider's values.
+        // An empty secret selects a public PKCE client. Confidential clients
+        // can load their secret from a file instead.
+        final client = OAuth2.create(
+            'https://provider.example/authorize',
+            'https://provider.example/token',
+            'your-client-id',
+            '',
+            'http://127.0.0.1:8080/callback'
+        )
+        final server = Server()
+        server.enableHttp2()
+        server.get('/authorize', request -> Response.redirect(client.authorize(request.session(), 'read')))
+        server.get('/callback', request -> this.callback(client, request))
+        try {
+            server.start(8080)
+        } finally {
+            client.close()
+        }
+    }
+}

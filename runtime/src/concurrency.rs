@@ -1139,7 +1139,7 @@ mod tests {
             block_on(Task::<i64>::race(Vec::new())),
             Err(TaskError::NoTasks)
         );
-        assert_eq!(block_on(Task::<i64>::all(Vec::new())).unwrap(), Vec::new());
+        assert_eq!(block_on(Task::<i64>::all(Vec::new())).unwrap(), Vec::<i64>::new());
 
         let panicked = spawn_task::<i64, _, _>(|_| async { panic!("test panic") });
         assert_eq!(

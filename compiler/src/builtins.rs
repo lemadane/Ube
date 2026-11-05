@@ -21,6 +21,10 @@ const BUILTIN_CLASS_NAMES: &[&str] = &[
     "Geolocation",
     "InvalidPathError",
     "InvalidTypeError",
+    "Jwt",
+    "JwtClaims",
+    "OAuth2",
+    "OAuth2Token",
     "Json",
     "JsonArray",
     "JsonError",
@@ -44,6 +48,7 @@ const BUILTIN_CLASS_NAMES: &[&str] = &[
     "Response",
     "SecureRandom",
     "Server",
+    "Session",
     "Statistics",
     "SQLite",
     "SQLiteResult",
@@ -71,14 +76,15 @@ pub fn builtin_class_case_suggestion(name: &str) -> Option<&'static str> {
         .find(|canonical| name != *canonical && name.eq_ignore_ascii_case(canonical))
 }
 
-/// Shared SQLite ABI: keep semantic checks and emitted calls in agreement.
-pub struct SQLiteMethod {
+/// Shared built-in ABI: keep semantic checks and emitted calls in agreement.
+pub struct BuiltinMethod {
     pub name: &'static str,
     pub symbol: &'static str,
     pub params: Vec<crate::types::Type>,
     pub result: crate::types::Type,
     pub is_static: bool,
 }
+pub type SQLiteMethod = BuiltinMethod;
 pub const SQLITE_CLASSES: &[&str] = &["SQLite", "SQLiteStatement", "SQLiteResult"];
 pub fn sqlite_methods(class: &str) -> Vec<SQLiteMethod> {
     use crate::types::Type;
@@ -477,4 +483,122 @@ mod capitalization_tests {
             assert!(checker.diagnostics.iter().any(|d| d.message.contains("capitalization")), "{source}: {:?}", checker.diagnostics);
         }
     }
+}
+
+/// Authentication ABI shared by semantic checks, lowering, and LLVM declarations.
+pub const AUTH_CLASSES: &[&str] = &["Jwt", "JwtClaims", "OAuth2", "OAuth2Token"];
+pub fn auth_methods(class: &str) -> Vec<BuiltinMethod> {
+    use crate::types::Type;
+    let string = Type::String;
+    let nullable = Type::Nullable(Box::new(Type::String));
+    let cls = |name: &str| Type::Class { name: name.into() };
+    let methods: Vec<(&'static str, &'static str, Vec<Type>, Type, bool)> = match class {
+        "Jwt" => vec![
+            (
+                "sign",
+                "ube_jwt_sign",
+                vec![string.clone(); 3],
+                string.clone(),
+                true,
+            ),
+            (
+                "verify",
+                "ube_jwt_verify",
+                vec![string.clone(); 5],
+                cls("JwtClaims"),
+                true,
+            ),
+        ],
+        "JwtClaims" => vec![
+            (
+                "get",
+                "ube_jwt_claims_get",
+                vec![string.clone()],
+                nullable.clone(),
+                false,
+            ),
+            ("json", "ube_jwt_claims_json", vec![], string.clone(), false),
+            ("close", "ube_jwt_claims_close", vec![], Type::Void, false),
+        ],
+        "OAuth2" => vec![
+            (
+                "create",
+                "ube_oauth2_create",
+                vec![string.clone(); 5],
+                cls("OAuth2"),
+                true,
+            ),
+            (
+                "authorize",
+                "ube_oauth2_authorize",
+                vec![cls("Session"), string.clone()],
+                string.clone(),
+                false,
+            ),
+            (
+                "exchange",
+                "ube_oauth2_exchange",
+                vec![cls("Session"), string.clone(), string.clone()],
+                cls("OAuth2Token"),
+                false,
+            ),
+            (
+                "refresh",
+                "ube_oauth2_refresh",
+                vec![string.clone()],
+                cls("OAuth2Token"),
+                false,
+            ),
+            ("close", "ube_oauth2_close", vec![], Type::Void, false),
+        ],
+        "OAuth2Token" => vec![
+            (
+                "accessToken",
+                "ube_oauth2_token_access",
+                vec![],
+                string.clone(),
+                false,
+            ),
+            (
+                "tokenType",
+                "ube_oauth2_token_type",
+                vec![],
+                string.clone(),
+                false,
+            ),
+            (
+                "refreshToken",
+                "ube_oauth2_token_refresh",
+                vec![],
+                nullable.clone(),
+                false,
+            ),
+            (
+                "expiresIn",
+                "ube_oauth2_token_expires",
+                vec![],
+                Type::Long,
+                false,
+            ),
+            (
+                "scope",
+                "ube_oauth2_token_scope",
+                vec![],
+                nullable.clone(),
+                false,
+            ),
+            ("close", "ube_oauth2_token_close", vec![], Type::Void, false),
+        ],
+        _ => vec![],
+    };
+    methods
+        .into_iter()
+        .map(|(name, symbol, params, result, is_static)| BuiltinMethod {
+            name,
+            symbol,
+            params,
+            result,
+            is_static,
+        })
+        .collect()
 }

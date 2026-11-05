@@ -12,6 +12,8 @@ pub mod memory;
 pub mod net;
 pub mod strings;
 pub mod sqlite;
+pub mod sessions;
+pub mod auth;
 
 
 #[no_mangle]
@@ -25,6 +27,8 @@ pub extern "C" fn ube_runtime_cleanup() {
     sqlite::cleanup();
     concurrency::ube_concurrency_cleanup();
     logging::ube_log_clear();
+    sessions::cleanup();
+    auth::cleanup();
     exceptions::cleanup();
     memory::cleanup();
     // Perform final garbage collection sweep on exit
