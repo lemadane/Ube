@@ -695,7 +695,7 @@ fn sqlite_native_queries_and_errors() {
 
 #[test]
 fn sqlite_example_and_handle_creation_rules() {
-    let output = native(include_str!("../../examples/sqlite.ube"));
+    let output = native(include_str!("../../examples/sqlite/Application.ube"));
     assert!(output.status.success());
     assert!(output.stdout.is_empty());
     assert_eq!(String::from_utf8_lossy(&output.stderr), "[INFO] 1\n[INFO] Ube\n");
@@ -944,7 +944,7 @@ fn log_context_argument_validation() {
 
 #[test]
 fn log_context_example_runs() {
-    let output = native(include_str!("../../examples/log_context.ube"));
+    let output = native(include_str!("../../examples/log_context/Application.ube"));
     assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
     assert_eq!(String::from_utf8_lossy(&output.stdout), "req-42\n");
     assert_eq!(String::from_utf8_lossy(&output.stderr), "[INFO] {\"requestId\":\"req-42\"} Processing request\n[WARN] {\"requestId\":\"req-42\",\"user\":\"alice\"} Retrying operation\n[INFO] Context cleared\n");

@@ -168,4 +168,4 @@ use `getLong` for exact integers.
 
 Custom SQL functions/collations, extension loading, incremental BLOB streams,
 SQLCipher encryption, and asynchronous/streaming queries are not exposed.
-See [the runnable example](../examples/sqlite.ube).
+See [the runnable example](../examples/sqlite/Application.ube).

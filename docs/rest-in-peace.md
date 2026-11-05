@@ -29,7 +29,7 @@ class ApiTests {
 Run the included service in one terminal and its tests in another:
 
 ```sh
-ube run examples/rest_in_peace/service.ube
+ube run examples/rest_in_peace/Application.ube
 ```
 
 ```sh

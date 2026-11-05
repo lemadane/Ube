@@ -71,7 +71,7 @@ Ube/
 │       ├── gc.rs                   # Precise tracing heap, method roots, and pointer barriers
 │       └── collections.rs          # Runtime collection array/map representations
 └── standard-library/               # Core Ube standard library packages
-    └── prelude.ube               # Standard library prelude definitions
+    └── Console.ube               # Standard library prelude definitions
 ```
 
 ---
@@ -132,7 +132,7 @@ We evaluated **Java**, **Rust**, and **C++** as candidate implementation languag
 Ube prohibits free functions, static methods, and package-level functions. The entire system bootstraps strictly through class instantiations and instance method invocations.
 
 ### 4.1 Application Entry Point
-The application entry point is defined as a method named `main()` (with implicit void return type, as there is no `void` keyword in Ube) on a class named `Application`:
+The application entry point is defined as a method named `main()` (with implicit void return type, as there is no `void` keyword in Ube) on a class such as `Main` or `Application` (in `Main.ube` or `Application.ube`, respectively):
 
 ```java
 class Application {

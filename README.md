@@ -10,10 +10,105 @@
 
 ---
 
+## Projects and dependencies
+
+Create a project or initialize an existing directory:
+
+```sh
+ube new my-app
+cd my-app
+# Or run `ube init` in an existing directory (`--name my-app` overrides its name).
+ube build
+ube run
+ube test
+ube clean
+```
+
+`ube new` creates `ube.toml`, `src/Main.ube` containing `class Main`, a `tests/`
+directory, a README, and a `.gitignore`. `ube init` preserves existing source
+files and refuses to overwrite an existing manifest. If your sources already
+exist, set the entry path to their correctly capitalized filename.
+
+```toml
+[package]
+name = "my-app"
+version = "0.1.0"
+edition = "2026"
+
+[build]
+entry = "src/Main.ube"
+
+[dependencies]
+# Local path, relative to this manifest:
+greetings = { path = "../greetings" }
+# Git dependency; rev is an optional branch, tag, or commit:
+# utilities = { git = "https://github.com/your-org/ube-utilities.git", rev = "v1.0.0" }
+```
+
+With no source argument, `ube check`, `ube emit-ir`, `ube emit-llvm`, `ube build`,
+and `ube run` find the nearest `ube.toml` in the current directory or its parents.
+The default entry is `src/Main.ube`. `ube build` writes the executable and LLVM
+IR to `.build/<package-name>` and `.build/<package-name>.ll`; `--release` and
+`-o <output>` are supported. Explicit file commands such as
+`ube build src/Main.ube -o app` continue to work. `ube test` defaults to the
+project's `tests/` directory, including when invoked from a subdirectory.
+
+```sh
+ube add greetings --path ../greetings
+ube add utilities --git https://github.com/your-org/ube-utilities.git --rev v1.0.0
+ube install
+ube install --update
+ube remove utilities
+```
+
+`ube add` records and installs a dependency. Its alias must be an identifier
+because it is used in imports. `--path` is interpreted from the calling directory
+and saved relative to the project root. `ube remove` removes its manifest entry,
+lock records, and installed snapshots, including dependencies no longer needed.
+It preserves the dependency's original repository or directory.
+
+Dependencies are Ube projects with `ube.toml` and `.ube` source files under
+`src/`. Import a dependency's types using its alias:
+
+```ube
+// src/Main.ube; greetings/src/Greeting.ube declares class Greeting.
+import greetings.Greeting
+class Main {
+    main() {
+        log(Greeting().message())
+    }
+}
+```
+
+`import greetings.services.Greeting` resolves to the dependency's
+`src/services/Greeting.ube`. A declared dependency alias takes precedence over a
+local import with the same prefix. Transitive dependencies resolve within their
+own packages. Types currently share one compilation namespace, so imported
+packages must avoid duplicate class or trait names. Package dependency cycles
+are rejected; circular source imports within a package remain supported.
+
+`ube install` installs direct and transitive dependencies into `.ube/deps/` and
+writes **`ube.lock`**, recording source specifications, package versions, exact Git
+commits, and SHA-256 checksums of manifests and `.ube` sources. Commit `ube.lock`;
+ignore `.ube/` and `.build/`. Install respects existing Git pins and rejects local
+source changes that differ from the lock. Use `ube install --update` to accept
+changed local sources and refresh Git revisions. A fixed `--rev` commit remains
+fixed even with `--update`. Builds verify installed sources against the lock;
+run `ube install` after editing dependencies manually or after a fresh checkout.
+Git installations require Git and access to the source repository. Ube currently
+supports local paths and Git repositories; there is no public package registry or
+version-range resolution. Installation copies only manifests and `.ube` sources,
+rejects source symlinks, and runs no package installation scripts.
+
+`ube clean` deletes only `.build/` directories marked as Ube-managed build output.
+It preserves source files, `ube.toml`, `ube.lock`, and installed dependencies.
+It refuses unmanaged or symlinked `.build` directories. Outputs created with an
+explicit source path or custom `-o` outside `.build/` must be removed separately.
+
 ## Testing Ube programs with Testicle
 
-Use `ube test` to discover `test*` methods in `tests/**/*_test.ube` and
-`tests/**/*.test.ube`. Native tests support `Testicle.equal`, `Testicle.notEqual`,
+Use `ube test` to discover `test*` methods in `tests/**/*Tests.ube` and
+`tests/**/*Test.ube`. Native tests support `Testicle.equal`, `Testicle.notEqual`,
 `Testicle.isTrue`, `Testicle.isFalse`, and `Testicle.fail`, async tests, per-test
 setup/teardown, process isolation, and execution timeouts.
 
@@ -29,11 +124,47 @@ Use [RestInPeace](docs/rest-in-peace.md) to test running HTTP services with flue
 requests, typed JSON getters, and Testicle assertions. It supports HTTP/1.x,
 verified HTTPS/HTTP/2, response-size limits, and request timeouts.
 
+## Source files and local imports
+
+Each `.ube` file may declare **one top-level class or one top-level trait**.
+A class and a trait must live in separate files, too. Imports do not count as
+declarations; an import-only file is allowed. The filename before `.ube` must
+match its class or trait name character for character, including capitalization:
+`class Main` belongs in `Main.ube`, never `main.ube`.
+
+Use explicit imports to load other files relative to the importing file:
+
+```ube
+// Greeting.ube
+trait Greeting {
+    string greet()
+}
+```
+
+```ube
+// Welcome.ube
+import Greeting
+class Welcome(Greeting greeting) {
+    string message() { return this._greeting.greet() }
+}
+```
+
+`import services.Greeting` loads `services/Greeting.ube`. Imports are transitive;
+repeated and circular imports load each physical file once. Imported declarations
+share the compilation's type namespace. Aliases and symbol-list imports are not
+supported by the local file loader. A missing import is a compiler error.
+These rules apply to `check`, `build`, `run`, IR emission, and `test`.
+The test runner executes tests declared in each discovered test file, without
+also executing tests from its imported dependencies.
+
+Examples below that show multiple types together describe separate source files;
+put each class or trait in its own file and import its dependencies.
+
 ## Language Core Principles & Policies
 
 ### 1. Pure Object-Oriented (No `static`, No Free Functions)
 - **No Static Methods, Fields, or Classes**: Every executable function in Ube must be an instance method belonging to a class object.
- - **Application Entry Point**: The application entry point is an instance method (`main()`) on an `Application` class. The compiler automatically generates the native C-ABI wrapper.
+ - **Application Entry Point**: The application entry point is an instance method (`main()`) on a class such as `Main` or `Application`. The compiler automatically generates the native C-ABI wrapper.
 - **Shared Instances via Constructor Injection**: Create an object explicitly in `Application.main()` and pass it to dependent classes. This shares the instance but does not enforce singleton uniqueness; there is no singleton marker or runtime registry.
 
 ### 2. Zero Inheritance & Maximum Performance
@@ -118,7 +249,7 @@ parent, or sibling do not affect the other contexts. Worker contexts are restore
 when tasks finish, including errors and cancellation. Clear context in `finally`
 at request or operation boundaries so it does not carry into the next operation
 on the same execution thread. The logging threshold remains process-wide.
-See the [runnable context example](examples/log_context.ube).
+See the [runnable context example](examples/log_context/Application.ube).
 
 ### 9. Truthy & Falsy Conditions
 - Conditions in `if (condition)` and `for (condition)` accept truthy and falsy values:
@@ -195,10 +326,10 @@ See the [runnable context example](examples/log_context.ube).
 - **Lambda and route syntax**: Inline handler arguments are supported, for example `server.get('/', request -> Response.ok('hello'))`. The original trailing-lambda form remains supported.
 - **Built-in naming**: Built-in classes require their canonical capitalized names, such as `Server`, `Request`, `Response`, `Json`, and `SQLite`. Lowercase class aliases are not supported. Instance variables such as `server` and `request` may still be lowercase.
 - **Express / Ktor Ergonomics**: Fluent routing with `server.get()`, `server.post()`, `server.put()`, `server.delete()`, `server.use()` (middleware), `server.static()`, `server.websocket()`, and `server.start(8080)`.
-- **OAuth 2.0 & JWT**: `OAuth2.create(...)` supports external authorization-code providers with session-bound state, S256 PKCE, and refresh tokens. `Jwt.sign(...)` and `Jwt.verify(...)` support HS256/RS256 with explicit issuer, audience, and expiration validation. See [authentication setup and API](docs/authentication.md), [the OAuth example](examples/oauth2.ube), and [the JWT example](examples/jwt.ube).
-- **Sessions**: `request.session()` provides `get(key)`, `set(key, value)`, `remove(key)`, `regenerate()`, and `destroy()`. Values are strings, missing values return `null`, and cookies are managed automatically for HTTP/1.1, HTTP/2, and HTTP/3. Storage is in memory per server with a fixed 30-minute lifetime. See [session setup and API](docs/sessions.md) and [the runnable example](examples/sessions.ube).
-- **HTTP/3 Support**: Configure `server.tls(certPath, keyPath)` and `server.enableHttp3(udpPort)` before `start(tcpPort)`. QUIC shares routes and sessions with TCP, supports concurrent streams, and is advertised with `Alt-Svc`. `server.http3Port()` reports the bound UDP port. See [HTTP/3 setup](docs/http3.md) and [the runnable example](examples/http3.ube).
-- **HTTP/2 Support**: Call `server.enableHttp2()` before `start()`. With `server.tls(certPath, keyPath)`, TLS ALPN negotiates HTTP/2 or HTTP/1.1. Without TLS, cleartext HTTP/2 prior knowledge (h2c) and HTTP/1.1 share the same port. HTTP/1.1 upgrade to h2c is not supported. See [HTTP/2 setup](docs/http2.md) and [the runnable example](examples/http2.ube).
+- **OAuth 2.0 & JWT**: `OAuth2.create(...)` supports external authorization-code providers with session-bound state, S256 PKCE, and refresh tokens. `Jwt.sign(...)` and `Jwt.verify(...)` support HS256/RS256 with explicit issuer, audience, and expiration validation. See [authentication setup and API](docs/authentication.md), [the OAuth example](examples/oauth2/Application.ube), and [the JWT example](examples/jwt/Application.ube).
+- **Sessions**: `request.session()` provides `get(key)`, `set(key, value)`, `remove(key)`, `regenerate()`, and `destroy()`. Values are strings, missing values return `null`, and cookies are managed automatically for HTTP/1.1, HTTP/2, and HTTP/3. Storage is in memory per server with a fixed 30-minute lifetime. See [session setup and API](docs/sessions.md) and [the runnable example](examples/sessions/Application.ube).
+- **HTTP/3 Support**: Configure `server.tls(certPath, keyPath)` and `server.enableHttp3(udpPort)` before `start(tcpPort)`. QUIC shares routes and sessions with TCP, supports concurrent streams, and is advertised with `Alt-Svc`. `server.http3Port()` reports the bound UDP port. See [HTTP/3 setup](docs/http3.md) and [the runnable example](examples/http3/Application.ube).
+- **HTTP/2 Support**: Call `server.enableHttp2()` before `start()`. With `server.tls(certPath, keyPath)`, TLS ALPN negotiates HTTP/2 or HTTP/1.1. Without TLS, cleartext HTTP/2 prior knowledge (h2c) and HTTP/1.1 share the same port. HTTP/1.1 upgrade to h2c is not supported. See [HTTP/2 setup](docs/http2.md) and [the runnable example](examples/http2/Application.ube).
 - **Request & Response Ergonomics**: `request.pathLong('id')`, `request.query('search')`, `request.hasBearerToken()`, `request.cookie('session')`, `request.protocol()`, `request.isHttp3()`, `Response.ok('hello')`, `Response.json(data)`.
 - **Current runtime status**: `server.start(port)` blocks the calling thread and serves loopback HTTP/1.1, optional TLS/HTTP/2, and configured HTTP/3 with exact method/path route matching. Query parameters, request headers, redirects, protocol reporting, and sessions work across transports. `request.body()` reads bounded UTF-8 request payloads (1 MiB maximum) across HTTP/1.x, HTTP/2, and HTTP/3; see [request bodies and limits](docs/request-bodies.md). Middleware, static-file serving, WebSockets, and several advanced `Request` accessors remain unimplemented.
 
@@ -255,15 +386,15 @@ To include a backtick in a one-line string, write it between single quotes. Doub
 - **Typed bindings and results**: `SQLParams.create()` holds bound scalar values; `db.query(sql, params)` provides checked typed getters and explicit NULL handling. Values are never concatenated into SQL.
 - **Transactions**: `db.begin()` reserves a connection. Use `tx.commit()` and `tx.close()` in `finally`; savepoints and rollback are supported. Failures during execution invalidate and attempt to roll back the transaction.
 - **Builder/ORM foundation**: The ORM shares this execution API, dialect helpers, parameters, results, and transaction context. Live-schema validation, standalone query-builder APIs, migration diffs, streaming, and async SQL APIs are future work.
-- See [the complete SQL API and limitations](docs/sql.md) and [the runnable example](examples/sql.ube). The existing [SQLite-specific API](docs/sqlite.md) remains available.
+- See [the complete SQL API and limitations](docs/sql.md) and [the runnable example](examples/sql/Application.ube). The existing [SQLite-specific API](docs/sqlite.md) remains available.
 
 ### 25. Typed ORM (`Orm`, `OrmModel<User>`, `OrmQuery<User>`, `OrmRows<User>`)
 - **Ordinary classes**: `Orm.model(db, User, 'users')` maps scalar constructor fields to columns, with an application-assigned `int` or `long` primary key named `id`.
 - **Explicit CRUD**: `users.create(user)`, `users.save(user)`, `users.get(id)`, `users.find(id)`, and `users.delete(id)` operate on typed objects. `migrate()` creates a missing table without altering existing schemas.
 - **Fluent typed queries**: `users.query().where('active', '=', true).orderBy('id', 'asc').limit(20)` binds values and preserves the result model type. Literal column names and predicate types are checked during compilation.
-- **Related-table joins**: `query.join(orders, 'o', 'id', 'userId')` and `leftJoin(...)` preserve typed base-model results, support related-column filters, and return a new query. See [the join example](examples/orm-joins.ube).
+- **Related-table joins**: `query.join(orders, 'o', 'id', 'userId')` and `leftJoin(...)` preserve typed base-model results, support related-column filters, and return a new query. See [the join example](examples/orm-joins/Application.ube).
 - **Shared SQL transactions**: `users.using(tx)` pins ORM operations to a `SQLTransaction`, including raw SQL and savepoints. Changes are persisted explicitly with `save()`.
-- See [the ORM API and limitations](docs/orm.md) and [the runnable example](examples/orm.ube).
+- See [the ORM API and limitations](docs/orm.md) and [the runnable example](examples/orm/Application.ube).
 
 ---
 
@@ -1283,7 +1414,7 @@ class Application {
 ```
 
 See the [complete SQLite API reference](docs/sqlite.md) and
-[runnable example](examples/sqlite.ube).
+[runnable example](examples/sqlite/Application.ube).
 
 ---
 

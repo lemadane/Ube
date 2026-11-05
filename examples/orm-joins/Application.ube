@@ -1,6 +1,5 @@
-class User(long id, string name) {}
-class Order(long id, long userId, string status) {}
-
+import orm_joins_types.User
+import orm_joins_types.Order
 class Application {
     main() {
         final db = SQL.open('sqlite::memory:')

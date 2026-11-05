@@ -203,7 +203,7 @@ pagination until streaming exists. `query()` can also execute SQL with side
 effects, such as `INSERT ... RETURNING`; a result-limit error outside a
 transaction does not promise those effects were rolled back.
 
-See [the runnable SQLite example](../examples/sql.ube). To run live driver tests
+See [the runnable SQLite example](../examples/sql/Application.ube). To run live driver tests
 against isolated disposable databases, set `UBE_TEST_POSTGRES_URL` and
 `UBE_TEST_MYSQL_URL`, then run:
 

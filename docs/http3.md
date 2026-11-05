@@ -48,7 +48,7 @@ Direct HTTP/3 clients can connect without first making a TCP request.
 ## Local example
 
 Generate a development certificate for localhost, then run
-[examples/http3.ube](../examples/http3.ube):
+[examples/http3/Application.ube](../examples/http3/Application.ube):
 
 ```sh
 openssl req -x509 -newkey rsa:2048 -nodes -keyout key.pem -out cert.pem \

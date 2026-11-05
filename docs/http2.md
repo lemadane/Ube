@@ -31,7 +31,7 @@ With a curl build that supports HTTP/2:
 # HTTPS; use --cacert with a local certificate authority if needed.
 curl --http2 https://localhost:8443/
 
-# Cleartext example: run examples/http2.ube first.
+# Cleartext example: run examples/http2/Application.ube first.
 curl --http2-prior-knowledge http://127.0.0.1:8080/
 ```
 

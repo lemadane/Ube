@@ -121,6 +121,50 @@ class User(
 
 ---
 
+### Source-file organization
+
+A physical `.ube` source file may contain at most one top-level type declaration:
+either one `class` or one `trait`. Multiple classes, multiple traits, and mixed
+class/trait declarations in one file are compiler errors. Imports and comments
+are allowed alongside the declaration; import-only files are allowed. The filename
+must match the declared class or trait name exactly, including case: `class Application` belongs in `Application.ube`.
+
+Local imports use `import path.Type`, resolved relative to the importing file
+as `path/Type.ube`. Dependencies are loaded transitively into a shared type
+namespace, once per canonical file path, including circular imports. Local
+import aliases and symbol lists are rejected. Missing files are errors. Each
+imported file is independently checked against the one-type rule. Test-runner
+entry points are generated internally and do not count as source declarations.
+Documentation snippets grouping several types represent separate files.
+
+### Project manifests and dependencies
+
+`ube.toml` declares `[package]` metadata (`name`, `version`, and optional
+`edition = "2026"`), optional `[build].entry` (default `src/Main.ube`), and
+`[dependencies]`. The entry is a relative `.ube` path within the project.
+`ube init` initializes the current directory; `ube new <name>` creates a new
+project with `src/Main.ube` declaring `class Main`. Neither command overwrites an
+existing manifest.
+
+Dependency aliases are importable identifiers. Dependencies use either
+`{ path = "../package" }` or `{ git = "<repository>", rev = "<revision>" }`, with
+`rev` optional. `ube add <alias> --path <directory>` and
+`ube add <alias> --git <repository> [--rev <revision>]` record and install them.
+`ube remove <alias>` removes the dependency and its installed subtree.
+`ube install` resolves direct and transitive packages and records exact Git
+commits, versions, and source checksums in `ube.lock`; `--update` explicitly
+refreshes locked sources. Version ranges and a package registry are not supported.
+
+`import alias.services.Type` resolves to `src/services/Type.ube` in the installed
+dependency, taking precedence over local imports with that prefix. Dependencies
+resolve their own imports within their own package context. Installed sources
+are checked against `ube.lock` before compilation. Imported types share one
+compilation namespace. Cyclic package dependencies are rejected.
+
+Source-less `check`, `emit-ir`, `emit-llvm`, `build`, and `run` use the nearest
+ancestor manifest. Manifest builds write to `.build/`; `ube clean` removes only
+Ube-managed build output and preserves dependency snapshots and lockfiles.
+
 ## 5. Structural `trait` Subtyping (No `implements` Keyword)
 
 Abstraction and behavior reuse in Ube are defined using **`trait`**. Classes satisfy traits **implicitly** based on method signatures without needing an `implements` keyword:

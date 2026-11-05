@@ -178,7 +178,7 @@ Joined-object projections, distinct entity results, relationship hydration,
 RIGHT/FULL/CROSS joins, and custom ON expressions are not implemented yet.
 This is SQL JOIN, not a set-operation intersection.
 
-See [the runnable join example](../examples/orm-joins.ube).
+See [the runnable join example](../examples/orm-joins/Application.ube).
 
 ## Shared transactions with raw SQL
 
@@ -208,7 +208,7 @@ dirty tracking, identity caches, lazy relationships, cascading writes,
 auto-generated IDs, optimistic versioning, lifecycle hooks, and automatic
 migration diffs are not included in this initial API.
 
-See [the runnable example](../examples/orm.ube). End-to-end coverage compiles
+See [the runnable example](../examples/orm/Application.ube). End-to-end coverage compiles
 Ube programs through the CLI and verifies object persistence, nullable fields,
 CRUD, fluent queries, and shared ORM/raw-SQL transactions:
 

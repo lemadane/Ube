@@ -1,13 +1,11 @@
-use std::{
-    fs,
-    process::{Command, Output},
-};
+mod support;
+use std::process::{Command, Output};
 use ube_compiler::{Lexer, Parser, TypeChecker};
 
 fn execute(source: &str, command: &str) -> Output {
     let directory = tempfile::tempdir().unwrap();
     let file = directory.path().join("mock_test.ube");
-    fs::write(&file, source).unwrap();
+    let file = support::write_source(&file, source);
     Command::new("timeout")
         .arg("90s")
         .arg(env!("CARGO_BIN_EXE_ube-compiler"))

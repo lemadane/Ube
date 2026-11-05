@@ -1,3 +1,4 @@
+mod support;
 use std::{
     fs,
     process::{Command, Output},
@@ -5,16 +6,22 @@ use std::{
 
 fn run(files: &[(&str, &str)], args: &[&str]) -> Output {
     let directory = tempfile::tempdir().unwrap();
+    let mut mapped_args: Vec<String> = args.iter().map(|s| s.to_string()).collect();
     for (name, source) in files {
         let file = directory.path().join(name);
         fs::create_dir_all(file.parent().unwrap()).unwrap();
-        fs::write(file, source).unwrap();
+        let actual = support::write_source(&file, source);
+        for arg in &mut mapped_args {
+            if arg == name {
+                *arg = actual.to_string_lossy().into_owned();
+            }
+        }
     }
     Command::new("timeout")
         .arg("90s")
         .arg(env!("CARGO_BIN_EXE_ube-compiler"))
         .arg("test")
-        .args(args)
+        .args(mapped_args)
         .current_dir(directory.path())
         .output()
         .unwrap()
@@ -95,7 +102,7 @@ fn timeouts_kill_the_test_and_allow_subsequent_tests_to_run() {
         &[(
             "slow.test.ube",
             r#"
-        class Slow {
+        class SlowTests {
             testTimeout() { for (true) {} }
             testAfter() { Testicle.isTrue(true) }
         }

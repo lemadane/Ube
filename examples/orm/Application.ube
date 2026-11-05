@@ -1,5 +1,4 @@
-class User(long id, string name, var bool active, string? email) {}
-
+import orm_types.User
 class Application {
     main() {
         final db = SQL.open('sqlite::memory:')

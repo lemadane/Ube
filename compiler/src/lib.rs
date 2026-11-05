@@ -1,14 +1,16 @@
-pub mod rest_in_peace;
-pub mod mockery;
 pub mod builtins;
-pub mod orm;
 pub mod diagnostics;
 pub mod ir;
 pub mod lexer;
 pub mod llvm;
+pub mod mockery;
+pub mod orm;
 pub mod parser;
+pub mod project;
 pub mod resolver;
+pub mod rest_in_peace;
 pub mod semantics;
+pub mod source;
 pub mod types;
 
 pub use diagnostics::{Diagnostic, DiagnosticEmitter};

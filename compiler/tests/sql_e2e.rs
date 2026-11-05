@@ -1,4 +1,5 @@
 //! Compile through the real CLI and execute separate processes against an actual SQLite file.
+mod support;
 use std::{
     fs,
     path::{Path, PathBuf},
@@ -28,7 +29,7 @@ impl Drop for Directory {
 fn compile(directory: &Path, name: &str, source: &str) -> PathBuf {
     let source_path = directory.join(format!("{name}.ube"));
     let binary = directory.join(name);
-    fs::write(&source_path, source).expect("write Ube source");
+    let source_path = support::write_source(&source_path, source);
     // Cargo places the runtime static library beside integration test executables.
     let test = std::env::current_exe().expect("locate test executable");
     let runtime = test.parent().unwrap();
@@ -189,7 +190,10 @@ class Application {
 #[test]
 fn orm_cli_class_mapping_queries_transactions_and_persistence() {
     let directory = Directory::new();
-    let writer = compile(&directory.0, "orm-writer", r#"
+    let writer = compile(
+        &directory.0,
+        "orm-writer",
+        r#"
 class User(long id, var string name, var bool active, int? age, long? serial, decimal? score, bool? verified, string? email) {}
 class Application {
     long countUsers(OrmModel<User> users) {
@@ -264,8 +268,12 @@ class Application {
         } finally { users.close() db.close() }
     }
 }
-"#);
-    let reader = compile(&directory.0, "orm-reader", r#"
+"#,
+    );
+    let reader = compile(
+        &directory.0,
+        "orm-reader",
+        r#"
 class User(long id, string name, bool active, int? age, long? serial, decimal? score, bool? verified, string? email) {}
 class Application {
     main() {
@@ -293,15 +301,23 @@ class Application {
         } finally { users.close() db.close() }
     }
 }
-"#);
+"#,
+    );
     run(&writer, &directory.0, "Robert'); DROP TABLE users; --\n-1\nfalse\n1\ntrue\nAda\nmissing caught\nUbe 🍠\n42\n5000000000\n1.5\ntrue\nube@example.test\nraw SQL in same transaction\ntrue\nfinished transaction rejected\ncommitted\n1\n0\n2\nwrong connection rejected\n");
-    run(&reader, &directory.0, "2\n1\nAda\nfalse\n2\nUbe 🍠\nfalse\nUbe 🍠\ntrue\n");
+    run(
+        &reader,
+        &directory.0,
+        "2\n1\nAda\nfalse\n2\nUbe 🍠\nfalse\nUbe 🍠\ntrue\n",
+    );
 }
 
 #[test]
 fn orm_cli_inner_left_and_self_joins_keep_typed_results_and_transactions() {
     let directory = Directory::new();
-    let executable = compile(&directory.0,"joins",r#"
+    let executable = compile(
+        &directory.0,
+        "joins",
+        r#"
 class User(long id, string name, long? managerId) {}
 class Order(long id, long userId, string status) {}
 class Line(long id, long orderId) {}
@@ -364,6 +380,11 @@ class Application {
         } finally { lines.close() orders.close() users.close() db.close() }
     }
 }
-"#);
-    run(&executable,&directory.0,"3\n2\nAda\nGrace\n1\nAda\nGrace\nLin\n2\n4\ntransaction mismatch rejected\n3\n");
+"#,
+    );
+    run(
+        &executable,
+        &directory.0,
+        "3\n2\nAda\nGrace\n1\nAda\nGrace\nLin\n2\n4\ntransaction mismatch rejected\n3\n",
+    );
 }

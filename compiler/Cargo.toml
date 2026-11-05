@@ -5,6 +5,8 @@ edition = "2021"
 
 [dependencies]
 tempfile = "3"
+toml_edit = "0.25"
+sha2 = "0.10"
 ube-runtime = { path = "../runtime" }
 
 [dev-dependencies]

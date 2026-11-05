@@ -1,0 +1,2 @@
+class Order(long id, long userId, string status) {}
+

@@ -8,7 +8,7 @@ values or failures, and verify call counts.
 Use [RestInPeace](rest-in-peace.md) for integration and end-to-end tests against
 running HTTP services, with fluent requests and Testicle assertions.
 
-Create `tests/calculator_test.ube`:
+Create `tests/CalculatorTests.ube`:
 
 ```ube
 class CalculatorTests {
@@ -34,13 +34,13 @@ class CalculatorTests {
 ```sh
 ube test
 ube test tests
-ube test tests/calculator_test.ube
+ube test tests/CalculatorTests.ube
 ube test tests --timeout 5000
 ```
 
 With no path, the runner searches `tests/`. Directory discovery recursively
-selects `*_test.ube` and `*.test.ube` files in sorted path order and skips symbolic
-links. An explicit `.ube` file can have any name. Each class method starting with
+selects `*Tests.ube`, `*Test.ube`, `*_test.ube`, and `*.test.ube` files in sorted path order and skips symbolic
+links. Every source filename must match its declared class or trait name exactly. Each class method starting with
 `test` is a test. Test classes must have no constructor parameters or sum cases.
 Tests and optional `beforeEach`/`afterEach` hooks take no parameters and omit the
 return type. Tests and hooks may be async; the runner awaits them.

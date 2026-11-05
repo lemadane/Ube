@@ -71,7 +71,7 @@ configurable lifetimes are not implemented yet.
 
 ## Try it
 
-Run [the session example](../examples/sessions.ube), then use a cookie jar:
+Run [the session example](../examples/sessions/Application.ube), then use a cookie jar:
 
 ```sh
 curl -c /tmp/ube-cookies.txt -b /tmp/ube-cookies.txt -X POST http://127.0.0.1:8080/theme

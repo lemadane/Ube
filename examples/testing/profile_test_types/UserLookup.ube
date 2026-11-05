@@ -1,0 +1,4 @@
+trait UserLookup {
+    string name(int id)
+}
+

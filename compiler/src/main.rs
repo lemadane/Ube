@@ -3,23 +3,39 @@ use std::env;
 use std::fs;
 use std::path::Path;
 use std::process::{self, Command};
-use ube_compiler::{DiagnosticEmitter, IrBuilder, Lexer, Parser, TextualLlvmEmitter, TypeChecker};
+use ube_compiler::{DiagnosticEmitter, IrBuilder, TextualLlvmEmitter, TypeChecker};
 
 fn print_version() {
-    println!("Ube Language Compiler & Toolchain v{}", env!("CARGO_PKG_VERSION"));
+    println!(
+        "Ube Language Compiler & Toolchain v{}",
+        env!("CARGO_PKG_VERSION")
+    );
 }
 
 fn print_usage() {
-    println!("Ube Language Compiler & Toolchain v{}", env!("CARGO_PKG_VERSION"));
+    println!(
+        "Ube Language Compiler & Toolchain v{}",
+        env!("CARGO_PKG_VERSION")
+    );
     eprintln!("Usage: ube <command> [options]");
     eprintln!("Commands:");
+    eprintln!("  init [--name <name>]             Initialize the current directory");
+    eprintln!("  install [--update]                Install locked local/Git dependencies");
+    eprintln!("  add <alias> --path <dir>           Add and install a local dependency");
+    eprintln!("  add <alias> --git <url> [--rev <revision>]  Add a Git dependency");
+    eprintln!("  remove <alias>                    Remove a dependency");
+    eprintln!("  clean                             Remove Ube-managed .build outputs");
     eprintln!("  new <project-name>                  Create a new Ube project folder structure");
-    eprintln!("  check <file.ube>                  Check source code for syntax and semantic errors");
+    eprintln!(
+        "  check [file.ube]                  Check source code for syntax and semantic errors"
+    );
     eprintln!("  emit-ir <file.ube>                Emit custom Typed Ube IR representation");
     eprintln!("  emit-llvm <file.ube> [-o <out>]   Emit textual LLVM IR (.ll) file");
-    eprintln!("  build <file.ube> [--release] [-o <out>] Compile source file to native executable");
-    eprintln!("  test [path] [--timeout <ms>]       Discover and run native tests (default: tests/)" );
-    eprintln!("  run <file.ube>                    Compile and execute source file immediately");
+    eprintln!("  build [file.ube] [--release] [-o <out>] Compile source file to native executable");
+    eprintln!(
+        "  test [path] [--timeout <ms>]       Discover and run native tests (default: tests/)"
+    );
+    eprintln!("  run [file.ube]                    Compile and execute source file immediately");
 }
 
 fn configure_runtime_linkage(cmd: &mut Command) {
@@ -29,7 +45,9 @@ fn configure_runtime_linkage(cmd: &mut Command) {
             // standalone runtime build remains beside the compiler binary.
             // Prefer the paired development archive over that stale copy.
             let dependencies = executable_dir.join("deps");
-            if dependencies.join("libube_runtime.a").exists() || dependencies.join("ube_runtime.lib").exists() {
+            if dependencies.join("libube_runtime.a").exists()
+                || dependencies.join("ube_runtime.lib").exists()
+            {
                 cmd.arg("-L").arg(dependencies);
             }
             if executable_dir.join("libube_runtime.a").exists()
@@ -57,58 +75,41 @@ fn configure_runtime_linkage(cmd: &mut Command) {
         }
     }
     cmd.arg("-L").arg("/usr/local/lib");
-    cmd.arg("-Wl,-Bstatic").arg("-lube_runtime").arg("-Wl,-Bdynamic");
+    cmd.arg("-Wl,-Bstatic")
+        .arg("-lube_runtime")
+        .arg("-Wl,-Bdynamic");
     cmd.arg("-lm");
     cmd.arg("-Wno-override-module");
 }
 
-fn handle_new_project(project_name: &str) {
-    let proj_dir = Path::new(project_name);
-    if proj_dir.exists() {
-        eprintln!("Error: Directory '{}' already exists.", project_name);
-        process::exit(1);
+fn project_command(command: &str, args: &[String]) -> Result<(), String> {
+    use ube_compiler::project;
+    let cwd = env::current_dir().map_err(|e| e.to_string())?;
+    match command {
+        "new" if args.len() == 1 => project::new_project(Path::new(&args[0])),
+        "init" => {
+            let name = match args {
+                [] => None,
+                [flag, name] if flag == "--name" => Some(name.as_str()),
+                _ => return Err("Usage: ube init [--name <name>]".into()),
+            };
+            project::init(&cwd, name)
+        }
+        "install" => {
+            let update = match args {
+                [] => false,
+                [flag] if flag == "--update" => true,
+                _ => return Err("Usage: ube install [--update]".into()),
+            };
+            project::install(&project::find_root(&cwd)?, update)
+        }
+        "add" => project::add(&project::find_root(&cwd)?, args),
+        "remove" if args.len() == 1 => project::remove(&project::find_root(&cwd)?, &args[0]),
+        "clean" if args.is_empty() => project::clean(&project::find_root(&cwd)?),
+        _ => Err(format!(
+            "Invalid arguments for '{command}'; see 'ube --help'"
+        )),
     }
-
-    let src_dir = proj_dir.join("src");
-    if let Err(e) = fs::create_dir_all(&src_dir) {
-        eprintln!("Error creating project directory: {}", e);
-        process::exit(1);
-    }
-
-    // 1. Create ube.toml
-    let toml_content = format!(
-        r#"[package]
-name = "{}"
-version = "{}"
-edition = "2026"
-
-[dependencies]
-"#,
-        project_name,
-        env!("CARGO_PKG_VERSION")
-    );
-    let _ = fs::write(proj_dir.join("ube.toml"), toml_content);
-
-    // 2. Create README.md
-    let readme_content = format!(
-        "# {}\n\nA new project written in the Ube programming language.\n\n## Running the Project\n\n```bash\nube run src/main.ube\n```\n",
-        project_name
-    );
-    let _ = fs::write(proj_dir.join("README.md"), readme_content);
-
-    // 3. Create src/main.ube
-    let main_ube_content = r#"class Application {
-    main() {
-        log('Hello from Ube!')
-    }
-}
-"#;
-    let _ = fs::write(src_dir.join("main.ube"), main_ube_content);
-
-    println!("Created new Ube project '{}'!", project_name);
-    println!("To get started:");
-    println!("  cd {}", project_name);
-    println!("  ube run src/main.ube");
 }
 
 // Return before main calls process::exit so TempDir's destructor runs on every
@@ -126,7 +127,9 @@ fn run_llvm_timeout(llvm_ir: &str, timeout: Option<std::time::Duration>) -> i32 
         }
     };
     let ll_path = directory.path().join("app.ll");
-    let bin_path = directory.path().join(format!("app{}", env::consts::EXE_SUFFIX));
+    let bin_path = directory
+        .path()
+        .join(format!("app{}", env::consts::EXE_SUFFIX));
     if let Err(error) = fs::write(&ll_path, llvm_ir) {
         eprintln!("Error writing temporary IR: {}", error);
         return 1;
@@ -148,20 +151,28 @@ fn run_llvm_timeout(llvm_ir: &str, timeout: Option<std::time::Duration>) -> i32 
                 loop {
                     match child.try_wait() {
                         Ok(Some(status)) => break Ok(status),
-                        Ok(None) if started.elapsed() < limit => std::thread::sleep(std::time::Duration::from_millis(5)),
+                        Ok(None) if started.elapsed() < limit => {
+                            std::thread::sleep(std::time::Duration::from_millis(5))
+                        }
                         Ok(None) => {
                             let _ = child.kill();
                             let _ = child.wait();
                             eprintln!("Test timed out after {} ms", limit.as_millis());
                             return 1;
                         }
-                        Err(error) => { let _ = child.kill(); let _ = child.wait(); break Err(error); }
+                        Err(error) => {
+                            let _ = child.kill();
+                            let _ = child.wait();
+                            break Err(error);
+                        }
                     }
                 }
             }
             Err(error) => Err(error),
         }
-    } else { Command::new(&bin_path).status() };
+    } else {
+        Command::new(&bin_path).status()
+    };
     match status {
         Ok(status) => match status.code() {
             Some(code) => code,
@@ -191,21 +202,36 @@ fn main() {
         return;
     }
 
-    if command == "new" {
-        if args.len() < 3 {
-            eprintln!("Error: Please specify a project name.");
-            eprintln!("Usage: ube new <project-name>");
-            process::exit(1);
-        }
-        handle_new_project(&args[2]);
+    if command == "--help" || command == "-h" || command == "help" {
+        print_usage();
         return;
     }
-
-    if command == "test" {
-        process::exit(testing::run(&args[2..]));
+    if ["new", "init", "install", "add", "remove", "clean"].contains(&command.as_str()) {
+        if let Err(error) = project_command(command, &args[2..]) {
+            eprintln!("Error: {error}");
+            process::exit(1);
+        }
+        return;
     }
-
-    if args.len() < 3 {
+    if command == "test" {
+        let mut test_args = args[2..].to_vec();
+        let cwd = env::current_dir().unwrap_or_else(|_| ".".into());
+        if let Ok(root) = ube_compiler::project::find_root(&cwd) {
+            if let Err(error) = ube_compiler::project::verify_installation(&root) {
+                eprintln!("Error: {error}");
+                process::exit(1);
+            }
+            // Explicit paths remain relative to the calling directory.
+            if !test_args.iter().enumerate().any(|(i, arg)| {
+                !arg.starts_with('-') && (i == 0 || test_args[i - 1] != "--timeout")
+            }) {
+                test_args.insert(0, root.join("tests").to_string_lossy().into_owned());
+            }
+        }
+        process::exit(testing::run(&test_args));
+    }
+    if !["check", "emit-ir", "emit-llvm", "build", "run"].contains(&command.as_str()) {
+        eprintln!("Unknown command '{command}'");
         print_usage();
         process::exit(1);
     }
@@ -224,38 +250,54 @@ fn main() {
             out_binary = args[i].clone();
         } else if !arg.starts_with('-') && file_path.is_empty() {
             file_path = arg.clone();
+        } else {
+            eprintln!("Unexpected argument '{arg}'");
+            process::exit(1);
         }
         i += 1;
     }
 
+    let mut project_output = None;
     if file_path.is_empty() {
-        eprintln!("Error: No source file specified.");
-        print_usage();
-        process::exit(1);
+        let project = (|| -> Result<_, String> {
+            let root =
+                ube_compiler::project::find_root(&env::current_dir().map_err(|e| e.to_string())?)?;
+            let manifest = ube_compiler::project::manifest(&root)?;
+            ube_compiler::project::verify_installation(&root)?;
+            file_path = root.join(&manifest.entry).to_string_lossy().into_owned();
+            if command == "build" {
+                let output = ube_compiler::project::build_directory(&root)?;
+                project_output = Some(output.join(&manifest.name));
+            }
+            Ok(())
+        })();
+        if let Err(error) = project {
+            eprintln!("Error: {error}");
+            process::exit(1);
+        }
     }
-
     if out_binary.is_empty() {
-        let base = file_path.trim_end_matches(".ube").trim_end_matches(".tl");
-        out_binary = base.to_string();
+        out_binary = project_output
+            .as_ref()
+            .map(|p| p.to_string_lossy().into_owned())
+            .unwrap_or_else(|| {
+                file_path
+                    .trim_end_matches(".ube")
+                    .trim_end_matches(".tl")
+                    .to_string()
+            });
     }
 
-    let source_code = match fs::read_to_string(&file_path) {
-        Ok(code) => code,
-        Err(err) => {
-            eprintln!("Error reading source file '{}': {}", file_path, err);
+    let loaded = match ube_compiler::source::load_program(Path::new(&file_path)) {
+        Ok(program) => program,
+        Err(error) => {
+            eprintln!("{error}");
             process::exit(1);
         }
     };
 
-    let lexer = Lexer::new(&source_code);
-    let mut parser = Parser::new(lexer);
-    let program = parser.parse_program();
-
-    if !parser.diagnostics.is_empty() {
-        DiagnosticEmitter::emit(&parser.diagnostics, &source_code);
-        process::exit(1);
-    }
-
+    let program = loaded.program;
+    let source_code = loaded.source;
     let mut checker = TypeChecker::new();
     checker.check_program(&program);
 
@@ -290,7 +332,9 @@ fn main() {
             let mut emitter = TextualLlvmEmitter::new();
             let llvm_ir = emitter.emit_program(&ir_program);
 
-            if !out_binary.is_empty() && out_binary != file_path.trim_end_matches(".ube").trim_end_matches(".tl") {
+            if !out_binary.is_empty()
+                && out_binary != file_path.trim_end_matches(".ube").trim_end_matches(".tl")
+            {
                 if let Err(e) = fs::write(&out_binary, &llvm_ir) {
                     eprintln!("Error writing LLVM IR file '{}': {}", out_binary, e);
                     process::exit(1);
@@ -313,7 +357,10 @@ fn main() {
             let llvm_ir = emitter.emit_program(&ir_program);
 
             let base_name = file_path.trim_end_matches(".ube").trim_end_matches(".tl");
-            let ll_path = format!("{}.ll", base_name);
+            let ll_path = project_output
+                .as_ref()
+                .map(|p| p.with_extension("ll").to_string_lossy().into_owned())
+                .unwrap_or_else(|| format!("{}.ll", base_name));
 
             if let Err(e) = fs::write(&ll_path, &llvm_ir) {
                 eprintln!("Error writing temporary LLVM IR file '{}': {}", ll_path, e);

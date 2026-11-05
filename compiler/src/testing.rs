@@ -18,6 +18,8 @@ fn discover(path: &Path, explicit: bool, files: &mut Vec<PathBuf>) -> Result<(),
     } else if metadata.is_file() {
         let name = path.file_name().unwrap_or_default().to_string_lossy();
         if (explicit && name.ends_with(".ube"))
+            || name.ends_with("Tests.ube")
+            || name.ends_with("Test.ube")
             || name.ends_with("_test.ube")
             || name.ends_with(".test.ube")
         {
@@ -70,18 +72,23 @@ pub fn run(args: &[String]) -> i32 {
                 continue;
             }
         };
-        let mut parser = Parser::new(Lexer::new(&source));
-        let program = parser.parse_program();
-        if !parser.diagnostics.is_empty() {
-            DiagnosticEmitter::emit(&parser.diagnostics, &source);
-            failed += 1;
-            continue;
-        }
+        let loaded = match ube_compiler::source::load_program(&file) {
+            Ok(program) => program,
+            Err(error) => {
+                eprintln!("{error}");
+                failed += 1;
+                continue;
+            }
+        };
+        let program = loaded.program;
         // A generated entry point owns test execution; never silently execute or replace an application main.
         if program.items.iter().any(|item| matches!(item, Item::Class(c) if c.name == "UbeTestRunner" || c.methods.iter().any(|m| m.name == "main"))) {
             eprintln!("{}: test files must not define main() or UbeTestRunner", file.display()); failed += 1; continue;
         }
-        for item in &program.items {
+        // Imported classes provide dependencies, but only this file owns tests.
+        let mut parser = Parser::new(Lexer::new(&source));
+        let local = parser.parse_program();
+        for item in &local.items {
             let Item::Class(class) = item else {
                 continue;
             };
@@ -126,7 +133,10 @@ pub fn run(args: &[String]) -> i32 {
                 } else {
                     format!("try {{ {before}\n{invocation} }} finally {{ {after} }}")
                 };
-                let generated = format!("{source}\nclass UbeTestRunner {{ main() {{ final subject = {}()\n{body}\n}} }}", class.name);
+                let generated = format!(
+                    "{}\nclass UbeTestRunner {{ main() {{ final subject = {}()\n{body}\n}} }}",
+                    loaded.source, class.name
+                );
                 let mut parser = Parser::new(Lexer::new(&generated));
                 let program = parser.parse_program();
                 let mut checker = TypeChecker::new();

@@ -1,3 +1,4 @@
+mod support;
 use std::{
     collections::HashMap,
     fs,
@@ -16,7 +17,7 @@ use ube_compiler::{Lexer, Parser, TypeChecker};
 fn execute(source: &str, command: &str) -> Output {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("rest_test.ube");
-    fs::write(&path, source).unwrap();
+    let path = support::write_source(&path, source);
     Command::new("timeout")
         .arg("90s")
         .arg(env!("CARGO_BIN_EXE_ube-compiler"))

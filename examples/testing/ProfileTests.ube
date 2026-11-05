@@ -1,11 +1,5 @@
-trait UserLookup {
-    string name(int id)
-}
-
-class Profile(UserLookup users) {
-    string title(int id) { return this._users.name(id) }
-}
-
+import profile_test_types.UserLookup
+import profile_test_types.Profile
 class ProfileTests {
     testTitle() {
         final users = Mockery.mock(UserLookup)

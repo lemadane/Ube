@@ -2,6 +2,7 @@
 //! Exact-money and missing-map regressions are enabled after their fixes.
 #![cfg(unix)]
 
+mod support;
 use std::{
     fs,
     path::PathBuf,
@@ -24,7 +25,7 @@ fn runtime_directory() -> PathBuf {
 fn run_ube(source: &str) -> Output {
     let directory = tempfile::tempdir().unwrap();
     let source_path = directory.path().join("audit.ube");
-    fs::write(&source_path, source).unwrap();
+    let source_path = support::write_source(&source_path, source);
     // The CLI searches beside its executable first. Keep this test's compiler
     // and current archive together so a stale installed/build runtime cannot
     // hide a regression or make a fixed operation appear broken.

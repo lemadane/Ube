@@ -28,7 +28,7 @@ class ProfileTests {
 }
 ```
 
-Run the included example with `ube test examples/testing/profile_test.ube`.
+Run the included example with `ube test examples/testing/ProfileTests.ube`.
 Mockery also works in ordinary Ube programs, not just the test runner.
 
 ## API
