@@ -1,5 +1,9 @@
 # SQLite
 
+For PostgreSQL, MySQL/MariaDB, and SQLite through a shared execution interface,
+see the [unified SQL API](sql.md). This SQLite-specific API also provides backup,
+restore, and explicit reusable statement handles.
+
 SQLite is bundled into the Ube runtime. No separate database server or SQLite
 installation is required. The API supports files, `:memory:`, and SQLite `file:`
 URIs. SQL includes normal SQLite DDL, queries, indexes, views, triggers,

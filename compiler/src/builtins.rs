@@ -50,6 +50,11 @@ const BUILTIN_CLASS_NAMES: &[&str] = &[
     "Server",
     "Session",
     "Statistics",
+    "SQL",
+    "SQLParams",
+    "SQLTransaction",
+    "SQLResult",
+    "SQLError",
     "SQLite",
     "SQLiteResult",
     "SQLiteStatement",
@@ -601,4 +606,66 @@ pub fn auth_methods(class: &str) -> Vec<BuiltinMethod> {
             is_static,
         })
         .collect()
+}
+
+/// Shared execution ABI for raw SQL, future query builders, and ORM adapters.
+pub const SQL_CLASSES: &[&str] = &["SQL", "SQLParams", "SQLTransaction", "SQLResult"];
+pub fn sql_methods(class: &str) -> Vec<BuiltinMethod> {
+    use crate::types::Type;
+    let object = |name: &str| Type::Class { name: name.into() };
+    let method = |name, symbol, params, result, is_static| BuiltinMethod { name, symbol, params, result, is_static };
+    match class {
+        "SQL" => vec![
+            method("open", "ube_sql_open", vec![Type::String], object("SQL"), true),
+            method("openPool", "ube_sql_open_pool", vec![Type::String, Type::Int, Type::Int], object("SQL"), true),
+            method("dialect", "ube_sql_dialect", vec![], Type::String, false),
+            method("placeholder", "ube_sql_placeholder", vec![Type::Int], Type::String, false),
+            method("quoteIdentifier", "ube_sql_quote_identifier", vec![Type::String], Type::String, false),
+            method("execute", "ube_sql_execute", vec![Type::String, object("SQLParams")], Type::Long, false),
+            method("query", "ube_sql_query", vec![Type::String, object("SQLParams")], object("SQLResult"), false),
+            method("begin", "ube_sql_begin", vec![], object("SQLTransaction"), false),
+            method("close", "ube_sql_close", vec![], Type::Void, false),
+        ],
+        "SQLParams" => vec![
+            method("create", "ube_sql_params_create", vec![], object("SQLParams"), true),
+            method("addInt", "ube_sql_params_add_int", vec![Type::Int], Type::Void, false),
+            method("addLong", "ube_sql_params_add_long", vec![Type::Long], Type::Void, false),
+            method("addDecimal", "ube_sql_params_add_decimal", vec![Type::Decimal], Type::Void, false),
+            method("addBool", "ube_sql_params_add_bool", vec![Type::Bool], Type::Void, false),
+            method("addString", "ube_sql_params_add_string", vec![Type::String], Type::Void, false),
+            method("addBlobHex", "ube_sql_params_add_blob_hex", vec![Type::String], Type::Void, false),
+            method("addNull", "ube_sql_params_add_null", vec![Type::String], Type::Void, false),
+            method("count", "ube_sql_params_count", vec![], Type::Int, false),
+            method("clear", "ube_sql_params_clear", vec![], Type::Void, false),
+            method("close", "ube_sql_params_close", vec![], Type::Void, false),
+        ],
+        "SQLTransaction" => vec![
+            method("execute", "ube_sql_transaction_execute", vec![Type::String, object("SQLParams")], Type::Long, false),
+            method("query", "ube_sql_transaction_query", vec![Type::String, object("SQLParams")], object("SQLResult"), false),
+            method("savepoint", "ube_sql_transaction_savepoint", vec![Type::String], Type::Void, false),
+            method("rollbackTo", "ube_sql_transaction_rollback_to", vec![Type::String], Type::Void, false),
+            method("release", "ube_sql_transaction_release", vec![Type::String], Type::Void, false),
+            method("commit", "ube_sql_transaction_commit", vec![], Type::Void, false),
+            method("rollback", "ube_sql_transaction_rollback", vec![], Type::Void, false),
+            method("close", "ube_sql_transaction_close", vec![], Type::Void, false),
+        ],
+        "SQLResult" => vec![
+            method("next", "ube_sql_result_next", vec![], Type::Bool, false),
+            method("reset", "ube_sql_result_reset", vec![], Type::Void, false),
+            method("rowCount", "ube_sql_result_row_count", vec![], Type::Long, false),
+            method("columnCount", "ube_sql_result_column_count", vec![], Type::Int, false),
+            method("columnName", "ube_sql_result_column_name", vec![Type::Int], Type::String, false),
+            method("columnIndex", "ube_sql_result_column_index", vec![Type::String], Type::Int, false),
+            method("columnType", "ube_sql_result_column_type", vec![Type::Int], Type::String, false),
+            method("isNull", "ube_sql_result_is_null", vec![Type::Int], Type::Bool, false),
+            method("getInt", "ube_sql_result_get_int", vec![Type::Int], Type::Int, false),
+            method("getLong", "ube_sql_result_get_long", vec![Type::Int], Type::Long, false),
+            method("getDecimal", "ube_sql_result_get_decimal", vec![Type::Int], Type::Decimal, false),
+            method("getBool", "ube_sql_result_get_bool", vec![Type::Int], Type::Bool, false),
+            method("getString", "ube_sql_result_get_string", vec![Type::Int], Type::String, false),
+            method("getBlobHex", "ube_sql_result_get_blob_hex", vec![Type::Int], Type::String, false),
+            method("close", "ube_sql_result_close", vec![], Type::Void, false),
+        ],
+        _ => vec![],
+    }
 }

@@ -1081,6 +1081,13 @@ impl TypeChecker {
             });
         }
 
+        for &name in crate::builtins::SQL_CLASSES {
+            self.classes.insert(name.into(), ClassInfo {
+                name: name.into(), fields: HashMap::new(),
+                methods: crate::builtins::sql_methods(name).into_iter().map(|m| (m.name.into(), (m.params, m.result))).collect(),
+                param_types: vec![], min_constructor_args: 0, max_constructor_args: 0,
+            });
+        }
         for &name in crate::builtins::AUTH_CLASSES {
             self.classes.insert(name.into(), ClassInfo {
                 name: name.into(), fields: HashMap::new(),
@@ -1212,6 +1219,7 @@ impl TypeChecker {
         );
 
         let file_errors = vec![
+            "SQLError",
             "SQLiteError",
             "FileError",
             "FileNotFoundError",
@@ -2401,6 +2409,24 @@ impl TypeChecker {
                                     }
                                     return Some(result);
                                 }
+                                if crate::builtins::SQL_CLASSES.contains(&name.as_str()) {
+                                    let Some(method) = crate::builtins::sql_methods(name).into_iter().find(|m| m.name == member) else {
+                                        self.diagnostics.push(Diagnostic::error(format!("Unknown {} method '{}'", name, member), Some(expr.span)));
+                                        return None;
+                                    };
+                                    if class_receiver != method.is_static {
+                                        self.diagnostics.push(Diagnostic::error("SQL factory methods require the class; other methods require an instance", Some(expr.span)));
+                                        return None;
+                                    }
+                                    if args.len() != method.params.len() || arg_types.len() != method.params.len() {
+                                        self.diagnostics.push(Diagnostic::error(format!("{}.{} expects {} arguments", name, member, method.params.len()), Some(expr.span)));
+                                        return None;
+                                    }
+                                    if !arg_types.iter().zip(&method.params).all(|(actual, expected)| self.is_assignable_to(actual, expected)) {
+                                        self.diagnostics.push(Diagnostic::error("Invalid SQL method argument types; handles and strings must be non-null", Some(expr.span)));
+                                    }
+                                    return Some(method.result);
+                                }
                                 if crate::builtins::AUTH_CLASSES.contains(&name.as_str()) {
                                     let Some(method) = crate::builtins::auth_methods(name).into_iter().find(|m| m.name == member) else {
                                         self.diagnostics.push(Diagnostic::error(format!("Unknown {} method '{}'", name, member), Some(expr.span)));
@@ -2678,6 +2704,10 @@ impl TypeChecker {
                 let class_name = canonical_builtin_class_name(class_name).unwrap_or(class_name);
                 if class_name == "Log" || class_name == "Console" {
                     self.diagnostics.push(Diagnostic::error("Use log(value), Log.info(value), or Console.printLine(value); these built-ins do not create instances", Some(expr.span)));
+                    return None;
+                }
+                if crate::builtins::SQL_CLASSES.contains(&class_name) {
+                    self.diagnostics.push(Diagnostic::error("Use SQL.open(url), SQLParams.create(), or connection methods; SQL handles cannot be constructed", Some(expr.span)));
                     return None;
                 }
                 if crate::builtins::AUTH_CLASSES.contains(&class_name) {

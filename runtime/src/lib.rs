@@ -12,6 +12,7 @@ pub mod memory;
 pub mod net;
 pub mod strings;
 pub mod sqlite;
+pub mod sql;
 pub mod sessions;
 pub mod auth;
 
@@ -24,6 +25,7 @@ pub extern "C" fn ube_runtime_init() {
 
 #[no_mangle]
 pub extern "C" fn ube_runtime_cleanup() {
+    sql::cleanup();
     sqlite::cleanup();
     concurrency::ube_concurrency_cleanup();
     logging::ube_log_clear();

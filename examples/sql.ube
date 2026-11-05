@@ -1,0 +1,33 @@
+class Application {
+    main() {
+        final db = SQL.open('sqlite::memory:')
+        final params = SQLParams.create()
+        try {
+            db.execute('CREATE TABLE users(id INTEGER PRIMARY KEY, name TEXT)', params)
+            final tx = db.begin()
+            try {
+                params.addInt(1)
+                params.addString('O\'Brien')
+                tx.execute('INSERT INTO users(id, name) VALUES (?, ?)', params)
+                tx.commit()
+            } finally {
+                // Rolls back if commit was never reached. Safe after commit or an SQL error.
+                tx.close()
+            }
+            params.clear()
+            params.addInt(1)
+            final rows = db.query('SELECT id, name FROM users WHERE id = ?', params)
+            try {
+                for (rows.next()) {
+                    print(rows.getInt(0))
+                    print(rows.getString(rows.columnIndex('name')))
+                }
+            } finally {
+                rows.close()
+            }
+        } finally {
+            params.close()
+            db.close()
+        }
+    }
+}

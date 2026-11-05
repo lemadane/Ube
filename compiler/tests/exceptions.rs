@@ -1140,3 +1140,70 @@ fn http3_configuration_and_startup_errors_are_catchable() {
         "port must be an int",
     );
 }
+
+#[test]
+fn unified_sql_bindings_transactions_and_typed_results_native() {
+    runs(r#"
+class Application {
+    insert(SQL db, SQLParams params) { db.execute('INSERT INTO users VALUES (?, ?)', params) }
+    main() {
+        final db = SQL.open('sqlite::memory:')
+        final params = SQLParams.create()
+        try {
+            print(db.dialect())
+            print(db.placeholder(1))
+            print(db.quoteIdentifier('user names'))
+            db.execute('CREATE TABLE users(id INTEGER PRIMARY KEY, name TEXT)', params)
+            params.addInt(7)
+            params.addString('O\'Brien 🍠')
+            this.insert(db, params)
+            params.clear()
+            final tx = db.begin()
+            try {
+                tx.execute(`INSERT INTO users VALUES (8, 'rolled back')`, params)
+                tx.savepoint('nested')
+                tx.execute(`INSERT INTO users VALUES (9, 'nested row')`, params)
+                tx.rollbackTo('nested')
+                tx.release('nested')
+                tx.rollback()
+            } finally { tx.close() }
+            final rows = db.query('SELECT id, name, NULL AS optional FROM users', params)
+            try {
+                print(rows.rowCount())
+                print(rows.columnName(1))
+                for (rows.next()) {
+                    print(rows.getInt(0))
+                    print(rows.getString(rows.columnIndex('name')))
+                    print(rows.isNull(2))
+                }
+            } finally { rows.close() }
+            try { db.execute('INSERT INTO users VALUES (?, ?)', params) }
+            catch (SQLError err) { print('binding error caught') }
+            final rows2 = db.query('SELECT COUNT(*) FROM users', params)
+            rows2.next()
+            print(rows2.getLong(0))
+            rows2.close()
+            try { db.execute('SELECT 1; DROP TABLE users', params) }
+            catch (SQLError err) { print('multiple statements rejected') }
+        } finally { params.close() db.close() }
+    }
+}
+"#, "sqlite\n?\n\"user names\"\n1\nname\n7\nO'Brien 🍠\ntrue\nbinding error caught\n1\nmultiple statements rejected\n");
+}
+#[test]
+fn unified_sql_enforces_factory_arity_receiver_and_types() {
+    for source in [
+        "class Application { main() { final db = SQL() } }",
+        "class Application { main() { final p = SQLParams() } }",
+        "class Application { main() { final r = SQLResult() } }",
+        "class Application { main() { final t = SQLTransaction() } }",
+    ] { rejects(source, "SQL handles cannot be constructed"); }
+    rejects("class Application { main() { SQL.query('SELECT 1', SQLParams.create()) } }", "require an instance");
+    rejects("class Application { main() { final db = SQL.open('sqlite::memory:') db.open('sqlite::memory:') } }", "require the class");
+    rejects("class Application { main() { SQL.open(42) } }", "Invalid SQL method argument types");
+    rejects("class Application { main() { final p = SQLParams.create() p.addInt('42') } }", "Invalid SQL method argument types");
+    rejects("class Application { main() { final p = SQLParams.create() p.addString(null) } }", "Invalid SQL method argument types");
+    rejects("class Application { main() { final db = SQL.open('sqlite::memory:') db.query('SELECT 1') } }", "expects 2 arguments");
+    rejects("class Application { main() { final db = SQL.open('sqlite::memory:') db.query('SELECT 1', null) } }", "Invalid SQL method argument types");
+    rejects("class Application { main() { final db = SQL.open('sqlite::memory:') db.missing() } }", "Unknown SQL method");
+}
