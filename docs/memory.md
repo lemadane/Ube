@@ -8,7 +8,8 @@ function entry, including declarations inside loops.
 Roots cover nested calls and exception cleanup. Returning a managed object
 transfers a root to the caller before the callee releases its roots. Field reads
 publish their result roots atomically; pointer-field reads, writes, root updates,
-and collection share a mutex. Scalar accesses do not participate in tracing.
+and collection share a mutex. Scalar accesses do not participate in tracing; generated reads and writes use a
+separate lock to keep scalar payloads and nullable presence coherent.
 This permits collection while generated workers run concurrently without scanning
 uninitialized or concurrently modified pointer bytes.
 
@@ -26,6 +27,13 @@ print(Gc.reclaimed())
 `Gc.collect()` returns true after completing a collection. Counts describe the
 managed tracing heap, not total process memory. Rooted children survive; cycles
 without roots are reclaimed. Type metadata for reclaimed objects is removed.
+
+Yielding async methods also publish roots from their heap-backed task frames.
+Those roots survive suspension and worker migration and are removed when a frame
+is destroyed. A regression clears the source field, collects while the method is
+suspended, and checks that the saved object is reclaimed after completion.
+Separate conservative escape pins described below still retain their existing
+shutdown lifetime; frame rooting does not eliminate those pins.
 
 ## Native ABI
 

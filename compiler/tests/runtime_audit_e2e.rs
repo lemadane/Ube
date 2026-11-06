@@ -572,3 +572,186 @@ fn generated_temporary_objects_are_collected_automatically() {
         "automatic collection stable\n",
     );
 }
+
+#[test]
+fn concurrent_collection_mutations_are_memory_safe_and_keep_all_entries() {
+    expect_output(run_ube(r#"
+        class Application {
+            async fill(List values, Channel<int> start, int seed) {
+                final signal = await start.receive()
+                var i = 0
+                for (i < 10000) { values.add(seed + i) i = i + 1 }
+            }
+            main() {
+                final values = [] final start = Channel<int>(2)
+                final a = this.fill(values, start, 0)
+                final b = this.fill(values, start, 10000)
+                final one = await start.send(1) final two = await start.send(1)
+                final done = await Task.all([a, b])
+                print(values.len())
+            }
+        }
+    "#), "20000\n");
+}
+
+#[test]
+fn task_lists_reject_non_task_payloads_without_dereferencing_them() {
+    expect_output(run_ube(r#"
+        class Application {
+            main() {
+                final invalid = [1]
+                try { final result = await Task.all(invalid) }
+                catch (Error err) { print(err.message()) }
+                try { final result = await Task.race(invalid) }
+                catch (Error err) { print(err.message()) }
+                print('alive')
+            }
+        }
+    "#), "invalid or disposed task handle\ninvalid or disposed task handle\nalive\n");
+}
+
+#[test]
+fn settled_outcomes_preserve_zero_and_original_typed_failures() {
+    expect_output(run_ube(r#"
+        class WorkError(string message, int code) {}
+        class Application {
+            async int fail() { throw WorkError('failed work', 73) }
+            main() {
+                final results = await Task.allSettled([this.fail(), async 0])
+                print(results.len()) print(results[0].succeeded()) print(results[1].succeeded())
+                print(results[1].value()) print(results[1].error() == null)
+                try { final value = results[0].value() }
+                catch (WorkError err) { print(err.message()) print(err.code()) }
+                final scalars = await Task.allSettled([async false, async 0.5, async 'hello'])
+                print(scalars[0].boolValue()) print(scalars[1].decimalValue()) print(scalars[2].stringValue())
+                try { final wrong = scalars[0].value() } catch (Error err) { print('type checked') }
+                try { final invalid = results[2] }
+                catch (Error err) { print('bounds checked') }
+            }
+        }
+    "#), "2\nfalse\ntrue\n0\ntrue\nfailed work\n73\nfalse\n0.5\nhello\ntype checked\nbounds checked\n");
+}
+
+#[test]
+fn combinator_deadline_joins_child_cleanup_and_cancels_pending_receives() {
+    expect_output(run_ube(r#"
+        class Application {
+            async int child(Channel<int> ready, Channel<int> blocked, Channel<int> done) {
+                try { final sent = await ready.send(1) return await blocked.receive() }
+                finally { final sent = await done.send(7) }
+            }
+            main() {
+                final ready = Channel<int>(1) final blocked = Channel<int>(1) final done = Channel<int>(1)
+                final child = this.child(ready, blocked, done)
+                final started = await ready.receive()
+                try { final results = await Task.all([child]).timeout(5) }
+                catch (Error err) { print(err.message()) }
+                print(await done.receive().timeout(1000))
+                try { final result = await child } catch (Error err) { print(err.message()) }
+                final receiver = blocked.receive()
+                try { final result = await Task.race([receiver]).timeout(5) }
+                catch (Error err) { print(err.message()) }
+                final sent = await blocked.send(42)
+                try { print(await receiver) } catch (Error err) { print(err.message()) }
+                print(await blocked.receive().timeout(1000))
+            }
+        }
+    "#), "task timed out\n7\ntask was cancelled\ntask timed out\ntask was cancelled\n42\n");
+}
+
+#[test]
+fn parent_completion_cancels_and_joins_unawaited_children() {
+    expect_output(run_ube(r#"
+        class Application {
+            async child(Channel<int> ready, Channel<int> blocked, Channel<int> done) {
+                try { final sent = await ready.send(1) final value = await blocked.receive() }
+                finally { final sent = await done.send(9) }
+            }
+            async parent(Channel<int> ready, Channel<int> blocked, Channel<int> done) {
+                final child = this.child(ready, blocked, done)
+                final started = await ready.receive()
+            }
+            main() {
+                final ready = Channel<int>(1) final blocked = Channel<int>(1) final done = Channel<int>(1)
+                final finished = await this.parent(ready, blocked, done)
+                print(await done.receive().timeout(1000))
+                print('parent completed')
+            }
+        }
+    "#), "9\nparent completed\n");
+}
+
+#[test]
+fn deadline_and_cancellation_preserve_typed_cleanup_failures() {
+    expect_output(run_ube(r#"
+        class CleanupError(string message, int code) {}
+        class Application {
+            async int work(Channel<int> ready, Channel<int> blocked) {
+                try { final sent = await ready.send(1) return await blocked.receive() }
+                finally { throw CleanupError('cleanup failed', 9) }
+            }
+            main() {
+                final ready = Channel<int>(1) final blocked = Channel<int>(1)
+                final first = this.work(ready, blocked)
+                final started = await ready.receive()
+                try { final value = await first.timeout(5) }
+                catch (CleanupError err) { print(err.message()) print(err.code()) }
+                final second = this.work(ready, blocked)
+                final again = await ready.receive()
+                final cancelled = second.cancel()
+                try { final value = await second }
+                catch (CleanupError err) { print(err.message()) print(err.code()) }
+            }
+        }
+    "#), "cleanup failed\n9\ncleanup failed\n9\n");
+}
+
+#[test]
+fn shared_nullable_fields_remain_coherent_between_generated_workers() {
+    expect_output(run_ube(r#"
+        class Shared(var int? number = null) {}
+        class Application {
+            async write(Shared state) {
+                var i = 0
+                for (i < 5000) { state.number(7) state.number(null) i = i + 1 }
+            }
+            async read(Shared state) {
+                var i = 0
+                for (i < 5000) {
+                    final value = state.number()
+                    if ((value ?? 7) != 7) { throw 'torn scalar field' }
+                    i = i + 1
+                }
+            }
+            main() {
+                final state = Shared(null)
+                final tasks = [this.write(state), this.read(state)]
+                final done = await Task.all(tasks)
+                print('fields stable')
+            }
+        }
+    "#), "fields stable\n");
+}
+
+#[test]
+fn root_scope_joins_workers_before_reporting_the_main_error() {
+    let output = run_ube(r#"
+        class Application {
+            async child(Channel<int> ready, Channel<int> blocked) {
+                try { final sent = await ready.send(1) final value = await blocked.receive() }
+                finally { print('child cleanup') throw 'cleanup failed' }
+            }
+            main() {
+                final ready = Channel<int>(1) final blocked = Channel<int>(1)
+                final task = this.child(ready, blocked)
+                final started = await ready.receive()
+                throw 'main failed'
+            }
+        }
+    "#);
+    assert_eq!(output.status.code(), Some(1));
+    assert_eq!(String::from_utf8_lossy(&output.stdout), "child cleanup\n");
+    let error = String::from_utf8_lossy(&output.stderr);
+    assert!(error.contains("main failed"), "{error}");
+    assert!(error.contains("suppressed: cleanup failed"), "{error}");
+}

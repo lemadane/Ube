@@ -11,6 +11,7 @@ pub mod geo;
 pub mod io;
 pub mod math;
 pub mod logging;
+pub mod observability;
 pub mod memory;
 pub mod net;
 pub mod strings;
@@ -26,14 +27,18 @@ pub mod secrets;
 pub extern "C" fn ube_runtime_init() {
     // Initialize runtime heap and garbage collector
     gc::ube_gc_init();
+    observability::init();
+    concurrency::ube_task_scope_enter();
 }
 
 #[no_mangle]
 pub extern "C" fn ube_runtime_cleanup() {
+    concurrency::ube_task_scope_leave();
+    concurrency::ube_concurrency_cleanup();
+    observability::cleanup();
     orm::cleanup();
     sql::cleanup();
     sqlite::cleanup();
-    concurrency::ube_concurrency_cleanup();
     logging::ube_log_clear();
     sessions::cleanup();
     rest_in_peace::cleanup();

@@ -1,3 +1,4 @@
+mod async_lowering;
 use crate::ir::nodes::*;
 use crate::parser::BinaryOp;
 use crate::types::Type;
@@ -12,6 +13,7 @@ pub struct TextualLlvmEmitter {
     task_thunks: Vec<String>,
     slots: HashMap<Register, Type>,
     signatures: HashMap<(String,String), Vec<Type>>,
+    yielding: HashMap<(String, String), usize>,
 }
 
 impl TextualLlvmEmitter {
@@ -25,11 +27,13 @@ impl TextualLlvmEmitter {
             task_thunks: Vec::new(),
             slots: HashMap::new(),
             signatures: HashMap::new(),
+            yielding: HashMap::new(),
         }
     }
 
     pub fn emit_program(&mut self, ir_program: &IrProgram) -> String {
         self.output.clear();
+        self.yielding = ir_program.functions.iter().filter_map(|f| async_lowering::layout(f).map(|size| ((f.class_name.clone(), f.name.clone()), size))).collect();
         self.signatures = ir_program.functions.iter().map(|f| ((f.class_name.clone(), f.name.clone()), f.params.iter().map(|(_,t)| t.clone()).collect())).collect();
         self.class_map = ir_program
             .classes
@@ -43,6 +47,7 @@ impl TextualLlvmEmitter {
             .push_str("; Target Data Layout for Ube Native Binary\n");
         self.output.push_str("target datalayout = \"e-m:e-p270:32:32-p271:32:32-p272:64:64-i64:64-f80:128-n8:16:32:64-S128\"\n\n");
 
+        self.output.push_str("declare i8* @ube_task_spawn_poll(i64, i8*, i64)\ndeclare { i64, i64 } @ube_poll_get(i8*, i64)\ndeclare void @ube_poll_set(i8*, i64, i64, i64, i1)\ndeclare i64 @ube_poll_pc(i8*)\ndeclare i1 @ube_poll_step(i8*, i64)\ndeclare i1 @ube_poll_await(i8*, i8*)\ndeclare { i64, i64 } @ube_poll_value(i8*)\ndeclare void @ube_poll_finish(i8*, i64, i64)\n");
         self.output.push_str("declare void @ube_type_method(i8*, i8*, i8*)\ndeclare i1 @ube_object_satisfies(i8*, i8*)\ndeclare i8* @ube_object_method(i8*, i8*)\ndeclare void @ube_object_register(i8*, i8*)\ndeclare i1 @ube_object_is(i8*, i8*)\ndeclare i8* @ube_exception_create(i8*, i8*, i8*, i8*)\ndeclare i8* @ube_exception_object(i8*)\ndeclare i8* @ube_exception_take()\ndeclare void @ube_exception_set(i8*)\ndeclare void @ube_exception_suppress(i8*, i8*)\ndeclare i8* @ube_exception_poll_cancel()\ndeclare void @ube_exception_fail_unhandled()\n");
         self.output.push_str("declare i64 @ube_mockery_create()\ndeclare void @ube_mockery_allow(i64, i8*)\ndeclare void @ube_mockery_throws(i64, i8*, i8*)\ndeclare void @ube_mockery_verify(i64, i8*, i32)\ndeclare i64 @ube_mockery_calls(i64, i8*)\ndeclare void @ube_mockery_verify_no_calls(i64)\ndeclare void @ube_mockery_reset(i64)\ndeclare void @ube_mockery_clearCalls(i64)\ndeclare void @ube_mockery_dispose(i64)\ndeclare void @ube_mockery_call_void(i64, i8*)\n");
         for (kind, ty) in [("int", "i32"), ("long", "i64"), ("byte", "i8"), ("bool", "i1"), ("decimal", "double"), ("string", "i8*")] {
@@ -62,6 +67,7 @@ impl TextualLlvmEmitter {
         self.output.push_str("declare void @ube_output_i64(i32, i64)\n");
         self.output.push_str("declare void @ube_output_f64(i32, double)\n");
         self.output.push_str("declare void @ube_output_bool(i32, i1)\n");
+        self.output.push_str("declare void @ube_observability_start(i64)\ndeclare void @ube_observability_stop()\ndeclare void @ube_health_ready(i1)\ndeclare void @ube_metrics_increment(i8*)\ndeclare void @ube_metrics_add(i8*, double)\ndeclare void @ube_metrics_gauge(i8*, double)\ndeclare void @ube_metrics_record(i8*, double)\n");
         self.output.push_str("declare void @ube_log_set_level(i8*)\n");
         self.output.push_str("declare void @ube_log_put(i8*, i8*)\n");
         self.output.push_str("declare i8* @ube_log_get(i8*)\n");
@@ -347,6 +353,7 @@ impl TextualLlvmEmitter {
             .push_str("declare double @ube_probability_poisson(i64, double)\n");
         self.output
             .push_str("declare double @ube_probability_uniform(double, double, double)\n");
+        self.output.push_str("declare i32 @ube_task_outcomes_len(i8*)\ndeclare i8* @ube_task_outcomes_get(i8*, i32)\ndeclare i1 @ube_task_outcome_succeeded(i8*)\ndeclare i64 @ube_task_outcome_value(i8*)\ndeclare %Error* @ube_task_outcome_error(i8*)\ndeclare i1 @ube_task_outcome_bool(i8*)\ndeclare double @ube_task_outcome_decimal(i8*)\ndeclare i8* @ube_task_outcome_string(i8*)\n");
         for &class in crate::builtins::SQLITE_CLASSES {
             for method in crate::builtins::sqlite_methods(class) {
                 let mut params = Vec::new();
@@ -648,11 +655,16 @@ impl TextualLlvmEmitter {
         }
         self.output.push_str("  ret void\n}\n\n");
 
+        self.output.push_str("declare void @ube_task_scope_leave()\ndeclare { i64, i64 } @ube_shared_load(i8*, i8*, i64)\ndeclare void @ube_shared_store(i8*, i8*, i64, i64, i64)\n");
         // Emit functions
         for func in &ir_program.functions {
             let func_str = self.emit_function(func);
             self.output.push_str(&func_str);
             self.output.push('\n');
+            if self.yielding.contains_key(&(func.class_name.clone(), func.name.clone())) {
+                let poll = self.emit_poll_function(func);
+                self.output.push_str(&poll);
+            }
         }
 
         for thunk in std::mem::take(&mut self.task_thunks) {
@@ -681,6 +693,7 @@ impl TextualLlvmEmitter {
                 "  call void @{}({}* %app)\n",
                 target_symbol, class_type
             ));
+            self.output.push_str("  call void @ube_task_scope_leave()\n");
             self.output.push_str("  call void @ube_exception_fail_unhandled()\n");
             self.output.push_str("  call void @ube_runtime_cleanup()\n");
             self.output.push_str("  ret i32 0\n");
@@ -871,7 +884,12 @@ impl TextualLlvmEmitter {
                     instructions.push(format!("%{} = bitcast i8* %gc_loaded_{} to {}", dest.0, number, field_ty_str));
                     instructions.join("\n  ")
                 } else {
-                    format!("%{} = getelementptr inbounds {}, {}* %{}, i32 0, i32 {}\n  %{} = load {}, {}* %{}, align 1", gep_reg, class_type, class_type, ptr.0, field_index, dest.0, field_ty_str, field_ty_str, gep_reg)
+                    let mut instructions = vec![format!("%{} = getelementptr inbounds {}, {}* %{}, i32 0, i32 {}", gep_reg, class_type, class_type, ptr.0, field_index)];
+                    let (setup, payload, presence, bytes) = self.scalar_field(&gep_reg, field_ty);
+                    instructions.extend(setup);
+                    instructions.push(format!("%shared_{} = call {{ i64, i64 }} @ube_shared_load(i8* {}, i8* {}, i64 {})", gep_reg, payload, presence, bytes));
+                    instructions.extend(self.decode_value(field_ty, &format!("%shared_{}", gep_reg), &dest.0.to_string()).0);
+                    instructions.join("\n  ")
                 }
             }
             IrInstruction::StoreField {
@@ -899,7 +917,11 @@ impl TextualLlvmEmitter {
                     instructions.push(format!("%gc_index_{} = sub i64 %gc_offset_{}, %gc_base_{}", number, number, number));
                     instructions.push(format!("call void @ube_gc_store_reference(i8* {}, i64 %gc_index_{}, i8* {})", object, number, value));
                 } else {
-                    instructions.push(format!("store {} {}, {}* %{}, align 1", val_ty_str, val_str, val_ty_str, gep_reg));
+                    let (setup, payload, presence, bytes) = self.scalar_field(&gep_reg, &val_ty);
+                    instructions.extend(setup);
+                    let encoded = self.encode_value(&val_ty, &val_str, &format!("shared_{}", gep_reg));
+                    instructions.extend(encoded.0);
+                    instructions.push(format!("call void @ube_shared_store(i8* {}, i8* {}, i64 {}, i64 {}, i64 {})", payload, presence, bytes, encoded.1, encoded.2));
                 }
                 instructions.join("\n  ")
             }
@@ -1527,7 +1549,7 @@ impl TextualLlvmEmitter {
             Type::Task(_) => "i8*".to_string(),
             Type::Channel(_) => "i8*".to_string(),
             Type::Class { name }
-                if matches!(name.as_str(), "Task" | "Channel" | "List" | "Map") =>
+                if matches!(name.as_str(), "Task" | "Channel" | "List" | "Map" | "TaskOutcome" | "TaskOutcomes") =>
             {
                 "i8*".to_string()
             }
@@ -1630,7 +1652,8 @@ impl TextualLlvmEmitter {
             (lines, encoded.1, format!("%{name}_meta"))
         } else {
             let encoded = self.encode_i64(ty, value, name);
-            (encoded.0, encoded.1, "1".into())
+            let kind = match ty { Type::Int => 1, Type::Long => 2, Type::Byte => 3, Type::Bool => 4, Type::Decimal => 5, Type::String => 6, _ => 7 };
+            (encoded.0, encoded.1, (1 | (kind << 8)).to_string())
         }
     }
 
@@ -1651,6 +1674,23 @@ impl TextualLlvmEmitter {
             lines.extend(decoded.0);
             (lines, decoded.1)
         }
+    }
+
+    fn scalar_field(&self, gep: &str, ty: &Type) -> (Vec<String>, String, String, usize) {
+        let mut lines = Vec::new();
+        let inner = ty.nullable_scalar_inner().unwrap_or(ty);
+        let width = match inner { Type::Bool | Type::Byte => 1, Type::Int => 4, _ => 8 };
+        let llvm = self.type_to_llvm(ty);
+        let payload = if ty.nullable_scalar_inner().is_some() {
+            lines.push(format!("%{gep}_data = getelementptr {llvm}, {llvm}* %{gep}, i32 0, i32 1"));
+            format!("%{gep}_data")
+        } else { format!("%{gep}") };
+        lines.push(format!("%{gep}_bytes = bitcast {}* {} to i8*", self.type_to_llvm(inner), payload));
+        let presence = if ty.nullable_scalar_inner().is_some() {
+            lines.push(format!("%{gep}_tag = bitcast {llvm}* %{gep} to i8*"));
+            format!("%{gep}_tag")
+        } else { "null".into() };
+        (lines, format!("%{gep}_bytes"), presence, width)
     }
 
     fn emit_async_call(
@@ -1680,6 +1720,11 @@ impl TextualLlvmEmitter {
                 "call void @ube_task_context_set_value(i8* %task_ctx_{}, i64 {}, i64 {}, i64 {})",
                 dest.0, index, encoded.1, encoded.2
             ));
+        }
+        if let Some(size) = self.yielding.get(&(class_name.to_owned(), method_name.to_owned())) {
+            instructions.push(format!("%task_fn_{} = ptrtoint i1 (i8*)* @__ube_poll_{}_{} to i64", dest.0, class_name, method_name));
+            instructions.push(format!("%{} = call i8* @ube_task_spawn_poll(i64 %task_fn_{}, i8* %task_ctx_{}, i64 {})", dest.0, dest.0, dest.0, size));
+            return instructions.join("\n  ");
         }
         instructions.push(format!(
             "%task_fn_{} = ptrtoint {{ i64, i64 }} (i8*)* @{} to i64",
@@ -1726,6 +1771,11 @@ impl TextualLlvmEmitter {
                 "call void @ube_task_context_set_value(i8* %task_ctx_{}, i64 {}, i64 {}, i64 {})",
                 dest.0, index, encoded.1, encoded.2
             ));
+        }
+        if let Some(size) = self.yielding.get(&(class_name.to_owned(), method_name.to_owned())) {
+            instructions.push(format!("%task_fn_{} = ptrtoint i1 (i8*)* @__ube_poll_{}_{} to i64", dest.0, class_name, method_name));
+            instructions.push(format!("%{} = call i8* @ube_task_spawn_poll(i64 %task_fn_{}, i8* %task_ctx_{}, i64 {})", dest.0, dest.0, dest.0, size));
+            return instructions.join("\n  ");
         }
         instructions.push(format!(
             "%task_fn_{} = ptrtoint {{ i64, i64 }} (i8*)* @{} to i64",

@@ -41,6 +41,9 @@ const BUILTIN_CLASS_NAMES: &[&str] = &[
     "JsonParseError",
     "List",
     "Log",
+    "Metrics",
+    "Health",
+    "Observability",
     "LocationPermissionError",
     "LocationUnavailableError",
     "Map",
@@ -76,6 +79,8 @@ const BUILTIN_CLASS_NAMES: &[&str] = &[
     "SQLiteStatement",
     "SQLiteError",
     "Task",
+    "TaskOutcome",
+    "TaskOutcomes",
     "WebSocket",
     "Xml",
     "XmlDocument",
@@ -694,4 +699,46 @@ pub fn env_methods() -> Vec<BuiltinMethod> {
         BuiltinMethod { name: "require", symbol: "ube_env_require", params: vec![Type::String], result: Type::String, is_static: true },
         BuiltinMethod { name: "has", symbol: "ube_env_has", params: vec![Type::String], result: Type::Bool, is_static: true },
     ]
+}
+
+/// Immutable settled outcomes, separate from untyped collection payloads.
+pub fn task_outcome_methods(class: &str) -> Vec<BuiltinMethod> {
+    use crate::types::Type;
+    let methods = match class {
+        "TaskOutcomes" => vec![
+            ("len", "ube_task_outcomes_len", vec![], Type::Int),
+            ("get", "ube_task_outcomes_get", vec![Type::Int], Type::Class { name: "TaskOutcome".into() }),
+        ],
+        "TaskOutcome" => vec![
+            ("succeeded", "ube_task_outcome_succeeded", vec![], Type::Bool),
+            ("value", "ube_task_outcome_value", vec![], Type::Long),
+            ("boolValue", "ube_task_outcome_bool", vec![], Type::Bool),
+            ("decimalValue", "ube_task_outcome_decimal", vec![], Type::Decimal),
+            ("stringValue", "ube_task_outcome_string", vec![], Type::String),
+            ("error", "ube_task_outcome_error", vec![], Type::Nullable(Box::new(Type::Class { name: "Error".into() }))),
+        ],
+        _ => return vec![],
+    };
+    methods.into_iter().map(|(name, symbol, params, result)| BuiltinMethod { name, symbol, params, result, is_static: false }).collect()
+}
+
+/// Optional in-process management listener and bounded application measurements.
+pub const OBSERVABILITY_CLASSES: &[&str] = &["Observability", "Metrics", "Health"];
+pub fn observability_methods(class: &str) -> Vec<BuiltinMethod> {
+    use crate::types::Type;
+    let method = |name, symbol, params, result| BuiltinMethod { name, symbol, params, result, is_static: true };
+    match class {
+        "Observability" => vec![
+            method("start", "ube_observability_start", vec![Type::Int], Type::Void),
+            method("stop", "ube_observability_stop", vec![], Type::Void),
+        ],
+        "Metrics" => vec![
+            method("increment", "ube_metrics_increment", vec![Type::String], Type::Void),
+            method("add", "ube_metrics_add", vec![Type::String, Type::Decimal], Type::Void),
+            method("gauge", "ube_metrics_gauge", vec![Type::String, Type::Decimal], Type::Void),
+            method("record", "ube_metrics_record", vec![Type::String, Type::Decimal], Type::Void),
+        ],
+        "Health" => vec![method("ready", "ube_health_ready", vec![Type::Bool], Type::Void)],
+        _ => vec![],
+    }
 }

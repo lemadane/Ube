@@ -1147,7 +1147,22 @@ class Application {
 
 ### 11. Concurrency Runtime and Current Language Boundary
 
-The runtime uses a shared multithreaded Tokio executor. Async Ube method calls are converted to generated callback thunks that capture the receiver and arguments and execute the method on Tokio's blocking pool. `await` blocks a synchronous Ube caller; the Rust API's `join` is available to async Rust callers. `Task<T>` carries `Result<T, TaskError>` rather than turning failures into successful values. `T` must be cloneable and thread-safe because task results can be observed by multiple waiters.
+For Ube task ownership, cancellation, safe sharing, and settled-result examples,
+see [Concurrency in Ube](docs/concurrency.md). Async task bodies and the program's
+main scope cancel and join unfinished child tasks before completing. No new
+syntax is required. `Task.allSettled` now returns `TaskOutcomes`, with explicit
+success/error status and checked scalar accessors instead of replacing failures
+with zero. Built-in list/map operations and generated scalar field accesses are
+synchronized; multi-step updates still require coordination.
+
+The runtime uses a shared multithreaded Tokio executor. Eligible async methods
+now compile to resumable native poll functions: pending awaits release their
+worker, and a heap frame preserves locals and rooted references. This first slice
+covers channel/task waits and known nonblocking control flow. Methods containing
+ordinary calls, object construction, nested async submissions, or potentially
+blocking runtime operations retain generated callbacks on Tokio's blocking pool.
+See [yielding support and limits](docs/concurrency.md#yielding-native-methods-first-supported-slice)
+and the [benchmark](benchmarks/README.md). `await` blocks a synchronous Ube caller; the Rust API's `join` is available to async Rust callers. `Task<T>` carries `Result<T, TaskError>` rather than turning failures into successful values. `T` must be cloneable and thread-safe because task results can be observed by multiple waiters.
 
 ```rust
 use std::time::Duration;
@@ -1175,7 +1190,7 @@ assert_eq!(channel.receive().await?, None);
 - `await_timeout` returns `TaskError::Timeout` and requests cancellation. Dropping an async future cancels it at await points. A generated Ube method callback already running on the blocking pool cannot be forcibly stopped; its task is marked cancelled but its synchronous body may continue.
 - `Channel<T>` is bounded (default capacity 64). Sends wait for capacity, receive returns `None` after close and buffered values are drained, and close wakes blocked senders/receivers with a closed outcome.
 
-The compiler now schedules calls to declared `async` methods and infers the awaited result type. Async method results are transported through a two-word ABI value (64-bit integer/boolean/decimal bits or pointer, plus presence metadata); compiler-generated callbacks own their capture context, and task handles are cleaned up with the runtime. `Task.all`, `Task.any`, `Task.race`, and `Task.allSettled` also return tasks and observe completion order.
+The compiler now schedules calls to declared `async` methods and infers the awaited result type. Async method results are transported through a two-word ABI value (64-bit integer/boolean/decimal bits or pointer, plus presence and scalar-kind metadata); compiler-generated callbacks own their capture context, and task handles are cleaned up with the runtime. `Task.all`, `Task.any`, `Task.race`, and `Task.allSettled` also return tasks; the language wrappers cancel and join remaining workers before completing.
 
 The compiler transports async method throws and runtime task failures to an enclosing `try`/`catch`; use `err.message()` to inspect the message. Awaiting a failure without a matching `catch` propagates it from an async method or `async` expression to its awaiter; anywhere else the program stops with `Ube error: unhandled exception ...` (exit code 1). Generated async methods poll cancellation at basic-block boundaries and raise a catchable cancellation error so cleanup runs; a currently executing indivisible operation cannot be interrupted. `async expr` captures visible locals when submitted and evaluates the expression on a worker. Language channels support explicit element types (`Channel<T>(capacity)`) and `close()`; `send(value)` returns `Task<bool>` and `receive()` returns `Task<T>`, with the channel wait performed on Tokio. `send` completes with false if the channel is closed; after buffered values are drained, `receive` fails with a catchable channel-closed error. `task.timeout(ms)` wraps any task (including a channel operation) with a deadline; `Task.race` waits on several channels at once. The language channel bridge supports primitive values, pointer-sized values, and nullable scalars (`int?`, `long?`, `byte?`, `bool?`, `decimal?`). Scalar presence is stored separately, so null remains distinct from zero and false across locals, calls, fields, captures, tasks, and channels. Task errors and channel closure use the exception path, not a null payload. Untyped `List`/`Map` storage still uses single-word elements: storing nullable scalars or tasks with nullable scalar results is diagnosed, including lists passed to task combinators. Typed nullable collections/combinators remain Phase 1 follow-up work. Compiler and runtime must be rebuilt together for the new ABI.
 
@@ -1572,3 +1587,20 @@ See the [complete SQLite API reference](docs/sqlite.md) and
 ## License
 
 Ube is open-source software licensed under the [MIT License](LICENSE).
+
+
+### Observability
+
+Ube has optional metrics and health endpoints on a separate localhost listener inside the application process:
+
+```ube
+Observability.start(9090)
+Health.ready(true)
+Metrics.increment('orders_created_total')
+Metrics.gauge('orders_pending', 12)
+Metrics.record('order_processing_seconds', 0.025)
+```
+
+`GET /health/live`, `GET /health/ready`, and `GET /metrics` expose liveness, readiness, and Prometheus metrics. Readiness starts false (HTTP 503). Runtime measurements include uptime, task counts, GC counts, and resident memory on Linux. The listener is disabled until explicitly started, binds only to `127.0.0.1`, and stops during runtime cleanup. Call `Observability.stop()` to stop it earlier. Keep the application running after starting it.
+
+See [Observability](docs/observability.md) for the API, validation rules, supported measurements, and current limits.

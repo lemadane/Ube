@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::sync::Mutex;
 
 #[repr(C)]
 pub struct UbeArray {
@@ -25,12 +26,12 @@ pub extern "C" fn ube_array_create(capacity: usize, element_size: usize) -> UbeA
 
 #[repr(C)]
 pub struct UbeList {
-    pub items: Vec<i64>,
+    pub items: Mutex<Vec<i64>>,
 }
 
 #[no_mangle]
 pub extern "C" fn ube_list_create() -> *mut UbeList {
-    let list = Box::new(UbeList { items: Vec::new() });
+    let list = Box::new(UbeList { items: Mutex::new(Vec::new()) });
     Box::into_raw(list)
 }
 
@@ -38,7 +39,7 @@ pub extern "C" fn ube_list_create() -> *mut UbeList {
 pub extern "C" fn ube_list_add(ptr: *mut UbeList, val: i64) {
     if !ptr.is_null() {
         unsafe {
-            (*ptr).items.push(val);
+            (*ptr).items.lock().unwrap().push(val);
         }
     }
 }
@@ -47,7 +48,7 @@ pub extern "C" fn ube_list_add(ptr: *mut UbeList, val: i64) {
 pub extern "C" fn ube_list_get(ptr: *mut UbeList, idx: i64) -> i64 {
     if !ptr.is_null() {
         unsafe {
-            let items = &(*ptr).items;
+            let items = (*ptr).items.lock().unwrap();
             if idx >= 0 && (idx as usize) < items.len() {
                 return items[idx as usize];
             }
@@ -60,7 +61,7 @@ pub extern "C" fn ube_list_get(ptr: *mut UbeList, idx: i64) -> i64 {
 pub extern "C" fn ube_list_len(ptr: *mut UbeList) -> i64 {
     if !ptr.is_null() {
         unsafe {
-            return (*ptr).items.len() as i64;
+            return (*ptr).items.lock().unwrap().len() as i64;
         }
     }
     0
@@ -68,13 +69,13 @@ pub extern "C" fn ube_list_len(ptr: *mut UbeList) -> i64 {
 
 #[repr(C)]
 pub struct UbeMap {
-    pub entries: HashMap<i64, i64>,
+    pub entries: Mutex<HashMap<i64, i64>>,
 }
 
 #[no_mangle]
 pub extern "C" fn ube_map_create() -> *mut UbeMap {
     let map = Box::new(UbeMap {
-        entries: HashMap::new(),
+        entries: Mutex::new(HashMap::new()),
     });
     Box::into_raw(map)
 }
@@ -83,7 +84,7 @@ pub extern "C" fn ube_map_create() -> *mut UbeMap {
 pub extern "C" fn ube_map_put(ptr: *mut UbeMap, key: i64, val: i64) {
     if !ptr.is_null() {
         unsafe {
-            (*ptr).entries.insert(key, val);
+            (*ptr).entries.lock().unwrap().insert(key, val);
         }
     }
 }
@@ -91,14 +92,14 @@ pub extern "C" fn ube_map_put(ptr: *mut UbeMap, key: i64, val: i64) {
 // Presence is separate from the payload: zero is a valid stored value.
 #[no_mangle]
 pub extern "C" fn ube_map_contains_key(ptr: *mut UbeMap, key: i64) -> bool {
-    !ptr.is_null() && unsafe { &*ptr }.entries.contains_key(&key)
+    !ptr.is_null() && unsafe { &*ptr }.entries.lock().unwrap().contains_key(&key)
 }
 
 #[no_mangle]
 pub extern "C" fn ube_map_get(ptr: *mut UbeMap, key: i64) -> i64 {
     if !ptr.is_null() {
         unsafe {
-            if let Some(val) = (*ptr).entries.get(&key) {
+            if let Some(val) = (*ptr).entries.lock().unwrap().get(&key) {
                 return *val;
             }
         }
@@ -110,15 +111,35 @@ pub extern "C" fn ube_map_get(ptr: *mut UbeMap, key: i64) -> i64 {
 pub extern "C" fn ube_map_len(ptr: *mut UbeMap) -> i64 {
     if !ptr.is_null() {
         unsafe {
-            return (*ptr).entries.len() as i64;
+            return (*ptr).entries.lock().unwrap().len() as i64;
         }
     }
     0
 }
 
+/// Clone one consistent view before calling code that may block or spawn tasks.
+pub(crate) fn snapshot(ptr: *mut UbeList) -> Option<Vec<i64>> {
+    if ptr.is_null() { None } else { Some(unsafe { &*ptr }.items.lock().unwrap().clone()) }
+}
+
 #[cfg(test)]
 mod allocation_tests {
     use super::*;
+
+    #[test]
+    fn concurrent_map_writers_keep_every_entry() {
+        let map = ube_map_create() as usize;
+        let workers: Vec<_> = (0..4).map(|worker| std::thread::spawn(move || {
+            for index in 0..10000 {
+                let key = worker * 10000 + index;
+                ube_map_put(map as *mut UbeMap, key, key);
+                assert_eq!(ube_map_get(map as *mut UbeMap, key), key);
+            }
+        })).collect();
+        for worker in workers { worker.join().unwrap(); }
+        assert_eq!(ube_map_len(map as *mut UbeMap), 40000);
+        unsafe { drop(Box::from_raw(map as *mut UbeMap)); }
+    }
 
     #[test]
     fn failed_array_allocation_never_retains_requested_capacity() {

@@ -417,3 +417,30 @@ pub extern "C" fn ube_gc_load_reference(
     frame_pin(&mut state, key, value);
     value
 }
+
+// Shared scalar fields use one lock for their payload and nullable presence.
+// A read-modify-write sequence still requires coordination through a channel.
+fn scalar_lock() -> &'static Mutex<()> {
+    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    LOCK.get_or_init(|| Mutex::new(()))
+}
+#[no_mangle]
+pub extern "C" fn ube_shared_load(payload: *const u8, presence: *const u8, bytes: usize) -> crate::concurrency::AbiValue {
+    let _guard = scalar_lock().lock().unwrap();
+    let mut result = crate::concurrency::AbiValue::default();
+    if payload.is_null() || ![1, 4, 8].contains(&bytes) { return result; }
+    unsafe {
+        std::ptr::copy_nonoverlapping(payload, (&mut result.payload as *mut i64).cast(), bytes);
+        result.meta = if presence.is_null() || *presence != 0 { 1 } else { 0 };
+    }
+    result
+}
+#[no_mangle]
+pub extern "C" fn ube_shared_store(payload: *mut u8, presence: *mut u8, bytes: usize, value: i64, meta: u64) {
+    let _guard = scalar_lock().lock().unwrap();
+    if payload.is_null() || ![1, 4, 8].contains(&bytes) { return; }
+    unsafe {
+        std::ptr::copy_nonoverlapping((&value as *const i64).cast(), payload, bytes);
+        if !presence.is_null() { *presence = u8::from(meta != 0); }
+    }
+}

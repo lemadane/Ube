@@ -170,7 +170,7 @@ impl TypeChecker {
                     name: "List".into(),
                 }],
                 Type::Task(Box::new(Type::Class {
-                    name: "List".into(),
+                    name: "TaskOutcomes".into(),
                 })),
             ),
         );
@@ -1107,6 +1107,20 @@ impl TypeChecker {
             self.classes.insert(name.into(), ClassInfo {
                 name: name.into(), fields: HashMap::new(),
                 methods: crate::rest_in_peace::methods(name).into_iter().map(|m| (m.name.into(), (m.params, m.result))).collect(),
+                param_types: vec![], min_constructor_args: 0, max_constructor_args: 0,
+            });
+        }
+        for name in ["TaskOutcome", "TaskOutcomes"] {
+            self.classes.insert(name.into(), ClassInfo {
+                name: name.into(), fields: HashMap::new(),
+                methods: crate::builtins::task_outcome_methods(name).into_iter().map(|m| (m.name.into(), (m.params, m.result))).collect(),
+                param_types: vec![], min_constructor_args: 0, max_constructor_args: 0,
+            });
+        }
+        for &name in crate::builtins::OBSERVABILITY_CLASSES {
+            self.classes.insert(name.into(), ClassInfo {
+                name: name.into(), fields: HashMap::new(),
+                methods: crate::builtins::observability_methods(name).into_iter().map(|m| (m.name.into(), (m.params, m.result))).collect(),
                 param_types: vec![], min_constructor_args: 0, max_constructor_args: 0,
             });
         }
@@ -2513,6 +2527,36 @@ impl TypeChecker {
                                     }
                                     return Some(method.result);
                                 }
+                                if name == "Task" && ["all", "any", "race", "allSettled"].contains(&member.as_str()) {
+                                    if !class_receiver { self.diagnostics.push(Diagnostic::error("Task combinators require a class call", Some(expr.span))); }
+                                    if let Some(list) = args.first() {
+                                        if let ExprKind::ListLiteral(elements) = &list.kind {
+                                            for element in elements {
+                                                if !matches!(self.check_expr(cls, element), Some(Type::Task(_))) {
+                                                    self.diagnostics.push(Diagnostic::error("Task combinators accept only task elements", Some(element.span)));
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                                if ["TaskOutcome", "TaskOutcomes"].contains(&name.as_str()) {
+                                    let method = crate::builtins::task_outcome_methods(name).into_iter().find(|m| m.name == member);
+                                    if class_receiver || method.as_ref().is_none_or(|m| m.params != arg_types || args.len() != m.params.len()) {
+                                        self.diagnostics.push(Diagnostic::error("Invalid task outcome method call", Some(expr.span)));
+                                    }
+                                    return method.map(|m| m.result);
+                                }
+                                if crate::builtins::OBSERVABILITY_CLASSES.contains(&name.as_str()) {
+                                    let Some(method) = crate::builtins::observability_methods(name).into_iter().find(|m| m.name == member) else {
+                                        self.diagnostics.push(Diagnostic::error(format!("Unknown {name} method '{member}'"), Some(expr.span)));
+                                        return None;
+                                    };
+                                    if !class_receiver || args.len() != method.params.len() || arg_types.len() != method.params.len()
+                                        || !arg_types.iter().zip(&method.params).all(|(actual, expected)| self.is_assignable_to(actual, expected)) {
+                                        self.diagnostics.push(Diagnostic::error(format!("{name}.{member} requires a static call with the declared argument types"), Some(expr.span)));
+                                    }
+                                    return Some(method.result);
+                                }
                                 if name == "Env" {
                                     let Some(method) = crate::builtins::env_methods().into_iter().find(|m| m.name == member) else {
                                         self.diagnostics.push(Diagnostic::error(format!("Unknown Env method '{}'", member), Some(expr.span)));
@@ -2820,8 +2864,12 @@ impl TypeChecker {
                     self.diagnostics.push(Diagnostic::error("Testicle does not create instances; use static assertion methods", Some(expr.span)));
                     return None;
                 }
-                if class_name == "Env" {
-                    self.diagnostics.push(Diagnostic::error("Env does not create instances; use Env.get, Env.require, or Env.has", Some(expr.span)));
+                if crate::builtins::OBSERVABILITY_CLASSES.contains(&class_name) {
+                    self.diagnostics.push(Diagnostic::error(format!("{class_name} does not create instances; use its static methods"), Some(expr.span)));
+                    return None;
+                }
+                if ["Env", "TaskOutcome", "TaskOutcomes"].contains(&class_name) {
+                    self.diagnostics.push(Diagnostic::error(format!("{class_name} does not create instances; use its task or environment API"), Some(expr.span)));
                     return None;
                 }
                 if class_name == "Gc" {
@@ -3065,8 +3113,12 @@ impl TypeChecker {
             }
             ExprKind::IndexAccess { target, index } => {
                 let target_ty = self.check_expr(cls, target);
-                self.check_expr(cls, index);
+                let index_ty = self.check_expr(cls, index);
                 if let Some(Type::Class { ref name }) = target_ty {
+                    if name == "TaskOutcomes" {
+                        if index_ty != Some(Type::Int) { self.diagnostics.push(Diagnostic::error("TaskOutcomes index must be int", Some(index.span))); }
+                        return Some(Type::Class { name: "TaskOutcome".into() });
+                    }
                     if name == "Map" {
                         return Some(Type::Nullable(Box::new(Type::Int)));
                     }

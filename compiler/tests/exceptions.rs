@@ -1338,3 +1338,13 @@ fn gc_api_requires_static_calls_and_no_arguments() {
         assert!(!errors.is_empty(), "invalid collector call accepted: {source}");
     }
 }
+
+#[test]
+fn task_combinators_check_literal_elements_and_outcome_calls() {
+    for method in ["all", "any", "race", "allSettled"] {
+        rejects(&format!("class Application {{ main() {{ final result = await Task.{method}([1]) }} }}"), "only task elements");
+    }
+    rejects("class Application { main() { final results = await Task.allSettled([async 1]) final result = results['bad'] } }", "index must be int");
+    rejects("class Application { main() { TaskOutcome() } }", "does not create instances");
+    rejects("class Application { main() { final results = await Task.allSettled([async 1]) final result = results.get('bad') } }", "Invalid task outcome method call");
+}

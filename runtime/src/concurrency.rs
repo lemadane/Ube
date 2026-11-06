@@ -1,3 +1,4 @@
+mod yielding;
 use futures_util::{stream::FuturesUnordered, FutureExt, StreamExt};
 use std::ffi::c_void;
 use std::future::Future;
@@ -14,6 +15,7 @@ const DEFAULT_CHANNEL_CAPACITY: usize = 64;
 thread_local! {
     static CURRENT_TASK_ERROR: std::cell::RefCell<Option<String>> = const { std::cell::RefCell::new(None) };
     static LAST_TASK_ERROR: std::cell::RefCell<Option<std::ffi::CString>> = const { std::cell::RefCell::new(None) };
+    static CURRENT_CHILDREN: std::cell::RefCell<Option<Arc<StdMutex<Vec<Task<AbiValue>>>>>> = const { std::cell::RefCell::new(None) };
     static CURRENT_CANCELLATION: std::cell::RefCell<Option<Arc<AtomicBool>>> = const { std::cell::RefCell::new(None) };
 }
 
@@ -27,9 +29,16 @@ fn set_last_task_error(message: String) {
     });
 }
 
-fn abi_task_handles() -> &'static StdMutex<Vec<usize>> {
-    static HANDLES: OnceLock<StdMutex<Vec<usize>>> = OnceLock::new();
-    HANDLES.get_or_init(|| StdMutex::new(Vec::new()))
+fn abi_task_handles() -> &'static StdMutex<std::collections::HashMap<usize, Task<AbiValue>>> {
+    static HANDLES: OnceLock<StdMutex<std::collections::HashMap<usize, Task<AbiValue>>>> = OnceLock::new();
+    HANDLES.get_or_init(Default::default)
+}
+
+/// Snapshot registered language task handles; completed handles may remain until disposal.
+pub(crate) fn observability_counts() -> (usize, usize) {
+    let handles = abi_task_handles().lock().unwrap();
+    let active = handles.values().filter(|task| task.result.borrow().is_none()).count();
+    (handles.len(), active)
 }
 
 fn abi_channel_handles() -> &'static StdMutex<Vec<usize>> {
@@ -51,12 +60,21 @@ impl AbiValue {
 }
 
 fn track_abi_task(task: Task<AbiValue>) -> *mut c_void {
-    let ptr = Box::into_raw(Box::new(task));
-    abi_task_handles()
-        .lock()
-        .expect("Ube task handle registry was poisoned")
-        .push(ptr as usize);
-    ptr as *mut c_void
+    CURRENT_CHILDREN.with(|children| {
+        if let Some(children) = children.borrow().as_ref() {
+            children.lock().unwrap().push(task.clone());
+        }
+    });
+    static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(1);
+    let id = NEXT.fetch_update(Ordering::AcqRel, Ordering::Acquire, |value| value.checked_add(1))
+        .expect("Ube task handle space exhausted");
+    abi_task_handles().lock().unwrap().insert(id, task);
+    id as *mut c_void
+}
+
+fn lookup_task(ptr: *mut c_void) -> Result<Task<AbiValue>, TaskError> {
+    abi_task_handles().lock().unwrap().get(&(ptr as usize)).cloned()
+        .ok_or_else(|| TaskError::Failed("invalid or disposed task handle".into()))
 }
 
 fn task_value(result: Result<AbiValue, TaskError>) -> AbiValue {
@@ -78,7 +96,6 @@ fn task_value(result: Result<AbiValue, TaskError>) -> AbiValue {
     }
 }
 
-fn legacy_task_value(result: Result<AbiValue, TaskError>) -> i64 { task_value(result).payload }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TaskError {
@@ -124,8 +141,33 @@ impl fmt::Display for TaskError {
 
 impl Error for TaskError {}
 
+fn is_cancel_error(error: &TaskError) -> bool {
+    match error {
+        TaskError::Cancelled => true,
+        TaskError::Exception(record) => unsafe {
+            let record = &*(*record as *const crate::exceptions::ExceptionRecord);
+            record.type_name == "GenericError" && record.message.to_bytes() == b"task was cancelled"
+        },
+        _ => false,
+    }
+}
+fn error_record(error: TaskError) -> usize {
+    match error { TaskError::Exception(record) => record, other => crate::exceptions::generic(other.to_string()) }
+}
+fn merge_cleanup_error(primary: TaskError, cleanup: TaskError) -> TaskError {
+    let (primary, suppressed) = if is_cancel_error(&primary) || primary == TaskError::Timeout {
+        (error_record(cleanup), error_record(primary))
+    } else { (error_record(primary), error_record(cleanup)) };
+    if primary != suppressed {
+        unsafe { (&*(primary as *const crate::exceptions::ExceptionRecord)).suppressed.lock().unwrap().push(suppressed); }
+    }
+    TaskError::Exception(primary)
+}
+
+
 #[derive(Clone)]
 pub struct CancellationToken {
+    children: Arc<StdMutex<Vec<Task<AbiValue>>>>,
     cancelled: watch::Receiver<bool>,
     cancelled_flag: Arc<AtomicBool>,
 }
@@ -157,6 +199,8 @@ pub struct Task<T> {
     cancellation: watch::Sender<bool>,
     cancellation_requested: Arc<AtomicBool>,
     cancelled_flag: Arc<AtomicBool>,
+    children: Arc<StdMutex<Vec<Task<AbiValue>>>>,
+    observed: Arc<AtomicBool>,
 }
 
 impl<T> Clone for Task<T> {
@@ -166,6 +210,8 @@ impl<T> Clone for Task<T> {
             cancellation: self.cancellation.clone(),
             cancellation_requested: self.cancellation_requested.clone(),
             cancelled_flag: self.cancelled_flag.clone(),
+            children: self.children.clone(),
+            observed: self.observed.clone(),
         }
     }
 }
@@ -217,7 +263,11 @@ Fut: Future<Output=Result<T,TaskError>> + Send + 'static {
     let (cancellation, cancellation_rx) = watch::channel(false);
     let cancellation_requested = Arc::new(AtomicBool::new(false));
     let cancelled_flag = Arc::new(AtomicBool::new(false));
+    let children = Arc::new(StdMutex::new(Vec::new()));
+    let worker_children = children.clone();
+    let observed = Arc::new(AtomicBool::new(false));
     let token = CancellationToken {
+        children: children.clone(),
         cancelled: cancellation_rx.clone(),
         cancelled_flag: cancelled_flag.clone(),
     };
@@ -226,7 +276,7 @@ Fut: Future<Output=Result<T,TaskError>> + Send + 'static {
 
     runtime().spawn(async move {
         let work = async move { work(token).await };
-        let outcome = if cooperative { AssertUnwindSafe(work).catch_unwind().await.unwrap_or_else(|p| Err(TaskError::Panicked(panic_message(p)))) } else { tokio::select! {
+        let mut outcome = if cooperative { AssertUnwindSafe(work).catch_unwind().await.unwrap_or_else(|p| Err(TaskError::Panicked(panic_message(p)))) } else { tokio::select! {
             biased;
             _ = wait_for_cancellation(cancellation_rx) => Err(TaskError::Cancelled),
             result = AssertUnwindSafe(work).catch_unwind() => {
@@ -234,6 +284,10 @@ Fut: Future<Output=Result<T,TaskError>> + Send + 'static {
             }
         }
         };
+        let child_error = finish_children(worker_children).await;
+        if let Some(error) = child_error {
+            outcome = Err(match outcome { Ok(_) => error, Err(primary) => merge_cleanup_error(primary, error) });
+        }
         if matches!(outcome, Err(TaskError::Cancelled)) {
             cancellation_requested_by_worker.store(true, Ordering::Release);
             cancelled_flag_by_worker.store(true, Ordering::Release);
@@ -246,7 +300,42 @@ Fut: Future<Output=Result<T,TaskError>> + Send + 'static {
         cancellation,
         cancellation_requested,
         cancelled_flag,
+        children,
+        observed,
     }
+}
+
+// Scope exit cancels unfinished children and joins every callback before
+// publishing the parent's result. Already-observed errors are not rethrown.
+async fn finish_children(children: Arc<StdMutex<Vec<Task<AbiValue>>>>) -> Option<TaskError> {
+    let tasks = std::mem::take(&mut *children.lock().unwrap());
+    let mut first_error = None;
+    for task in &tasks { task.cancel(); }
+    for task in tasks {
+        let observed = task.observed.load(Ordering::Acquire);
+        if let Err(error) = task.wait_result().await {
+            if !observed && !is_cancel_error(&error) && first_error.is_none() {
+                first_error = Some(error);
+            }
+        }
+    }
+    first_error
+}
+
+#[no_mangle]
+pub extern "C" fn ube_task_scope_enter() {
+    CURRENT_CHILDREN.with(|children| *children.borrow_mut() = Some(Arc::new(StdMutex::new(Vec::new()))));
+}
+
+#[no_mangle]
+pub extern "C" fn ube_task_scope_leave() {
+    let pending = crate::exceptions::take_pending();
+    let children = CURRENT_CHILDREN.with(|children| children.borrow_mut().take());
+    let error = children.and_then(|children| block_on(finish_children(children)));
+    if pending != 0 {
+        let pending = error.map(|error| error_record(merge_cleanup_error(TaskError::Exception(pending), error))).unwrap_or(pending);
+        crate::exceptions::set_pending(pending);
+    } else if let Some(error) = error { task_value(Err(error)); }
 }
 
 async fn wait_for_cancellation(mut cancellation: watch::Receiver<bool>) {
@@ -258,6 +347,7 @@ where
     T: Clone + Send + Sync + 'static,
 {
     async fn wait_result(&self) -> Result<T, TaskError> {
+        self.observed.store(true, Ordering::Release);
         let mut result = self.result.clone();
         loop {
             let completed = result.borrow().clone();
@@ -297,6 +387,8 @@ where
             return false;
         }
         self.cancelled_flag.store(true, Ordering::Release);
+        let children = self.children.lock().unwrap().clone();
+        for child in children { child.cancel(); }
         self.cancellation.send(true).is_ok()
     }
 
@@ -546,12 +638,15 @@ fn spawn_abi_callback(
     let log_context = crate::logging::snapshot();
     let task = spawn_task_impl(move |token| async move {
         let flag = token.flag();
+        let children = token.children.clone();
         let value = tokio::task::spawn_blocking(move || crate::logging::with_context(log_context, || {
+            CURRENT_CHILDREN.with(|current| *current.borrow_mut() = Some(children));
             CURRENT_TASK_ERROR.with(|error| *error.borrow_mut() = None);
             crate::exceptions::set_pending(0);
             crate::exceptions::reset_cancellation();
             CURRENT_CANCELLATION.with(|current| *current.borrow_mut() = Some(flag));
             let value = callback((&*context as *const UbeTaskContext) as *mut c_void);
+            CURRENT_CHILDREN.with(|current| *current.borrow_mut() = None);
             let error = CURRENT_TASK_ERROR.with(|error| error.borrow_mut().take());
             CURRENT_CANCELLATION.with(|current| *current.borrow_mut() = None);
             let pending = crate::exceptions::take_pending();
@@ -579,7 +674,7 @@ pub extern "C" fn ube_task_await_value(ptr: *mut c_void) -> AbiValue {
         set_last_task_error("task handle is null".into());
         return task_value(Err(TaskError::Failed("task handle is null".into())));
     }
-    let task = unsafe { &*(ptr as *const Task<AbiValue>) };
+    let task = match lookup_task(ptr) { Ok(task) => task, Err(error) => return task_value(Err(error)) };
     // Polling and awaiting share one cancellation delivery per callback. Once
     // delivered, cleanup awaits must not re-deliver the parent's cancellation;
     // errors from the awaited task itself still propagate normally.
@@ -592,11 +687,20 @@ pub extern "C" fn ube_task_await_value(ptr: *mut c_void) -> AbiValue {
                 _ = async { while !flag.load(Ordering::Acquire) { tokio::time::sleep(Duration::from_millis(2)).await; } } => {
                     task.cancel();
                     crate::exceptions::mark_cancellation_reported();
-                    Err(TaskError::Cancelled)
+                    match task.wait_result().await {
+                        Err(error) if !is_cancel_error(&error) => Err(merge_cleanup_error(TaskError::Cancelled, error)),
+                        _ => Err(TaskError::Cancelled),
+                    }
                 }
             }
         })
     } else { task.await_result() };
+    // Downward cancellation may complete the awaited child before the flag
+    // branch wins. That is still delivery of this callback's cancellation;
+    // otherwise a finally await would receive it a second time.
+    if ube_task_is_cancelled() && result.is_err() {
+        crate::exceptions::mark_cancellation_reported();
+    }
     task_value(result)
 }
 
@@ -646,7 +750,7 @@ pub extern "C" fn ube_task_cancel(ptr: *mut c_void) -> bool {
     if ptr.is_null() {
         return false;
     }
-    unsafe { (&*(ptr as *const Task<AbiValue>)).cancel() }
+    lookup_task(ptr).map(|task| task.cancel()).unwrap_or(false)
 }
 
 /// Returns a new task that fails with "task timed out" (and cancels `ptr`)
@@ -661,21 +765,25 @@ pub extern "C" fn ube_task_timeout(ptr: *mut c_void, timeout_ms: i64) -> *mut c_
             Err(TaskError::Failed("timeout must not be negative".into()))
         }));
     }
-    let inner = unsafe { (&*(ptr as *const Task<AbiValue>)).clone() };
+    let inner = match lookup_task(ptr) { Ok(task) => task, Err(error) => return track_abi_task(spawn_task(|_| async move { Err(error) })) };
     let duration = Duration::from_millis(timeout_ms as u64);
-    track_abi_task(spawn_task(move |_| async move {
-        struct CancelOnDrop(Task<AbiValue>);
-        impl Drop for CancelOnDrop {
-            fn drop(&mut self) {
-                self.0.cancel();
+    track_abi_task(spawn_task_impl(move |mut token| async move {
+        let mut result = tokio::select! {
+            biased;
+            _ = token.cancelled() => Err(TaskError::Cancelled),
+            result = tokio::time::timeout(duration, inner.wait_result()) => match result {
+                Ok(result) => result,
+                Err(_) => Err(TaskError::Timeout),
+            },
+        };
+        if matches!(result, Err(TaskError::Cancelled | TaskError::Timeout)) {
+            inner.cancel();
+            if let Err(error) = inner.wait_result().await {
+                if !is_cancel_error(&error) { result = Err(merge_cleanup_error(result.unwrap_err(), error)); }
             }
         }
-        let guard = CancelOnDrop(inner);
-        match tokio::time::timeout(duration, guard.0.wait_result()).await {
-            Ok(result) => result,
-            Err(_) => Err(TaskError::Timeout),
-        }
-    }))
+        result
+    }, true))
 }
 
 /// Called after an unguarded `await` outside an async function: stops the
@@ -754,8 +862,8 @@ pub extern "C" fn ube_channel_send_value_async(ptr: *mut UbeChannel, payload: i6
     let channel = unsafe { (*ptr).channel.clone() };
     track_abi_task(spawn_task(move |_| async move {
         match channel.send(AbiValue { payload, meta }).await {
-            Ok(()) => Ok(AbiValue::present(1)),
-            Err(TaskError::ChannelClosed) => Ok(AbiValue::present(0)),
+            Ok(()) => Ok(AbiValue { payload: 1, meta: 1 | (4 << 8) }),
+            Err(TaskError::ChannelClosed) => Ok(AbiValue { payload: 0, meta: 1 | (4 << 8) }),
             Err(error) => Err(error),
         }
     }))
@@ -817,169 +925,150 @@ pub extern "C" fn ube_channel_dispose(ptr: *mut UbeChannel) {
     }
 }
 
-#[no_mangle]
-pub extern "C" fn ube_task_all(list_ptr: *mut i8) -> *mut i8 {
-    let task_list = list_ptr as *mut crate::collections::UbeList;
-    let result_list = crate::collections::ube_list_create();
-    if task_list.is_null() {
-        return result_list as *mut i8;
-    }
-    let len = crate::collections::ube_list_len(task_list);
-    for index in 0..len {
-        let task_ptr = crate::collections::ube_list_get(task_list, index) as *mut Task<AbiValue>;
-        let value = if task_ptr.is_null() {
-            0
-        } else {
-            legacy_task_value(unsafe { (&*task_ptr).await_result() })
+fn clone_task_list(list_ptr: *mut i8) -> Result<Vec<Task<AbiValue>>, TaskError> {
+    let values = crate::collections::snapshot(list_ptr.cast())
+        .ok_or_else(|| TaskError::Failed("task list is null".into()))?;
+    values.into_iter().map(|value| lookup_task(value as *mut c_void)).collect()
+}
+
+fn combinator_task<F, Fut>(list_ptr: *mut i8, work: F) -> *mut c_void
+where F: FnOnce(Vec<Task<AbiValue>>) -> Fut + Send + 'static,
+      Fut: Future<Output = Result<AbiValue, TaskError>> + Send + 'static {
+    let tasks = match clone_task_list(list_ptr) {
+        Ok(tasks) => tasks,
+        Err(error) => return track_abi_task(spawn_task(|_| async move { Err(error) })),
+    };
+    let children = tasks.clone();
+    // Cooperative cancellation keeps the wrapper alive while its child
+    // callbacks run finally blocks. It only completes after every child joins.
+    let task = spawn_task_impl(move |mut token| async move {
+        let mut outcome = tokio::select! {
+            biased;
+            _ = token.cancelled() => Err(TaskError::Cancelled),
+            result = work(tasks) => result,
         };
-        crate::collections::ube_list_add(result_list, value);
-    }
-    result_list as *mut i8
-}
-
-#[no_mangle]
-pub extern "C" fn ube_task_any(list_ptr: *mut i8) -> i64 {
-    run_legacy_task_combinator(list_ptr, Task::<AbiValue>::any)
-}
-
-#[no_mangle]
-pub extern "C" fn ube_task_race(list_ptr: *mut i8) -> i64 {
-    run_legacy_task_combinator(list_ptr, Task::<AbiValue>::race)
-}
-
-fn run_legacy_task_combinator<F, Fut>(list_ptr: *mut i8, combinator: F) -> i64
-where
-    F: FnOnce(Vec<Task<AbiValue>>) -> Fut,
-    Fut: Future<Output = Result<AbiValue, TaskError>>,
-{
-    let task_list = list_ptr as *mut crate::collections::UbeList;
-    if task_list.is_null() {
-        return 0;
-    }
-    let len = crate::collections::ube_list_len(task_list);
-    let tasks = (0..len)
-        .filter_map(|index| {
-            let ptr = crate::collections::ube_list_get(task_list, index) as *mut Task<AbiValue>;
-            if ptr.is_null() {
-                None
-            } else {
-                Some(unsafe { (&*ptr).clone() })
+        for child in &children { child.cancel(); }
+        for child in &children {
+            if let Err(error) = child.wait_result().await {
+                if child.cancelled_flag.load(Ordering::Acquire) && !is_cancel_error(&error) && outcome.as_ref().err() != Some(&error) {
+                    outcome = Err(match outcome { Ok(_) => error, Err(primary) => merge_cleanup_error(primary, error) });
+                }
             }
-        })
-        .collect();
-    legacy_task_value(block_on(combinator(tasks)))
-}
-
-fn clone_task_list(list_ptr: *mut i8) -> Vec<Task<AbiValue>> {
-    let task_list = list_ptr as *mut crate::collections::UbeList;
-    if task_list.is_null() {
-        return Vec::new();
-    }
-    let len = crate::collections::ube_list_len(task_list);
-    (0..len)
-        .filter_map(|index| {
-            let ptr = crate::collections::ube_list_get(task_list, index) as *mut Task<AbiValue>;
-            if ptr.is_null() {
-                None
-            } else {
-                Some(unsafe { (&*ptr).clone() })
-            }
-        })
-        .collect()
+        }
+        outcome
+    }, true);
+    track_abi_task(task)
 }
 
 #[no_mangle]
 pub extern "C" fn ube_task_all_async(list_ptr: *mut i8) -> *mut c_void {
-    let tasks = clone_task_list(list_ptr);
-    let task = spawn_task(move |_| async move {
+    combinator_task(list_ptr, |tasks| async move {
         let values = Task::all(tasks).await?;
         let list = crate::collections::ube_list_create();
-        for value in values {
-            crate::collections::ube_list_add(list, value.payload);
-        }
-        Ok(AbiValue::present(list as usize as i64))
-    });
-    track_abi_task(task)
+        for value in values { crate::collections::ube_list_add(list, value.payload); }
+        Ok(AbiValue { payload: list as usize as i64, meta: 1 | (7 << 8) })
+    })
 }
-
 #[no_mangle]
 pub extern "C" fn ube_task_any_async(list_ptr: *mut i8) -> *mut c_void {
-    let tasks = clone_task_list(list_ptr);
-    let task = spawn_task(move |_| async move { Task::any(tasks).await });
-    track_abi_task(task)
+    combinator_task(list_ptr, |tasks| async move { Task::any(tasks).await })
 }
-
 #[no_mangle]
 pub extern "C" fn ube_task_race_async(list_ptr: *mut i8) -> *mut c_void {
-    let tasks = clone_task_list(list_ptr);
-    let task = spawn_task(move |_| async move { Task::race(tasks).await });
-    track_abi_task(task)
+    combinator_task(list_ptr, |tasks| async move { Task::race(tasks).await })
 }
 
+// Settled results retain the full transport value and original exception.
+struct SettledOutcome(Result<AbiValue, TaskError>);
+fn settled_handles() -> &'static StdMutex<std::collections::HashMap<usize, Box<SettledOutcome>>> {
+    static HANDLES: OnceLock<StdMutex<std::collections::HashMap<usize, Box<SettledOutcome>>>> = OnceLock::new();
+    HANDLES.get_or_init(Default::default)
+}
+fn outcome(handle: *mut c_void) -> Result<AbiValue, TaskError> {
+    settled_handles().lock().unwrap().get(&(handle as usize))
+        .map(|value| value.0.clone())
+        .unwrap_or_else(|| Err(TaskError::Failed("invalid task outcome".into())))
+}
+#[no_mangle]
+pub extern "C" fn ube_task_outcome_succeeded(handle: *mut c_void) -> bool { outcome(handle).is_ok() }
+#[no_mangle]
+pub extern "C" fn ube_task_outcome_value(handle: *mut c_void) -> i64 { typed_outcome(handle, &[0, 1, 2, 3]).payload }
+fn typed_outcome(handle: *mut c_void, kinds: &[u64]) -> AbiValue {
+    let result = outcome(handle).and_then(|value| {
+        if value.meta != 0 && kinds.contains(&(value.meta >> 8)) { Ok(value) }
+        else { Err(TaskError::Failed("task outcome requires a matching value accessor".into())) }
+    });
+    task_value(result)
+}
+#[no_mangle]
+pub extern "C" fn ube_task_outcome_bool(handle: *mut c_void) -> bool { typed_outcome(handle, &[4]).payload != 0 }
+#[no_mangle]
+pub extern "C" fn ube_task_outcome_decimal(handle: *mut c_void) -> f64 { f64::from_bits(typed_outcome(handle, &[5]).payload as u64) }
+#[no_mangle]
+pub extern "C" fn ube_task_outcome_string(handle: *mut c_void) -> *const std::ffi::c_char { typed_outcome(handle, &[6]).payload as *const _ }
+#[no_mangle]
+pub extern "C" fn ube_task_outcome_error(handle: *mut c_void) -> *mut c_void {
+    match outcome(handle) {
+        Ok(_) => std::ptr::null_mut(),
+        Err(error) => {
+            let record = match error { TaskError::Exception(record) => record, other => crate::exceptions::generic(other.to_string()) };
+            unsafe { (*(record as *const crate::exceptions::ExceptionRecord)).object as *mut c_void }
+        }
+    }
+}
+#[no_mangle]
+pub extern "C" fn ube_task_outcomes_len(list: *mut crate::collections::UbeList) -> i32 {
+    crate::collections::ube_list_len(list) as i32
+}
+#[no_mangle]
+pub extern "C" fn ube_task_outcomes_get(list: *mut crate::collections::UbeList, index: i32) -> *mut c_void {
+    let handle = crate::collections::ube_list_get(list, index as i64) as *mut c_void;
+    if !settled_handles().lock().unwrap().contains_key(&(handle as usize)) {
+        task_value(Err(TaskError::Failed("task outcome index out of bounds".into())));
+        return std::ptr::null_mut();
+    }
+    handle
+}
 #[no_mangle]
 pub extern "C" fn ube_task_all_settled_async(list_ptr: *mut i8) -> *mut c_void {
-    let tasks = clone_task_list(list_ptr);
-    let task = spawn_task(move |_| async move {
+    combinator_task(list_ptr, |tasks| async move {
         let outcomes = Task::all_settled(tasks).await;
         let list = crate::collections::ube_list_create();
-        for outcome in outcomes {
-            crate::collections::ube_list_add(list, legacy_task_value(outcome));
+        for result in outcomes {
+            let mut entry = Box::new(SettledOutcome(result));
+            let handle = (&mut *entry as *mut SettledOutcome) as usize;
+            settled_handles().lock().unwrap().insert(handle, entry);
+            crate::collections::ube_list_add(list, handle as i64);
         }
-        Ok(AbiValue::present(list as usize as i64))
-    });
-    track_abi_task(task)
+        Ok(AbiValue { payload: list as usize as i64, meta: 1 | (7 << 8) })
+    })
 }
-
 #[no_mangle]
-pub extern "C" fn ube_task_all_settled(list_ptr: *mut i8) -> *mut i8 {
-    let task_list = list_ptr as *mut crate::collections::UbeList;
-    let result_list = crate::collections::ube_list_create();
-    if task_list.is_null() {
-        return result_list as *mut i8;
-    }
-    let len = crate::collections::ube_list_len(task_list);
-    for index in 0..len {
-        let task_ptr = crate::collections::ube_list_get(task_list, index) as *mut Task<AbiValue>;
-        let outcome = if task_ptr.is_null() {
-            0
-        } else {
-            legacy_task_value(unsafe { (&*task_ptr).await_result() })
-        };
-        crate::collections::ube_list_add(result_list, outcome);
-    }
-    result_list as *mut i8
-}
+pub extern "C" fn ube_task_all(list: *mut i8) -> *mut i8 { ube_task_await(ube_task_all_async(list)) as *mut i8 }
+#[no_mangle]
+pub extern "C" fn ube_task_any(list: *mut i8) -> i64 { ube_task_await(ube_task_any_async(list)) }
+#[no_mangle]
+pub extern "C" fn ube_task_race(list: *mut i8) -> i64 { ube_task_await(ube_task_race_async(list)) }
+#[no_mangle]
+pub extern "C" fn ube_task_all_settled(list: *mut i8) -> *mut i8 { ube_task_await(ube_task_all_settled_async(list)) as *mut i8 }
 
 #[no_mangle]
 pub extern "C" fn ube_task_dispose(ptr: *mut c_void) {
-    if !ptr.is_null() {
-        abi_task_handles()
-            .lock()
-            .expect("Ube task handle registry was poisoned")
-            .retain(|handle| *handle != ptr as usize);
-        unsafe {
-            drop(Box::from_raw(ptr as *mut Task<AbiValue>));
-        }
-    }
+    abi_task_handles().lock().unwrap().remove(&(ptr as usize));
 }
 
 pub fn ube_concurrency_cleanup() {
-    let handles = std::mem::take(
-        &mut *abi_task_handles()
-            .lock()
-            .expect("Ube task handle registry was poisoned"),
-    );
-    for handle in &handles {
-        unsafe {
-            (&*(*handle as *const Task<AbiValue>)).cancel();
-        }
+    loop {
+        let tasks: Vec<_> = {
+            let handles = abi_task_handles().lock().unwrap();
+            handles.iter().map(|(handle, task)| (*handle, task.clone())).collect()
+        };
+        if tasks.is_empty() { break; }
+        for (_, task) in &tasks { task.cancel(); }
+        for (_, task) in &tasks { let _ = task.await_result(); }
+        for (handle, _) in tasks { ube_task_dispose(handle as *mut c_void); }
     }
-    for handle in handles {
-        unsafe {
-            let task = Box::from_raw(handle as *mut Task<AbiValue>);
-            let _ = task.await_result();
-        }
-    }
+    settled_handles().lock().unwrap().clear();
     let channels = std::mem::take(
         &mut *abi_channel_handles()
             .lock()
@@ -1009,6 +1098,22 @@ mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     #[test]
+    fn disposed_handles_are_rejected_and_never_reused() {
+        let task = ube_task_create(42);
+        assert_eq!(ube_task_await(task), 42);
+        ube_task_dispose(task);
+        ube_task_dispose(task);
+        let another = ube_task_create(7);
+        assert_ne!(task, another);
+        assert!(!ube_task_cancel(task));
+        assert_eq!(ube_task_await(task), 0);
+        let error = crate::exceptions::take_pending();
+        assert_eq!(crate::exceptions::message(error), "invalid or disposed task handle");
+        assert_eq!(ube_task_await(another), 7);
+        ube_task_dispose(another);
+    }
+
+    #[test]
     fn cancellation_delivered_by_poll_does_not_interrupt_later_awaits() {
         // Isolate the worker-local cancellation state from other runtime tests.
         std::thread::spawn(|| {
@@ -1023,12 +1128,12 @@ mod tests {
                 tokio::time::sleep(Duration::from_millis(5)).await;
                 Ok(AbiValue::present(42))
             });
-            let handle = (&task as *const Task<AbiValue>) as *mut c_void;
+            let handle = track_abi_task(task.clone());
             assert_eq!(ube_task_await(handle), 42);
             assert_eq!(crate::exceptions::take_pending(), 0);
 
             let failed = spawn_task::<AbiValue, _, _>(|_| async { Err(TaskError::Cancelled) });
-            let handle = (&failed as *const Task<AbiValue>) as *mut c_void;
+            let handle = track_abi_task(failed.clone());
             assert_eq!(ube_task_await(handle), 0);
             let record = crate::exceptions::take_pending();
             assert_ne!(record, 0);
@@ -1283,7 +1388,7 @@ mod tagged_transport_tests {
                 ube_task_dispose(task);
                 let channel = ube_channel_create_capacity(1);
                 let send = ube_channel_send_value_async(channel, payload, meta);
-                assert_eq!(ube_task_await_value(send), AbiValue::present(1));
+                assert_eq!(ube_task_await_value(send), AbiValue { payload: 1, meta: 1 | (4 << 8) });
                 let receive = ube_channel_recv_async(channel);
                 assert_eq!(ube_task_await_value(receive), expected);
                 assert_eq!(crate::exceptions::take_pending(), 0);

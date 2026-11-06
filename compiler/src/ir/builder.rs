@@ -318,7 +318,7 @@ impl IrBuilder {
     fn emit(&mut self, instr: IrInstruction) {
         let check = matches!(instr, IrInstruction::CallMethod { .. } | IrInstruction::CallTrait { .. })
             || matches!(&instr, IrInstruction::CallRuntime { symbol, .. }
-                if symbol.starts_with("ube_env_") || symbol.starts_with("ube_rest_") || symbol.starts_with("ube_mockery_") || symbol.starts_with("ube_testicle_") || symbol.starts_with("ube_exchange_") || symbol.starts_with("ube_money_") || symbol.starts_with("ube_orm_") || symbol.starts_with("ube_sql_") || symbol.starts_with("ube_jwt_") || symbol.starts_with("ube_oauth2_") || symbol.starts_with("ube_session_") || matches!(symbol.as_str(), "ube_request_session" | "ube_request_query" | "ube_request_header" | "ube_request_body" | "ube_response_redirect") || symbol.starts_with("ube_console_") || symbol.starts_with("ube_output_") || symbol.starts_with("ube_log_") || symbol.starts_with("ube_sqlite_") || symbol.starts_with("ube_file_") || symbol.starts_with("ube_directory_")
+                if symbol.starts_with("ube_observability_") || symbol.starts_with("ube_metrics_") || symbol.starts_with("ube_task_outcome") || symbol.starts_with("ube_env_") || symbol.starts_with("ube_rest_") || symbol.starts_with("ube_mockery_") || symbol.starts_with("ube_testicle_") || symbol.starts_with("ube_exchange_") || symbol.starts_with("ube_money_") || symbol.starts_with("ube_orm_") || symbol.starts_with("ube_sql_") || symbol.starts_with("ube_jwt_") || symbol.starts_with("ube_oauth2_") || symbol.starts_with("ube_session_") || matches!(symbol.as_str(), "ube_request_session" | "ube_request_query" | "ube_request_header" | "ube_request_body" | "ube_response_redirect") || symbol.starts_with("ube_console_") || symbol.starts_with("ube_output_") || symbol.starts_with("ube_log_") || symbol.starts_with("ube_sqlite_") || symbol.starts_with("ube_file_") || symbol.starts_with("ube_directory_")
                     || symbol.starts_with("ube_stream_") || symbol.starts_with("ube_server_"));
         self.current_instructions.push(instr);
         if check {
@@ -1961,6 +1961,18 @@ impl IrBuilder {
                                 return self.runtime(method.symbol, args, method.result);
                             }
                         }
+                        if ["TaskOutcome", "TaskOutcomes"].contains(&class_name.as_str()) {
+                            if let Some(method) = crate::builtins::task_outcome_methods(&class_name).into_iter().find(|m| m.name == member) {
+                                let mut args = vec![obj_op]; args.extend(arg_ops);
+                                return self.runtime(method.symbol, args, method.result);
+                            }
+                        }
+                        if crate::builtins::OBSERVABILITY_CLASSES.contains(&class_name.as_str()) {
+                            if let Some(method) = crate::builtins::observability_methods(&class_name).into_iter().find(|m| m.name == member) {
+                                let args = arg_ops.into_iter().zip(method.params).map(|(arg, ty)| self.cast(arg, ty)).collect();
+                                return self.runtime(method.symbol, args, method.result);
+                            }
+                        }
                         if class_name == "Env" {
                             if let Some(method) = crate::builtins::env_methods().into_iter().find(|m| m.name == member) {
                                 return self.runtime(method.symbol, arg_ops, method.result);
@@ -2181,9 +2193,8 @@ impl IrBuilder {
                                     Type::Task(result) => Type::Task(result),
                                     _ => Type::Task(Box::new(Type::Int)),
                                 },
-                                "all" | "allSettled" => Type::Task(Box::new(Type::Class {
-                                    name: "List".into(),
-                                })),
+                                "all" => Type::Task(Box::new(Type::Class { name: "List".into() })),
+                                "allSettled" => Type::Task(Box::new(Type::Class { name: "TaskOutcomes".into() })),
                                 "cancel" => Type::Bool,
                                 _ => Type::Task(Box::new(Type::Int)),
                             };
@@ -3723,6 +3734,9 @@ impl IrBuilder {
                 let target_op = self.build_expr(target);
                 let index_op = self.build_expr(index);
                 if let Type::Class { ref name } = target_op.get_type() {
+                    if name == "TaskOutcomes" {
+                        return self.runtime("ube_task_outcomes_get", vec![target_op, index_op], Type::Class { name: "TaskOutcome".into() });
+                    }
                     if name == "Map" {
                         let ty = Type::Nullable(Box::new(Type::Int));
                         let slot = self.fresh_reg();
