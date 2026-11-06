@@ -123,6 +123,51 @@ in `.build/.deps/`. The `.build/` directory remains when it contains preserved s
 It refuses unmanaged or symlinked `.build` directories. Outputs created with an
 explicit source path or custom `-o` outside `.build/` must be removed separately.
 
+## Proposed Clean Architecture and SOLID enforcement
+
+**Status: proposed, not implemented.** Architecture enforcement would be optional.
+Projects without an architecture policy would continue working normally. The
+same policy would be supported in `ube.toml`, `ube.yaml`, and `ube.json`.
+
+The proposed mechanism separates checks that the compiler can enforce from
+design concerns that require linting, tests, or human judgment:
+
+| Mechanism | Checks | Result |
+|---|---|---|
+| Compiler | Declared layer boundaries, forbidden dependencies or built-ins, dependency cycles | Build error |
+| Proposed linter | Complex methods, large interfaces, classes with many dependencies | Warning for review |
+| Contract tests | Whether implementations honor shared behavioral expectations | Test failure |
+
+The first implementation would focus on compiler enforcement:
+
+1. Declare layers by source directory, such as domain, application,
+   infrastructure, and presentation.
+2. Specify which layers each layer may depend on. For example, application
+   could depend on domain, while domain could not depend on infrastructure.
+3. Optionally restrict direct use of built-ins such as SQL, HTTP, filesystem,
+   and environment access in business layers.
+4. Explicitly identify composition files, such as `Main.ube`, where concrete
+   implementations are constructed and connected to business abstractions.
+   Exceptions would apply only to those declared files.
+5. During `ube check`, `ube build`, and `ube test`, inspect resolved dependencies
+   from imports, type signatures, inheritance, object construction, and fully
+   qualified references. Reject forbidden dependencies, dependency cycles, and
+   source files outside the declared layers.
+6. Report each violation with its source location, originating layer, and
+   forbidden dependency.
+
+These boundaries support Clean Architecture and SOLID's Dependency Inversion
+principle: business layers define abstractions, and infrastructure implements
+them. SOLID is broader than dependency rules. Single Responsibility and
+Interface Segregation need design review, with lint warnings as supporting
+signals. Open/Closed depends on how extension points are designed. Liskov
+Substitution requires behavioral contract tests in addition to type checking.
+Passing automated checks would not prove that a design is clean or fully SOLID.
+
+Teams would run the same compiler checks, future lint checks, and contract tests
+locally and in CI. No architecture configuration syntax or new lint command is
+available yet.
+
 ## Encrypted environment values
 
 Store configuration once instead of supplying every variable on each execution.
