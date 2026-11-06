@@ -55,6 +55,7 @@ impl TextualLlvmEmitter {
         self.output
             .push_str("declare void @ube_runtime_cleanup()\n");
         self.output.push_str("declare i8* @ube_alloc(i64, i64)\n");
+        self.output.push_str("declare i8* @ube_env_get(i8*)\ndeclare i8* @ube_env_require(i8*)\ndeclare i1 @ube_env_has(i8*)\n");
         self.output.push_str("declare i8* @ube_console_read()\n");
         self.output.push_str("declare i8* @ube_console_read_line()\n");
         self.output.push_str("declare void @ube_output_str(i32, i8*)\n");

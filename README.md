@@ -26,7 +26,8 @@ ube clean
 
 `ube new` creates `ube.toml`, `src/Main.ube` containing `class Main`, a `tests/`
 directory, a README, and a `.gitignore`. `ube init` preserves existing source
-files and refuses to overwrite an existing manifest. If your sources already
+files, creates or updates `.gitignore` with `.build/` while preserving
+existing rules, and refuses to overwrite an existing manifest. If your sources already
 exist, set the entry path to their correctly capitalized filename.
 
 ```toml
@@ -47,7 +48,10 @@ greetings = { path = "../greetings" }
 
 With no source argument, `ube check`, `ube emit-ir`, `ube emit-llvm`, `ube build`,
 and `ube run` find the nearest `ube.toml` in the current directory or its parents.
-The default entry is `src/Main.ube`. `ube build` writes the executable and LLVM
+The default entry is `src/Main.ube`. Before compilation, `ube build` creates or
+updates the project's `.gitignore` to include `.build/`, preserving existing
+rules without duplicate entries. This also applies to explicit source builds;
+standalone files use their containing directory. `ube build` writes the executable and LLVM
 IR to `.build/<package-name>` and `.build/<package-name>.ll`; `--release` and
 `-o <output>` are supported. Explicit file commands such as
 `ube build src/Main.ube -o app` continue to work. `ube test` defaults to the
@@ -87,10 +91,10 @@ own packages. Types currently share one compilation namespace, so imported
 packages must avoid duplicate class or trait names. Package dependency cycles
 are rejected; circular source imports within a package remain supported.
 
-`ube install` installs direct and transitive dependencies into `.ube/deps/` and
+`ube install` installs direct and transitive dependencies into `.build/.deps/` and
 writes **`ube.lock`**, recording source specifications, package versions, exact Git
 commits, and SHA-256 checksums of manifests and `.ube` sources. Commit `ube.lock`;
-ignore `.ube/` and `.build/`. Install respects existing Git pins and rejects local
+ignore `.build/`. Install respects existing Git pins and rejects local
 source changes that differ from the lock. Use `ube install --update` to accept
 changed local sources and refresh Git revisions. A fixed `--rev` commit remains
 fixed even with `--update`. Builds verify installed sources against the lock;
@@ -100,10 +104,89 @@ supports local paths and Git repositories; there is no public package registry o
 version-range resolution. Installation copies only manifests and `.ube` sources,
 rejects source symlinks, and runs no package installation scripts.
 
-`ube clean` deletes only `.build/` directories marked as Ube-managed build output.
-It preserves source files, `ube.toml`, `ube.lock`, and installed dependencies.
+`ube clean` deletes generated outputs inside Ube-managed `.build/` directories.
+It preserves source files, `ube.toml`, `ube.lock`, `.build/.conf`, and installed dependencies
+in `.build/.deps/`. The `.build/` directory remains when it contains preserved state.
 It refuses unmanaged or symlinked `.build` directories. Outputs created with an
 explicit source path or custom `-o` outside `.build/` must be removed separately.
+
+## Encrypted environment values
+
+Store configuration once instead of supplying every variable on each execution.
+Ube encrypts it into `.build/.conf`. `ube new`, `ube init`, and `ube build`
+ensure `.gitignore` includes `.build/`. In Git repositories, `ube env` also checks
+Git's effective ignore rules and refuses to save if the configuration is tracked
+or not ignored.
+
+Import a nonempty JSON object with string values:
+
+```json
+{
+  "DB_PASSWORD": "your-password",
+  "okta_username": "username_value",
+  "okta_secret": "secret_value"
+}
+```
+
+```sh
+ube env file.json
+```
+
+**JSON import replaces the entire configuration.** Variables absent from the
+file are removed, and the previous encryption key is not required. After a
+verified encrypted save, Ube consumes (deletes) the input JSON and prints a new
+encryption key. Invalid input or a failed save preserves the input. If deletion
+fails after saving, Ube still prints the new key and reports that the plaintext
+needs manual removal. Deletion cannot erase Git history, editor history, or backups.
+
+For individual additions or updates, use `--add`. The first save needs no key:
+
+```sh
+ube env --add "DB_PASSWORD":"your-password", "okta_username":"username_value", "okta_secret": "secret_value"
+```
+
+Later updates require the latest key and preserve other stored variables:
+
+```sh
+ube env --key "<latest-key>" --add "DB_PASSWORD":"new-password", "API_TOKEN":"token-value"
+```
+
+Comma-separated batches save atomically. Spaces after the colon, colons within
+values, and empty values are supported; quote arguments for your shell. An
+optional `--key "<latest-key>"` on JSON import verifies the existing configuration
+before replacing it. Names must be environment identifiers; `UBE_ENV_` is
+reserved. Total stored data and JSON input are limited to 1 MiB.
+
+**Every successful save rotates the encryption key. Only the latest key decrypts
+the current configuration.** Ube prints the new key after saving and never stores
+it or embeds it in compiled programs. Keep it in a password manager or secret
+manager. Never commit it or expose it in chats, screenshots, recordings, or logs.
+Command-line keys and values can appear in shell history and process listings.
+
+For runtime or deployment, provision the latest key in a protected file outside
+the project. The file accepts the printed 64-character hexadecimal key or 32 raw
+bytes; on Unix, restrict permissions to its owner (`chmod 600`).
+
+```sh
+UBE_ENV_KEY_FILE=/secure/my-app.key ube run
+```
+
+For a deployed executable, supply the encrypted configuration and key separately:
+
+```sh
+UBE_ENV_FILE=/srv/my-app/.build/.conf \
+UBE_ENV_KEY_FILE=/run/secrets/my-app.key \
+/srv/my-app/my-app
+```
+
+Read values with `Env.require('DB_PASSWORD')` (`string`, throws if missing),
+`Env.get('OPTIONAL_TOKEN')` (`string?`), or `Env.has('API_TOKEN')` (`bool`). Real
+process environment variables take precedence. Runtime lookup decrypts on
+access; builds never require the key, and decrypted values are not exported into
+the process environment. `ube clean` preserves `.build/.conf`.
+
+See [encrypted environment configuration](docs/environment.md) for recovery,
+Git protection, and security limits.
 
 ## Testing Ube programs with Testicle
 

@@ -1110,6 +1110,11 @@ impl TypeChecker {
                 param_types: vec![], min_constructor_args: 0, max_constructor_args: 0,
             });
         }
+        self.classes.insert("Env".into(), ClassInfo {
+            name: "Env".into(), fields: HashMap::new(),
+            methods: crate::builtins::env_methods().into_iter().map(|m| (m.name.into(), (m.params, m.result))).collect(),
+            param_types: vec![], min_constructor_args: 0, max_constructor_args: 0,
+        });
         for &name in crate::builtins::AUTH_CLASSES {
             self.classes.insert(name.into(), ClassInfo {
                 name: name.into(), fields: HashMap::new(),
@@ -2508,6 +2513,16 @@ impl TypeChecker {
                                     }
                                     return Some(method.result);
                                 }
+                                if name == "Env" {
+                                    let Some(method) = crate::builtins::env_methods().into_iter().find(|m| m.name == member) else {
+                                        self.diagnostics.push(Diagnostic::error(format!("Unknown Env method '{}'", member), Some(expr.span)));
+                                        return None;
+                                    };
+                                    if !class_receiver || args.len() != 1 || arg_types != vec![Type::String] {
+                                        self.diagnostics.push(Diagnostic::error("Env.get, Env.require, and Env.has require a static call with one non-null string", Some(expr.span)));
+                                    }
+                                    return Some(method.result);
+                                }
                                 if name == "Mockery" {
                                     return self.check_mockery_call(cls, member, args, &arg_types, class_receiver, expr.span);
                                 }
@@ -2803,6 +2818,10 @@ impl TypeChecker {
                 }
                 if class_name == "Testicle" {
                     self.diagnostics.push(Diagnostic::error("Testicle does not create instances; use static assertion methods", Some(expr.span)));
+                    return None;
+                }
+                if class_name == "Env" {
+                    self.diagnostics.push(Diagnostic::error("Env does not create instances; use Env.get, Env.require, or Env.has", Some(expr.span)));
                     return None;
                 }
                 if class_name == "Gc" {

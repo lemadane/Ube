@@ -19,6 +19,7 @@ pub mod sql;
 pub mod orm;
 pub mod sessions;
 pub mod auth;
+pub mod secrets;
 
 
 #[no_mangle]

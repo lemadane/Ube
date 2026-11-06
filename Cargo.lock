@@ -2586,15 +2586,18 @@ dependencies = [
  "quinn",
  "rcgen",
  "reqwest",
+ "ring",
  "rusqlite",
  "rust_decimal",
  "rustls",
  "serde_json",
  "sha2",
  "sqlx",
+ "tempfile",
  "tokio",
  "tokio-rustls",
  "url",
+ "zeroize",
 ]
 
 [[package]]

@@ -215,6 +215,7 @@ pub fn init(root: &Path, name: Option<&str>) -> Result<()> {
         .map_err(|e| e.to_string())?;
     }
     fs::create_dir_all(root.join("tests")).map_err(|e| e.to_string())?;
+    ensure_gitignore(root)?;
     fs::write(root.join("ube.toml"), doc.to_string()).map_err(|e| e.to_string())?;
     println!("Initialized Ube project '{name}'");
     if !entry.is_file() {
@@ -233,8 +234,85 @@ pub fn new_project(path: &Path) -> Result<()> {
         "# Ube project\n\n```sh\nube build\nube run\nube test\n```\n",
     )
     .map_err(|e| e.to_string())?;
-    fs::write(path.join(".gitignore"), ".build/\n.ube/\n").map_err(|e| e.to_string())?;
     Ok(())
+}
+
+pub fn ensure_gitignore(root: &Path) -> Result<()> {
+    let path = root.join(".gitignore");
+    let mut contents = match fs::read_to_string(&path) {
+        Ok(contents) => contents,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => String::new(),
+        Err(error) => return Err(format!("{}: {error}", path.display())),
+    };
+    let newline = if contents.contains("\r\n") {
+        "\r\n"
+    } else {
+        "\n"
+    };
+    let mut changed = false;
+    for rule in [".build/"] {
+        if !contents.lines().any(|line| line.trim() == rule) {
+            if !contents.is_empty() && !contents.ends_with('\n') {
+                contents.push_str(newline);
+            }
+            contents.push_str(rule);
+            contents.push_str(newline);
+            changed = true;
+        }
+    }
+    if changed {
+        fs::write(&path, contents).map_err(|error| format!("{}: {error}", path.display()))?;
+    }
+    Ok(())
+}
+
+/// Check Git's effective rules and index, not just the text of .gitignore.
+pub fn verify_environment_ignored(root: &Path) -> Result<()> {
+    if !root.ancestors().any(|path| path.join(".git").exists()) {
+        return Ok(());
+    }
+    let repository = Command::new("git")
+        .args(["rev-parse", "--is-inside-work-tree"])
+        .env("LC_ALL", "C")
+        .current_dir(root)
+        .output()
+        .map_err(|_| "Could not run Git to check environment protection")?;
+    if !repository.status.success() {
+        if String::from_utf8_lossy(&repository.stderr).contains("not a git repository") {
+            return Ok(());
+        }
+        return Err("Could not verify Git repository state before editing secrets".into());
+    }
+    if repository.stdout != b"true\n" {
+        return Ok(());
+    }
+    let tracked = Command::new("git")
+        .args(["ls-files", "--cached", "-z", "--", ".build/.conf"])
+        .current_dir(root)
+        .output()
+        .map_err(|_| "Could not run Git to check environment protection")?;
+    if !tracked.status.success() {
+        return Err("Could not verify whether Git tracks the environment configuration".into());
+    }
+    if !tracked.stdout.is_empty() {
+        return Err("Git already tracks the environment configuration. Remove it from tracking with 'git rm --cached -- .build/.conf' before editing secrets. Previously committed credentials still need rotation.".into());
+    }
+    let ignored = Command::new("git")
+        .args([
+            "check-ignore",
+            "--quiet",
+            "--no-index",
+            "--",
+            ".build/.conf",
+        ])
+        .current_dir(root)
+        .status()
+        .map_err(|_| "Could not run Git to check environment protection")?;
+    match ignored.code() {
+        Some(0) => Ok(()),
+        Some(1) => Err("Git does not ignore the environment configuration. Add .build/ to .gitignore and remove any conflicting exceptions before saving secrets.".into()),
+        _ => Err("Could not verify Git ignore rules for the environment configuration".into()),
+    }
 }
 
 pub fn build_directory(root: &Path) -> Result<PathBuf> {
@@ -267,7 +345,30 @@ pub fn clean(root: &Path) -> Result<()> {
         if !dir.join(BUILD_MARKER).is_file() {
             return Err("Refusing to delete .build: it is not marked as Ube build output".into());
         }
-        fs::remove_dir_all(&dir).map_err(|e| e.to_string())?;
+        if dir.join("install.lock").symlink_metadata().is_ok()
+            || dir.join("env.lock").symlink_metadata().is_ok()
+        {
+            return Err("Cannot clean while an installation or environment edit is running".into());
+        }
+        let mut retained = false;
+        for entry in fs::read_dir(&dir).map_err(|e| e.to_string())? {
+            let entry = entry.map_err(|e| e.to_string())?;
+            if entry.file_name() == ".conf" || entry.file_name() == ".deps" {
+                retained = true;
+                continue;
+            }
+            if entry.file_name() == BUILD_MARKER {
+                continue;
+            }
+            if entry.file_type().map_err(|e| e.to_string())?.is_dir() {
+                fs::remove_dir_all(entry.path()).map_err(|e| e.to_string())?;
+            } else {
+                fs::remove_file(entry.path()).map_err(|e| e.to_string())?;
+            }
+        }
+        if !retained {
+            fs::remove_dir_all(&dir).map_err(|e| e.to_string())?;
+        }
     }
     println!("Cleaned build outputs");
     Ok(())
@@ -505,7 +606,7 @@ impl Installer<'_> {
                 }
             }
             copy_package(&source, &destination)?;
-            self.resolve(&package, &destination.join(".ube/deps"), &id)?;
+            self.resolve(&package, &destination.join(".build/.deps"), &id)?;
             self.active.remove(&identity);
             self.resolved.insert(
                 id.clone(),
@@ -524,29 +625,21 @@ impl Installer<'_> {
 
 fn install_manifest(project: &Manifest, update: bool) -> Result<()> {
     let old = lock_entries(&project.root)?;
-    let cache = project.root.join(".ube");
-    if cache
-        .symlink_metadata()
-        .map(|m| m.file_type().is_symlink())
-        .unwrap_or(false)
-    {
-        return Err(".ube cannot be a symlink".into());
-    }
-    fs::create_dir_all(&cache).map_err(|e| e.to_string())?;
+    let cache = build_directory(&project.root)?;
     let guard_path = cache.join("install.lock");
     fs::OpenOptions::new().write(true).create_new(true).open(&guard_path)
         .map_err(|e| format!("Cannot acquire {}: {e}. If no installation is running, remove this stale lock and retry.", guard_path.display()))?;
     let _guard = InstallGuard(guard_path);
-    let deps = cache.join("deps");
+    let deps = cache.join(".deps");
     if deps
         .symlink_metadata()
         .map(|m| m.file_type().is_symlink())
         .unwrap_or(false)
     {
-        return Err(".ube/deps cannot be a symlink".into());
+        return Err(".build/.deps cannot be a symlink".into());
     }
     if deps.exists() && !deps.join(DEPS_MARKER).is_file() {
-        return Err(".ube/deps already exists and is not managed by Ube".into());
+        return Err(".build/.deps already exists and is not managed by Ube".into());
     }
     let stage = tempfile::Builder::new()
         .prefix("install-")
@@ -729,7 +822,7 @@ pub fn remove(root: &Path, name: &str) -> Result<()> {
 fn dependency_dir(root: &Path, id: &str) -> PathBuf {
     let mut path = root.to_owned();
     for part in id.split('/') {
-        path = path.join(".ube/deps").join(part);
+        path = path.join(".build/.deps").join(part);
     }
     path
 }
@@ -792,7 +885,7 @@ pub fn dependency_import(file: &Path, parts: &[String]) -> Result<Option<PathBuf
     if parts.len() < 2 {
         return Err(format!("Import '{alias}' must include a type name"));
     }
-    let mut path = root.join(".ube/deps").join(alias).join("src");
+    let mut path = root.join(".build/.deps").join(alias).join("src");
     for part in &parts[1..] {
         path.push(part);
     }

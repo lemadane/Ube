@@ -318,7 +318,7 @@ impl IrBuilder {
     fn emit(&mut self, instr: IrInstruction) {
         let check = matches!(instr, IrInstruction::CallMethod { .. } | IrInstruction::CallTrait { .. })
             || matches!(&instr, IrInstruction::CallRuntime { symbol, .. }
-                if symbol.starts_with("ube_rest_") || symbol.starts_with("ube_mockery_") || symbol.starts_with("ube_testicle_") || symbol.starts_with("ube_exchange_") || symbol.starts_with("ube_money_") || symbol.starts_with("ube_orm_") || symbol.starts_with("ube_sql_") || symbol.starts_with("ube_jwt_") || symbol.starts_with("ube_oauth2_") || symbol.starts_with("ube_session_") || matches!(symbol.as_str(), "ube_request_session" | "ube_request_query" | "ube_request_header" | "ube_request_body" | "ube_response_redirect") || symbol.starts_with("ube_console_") || symbol.starts_with("ube_output_") || symbol.starts_with("ube_log_") || symbol.starts_with("ube_sqlite_") || symbol.starts_with("ube_file_") || symbol.starts_with("ube_directory_")
+                if symbol.starts_with("ube_env_") || symbol.starts_with("ube_rest_") || symbol.starts_with("ube_mockery_") || symbol.starts_with("ube_testicle_") || symbol.starts_with("ube_exchange_") || symbol.starts_with("ube_money_") || symbol.starts_with("ube_orm_") || symbol.starts_with("ube_sql_") || symbol.starts_with("ube_jwt_") || symbol.starts_with("ube_oauth2_") || symbol.starts_with("ube_session_") || matches!(symbol.as_str(), "ube_request_session" | "ube_request_query" | "ube_request_header" | "ube_request_body" | "ube_response_redirect") || symbol.starts_with("ube_console_") || symbol.starts_with("ube_output_") || symbol.starts_with("ube_log_") || symbol.starts_with("ube_sqlite_") || symbol.starts_with("ube_file_") || symbol.starts_with("ube_directory_")
                     || symbol.starts_with("ube_stream_") || symbol.starts_with("ube_server_"));
         self.current_instructions.push(instr);
         if check {
@@ -1959,6 +1959,11 @@ impl IrBuilder {
                                 if !method.is_static { args.push(obj_op); }
                                 args.extend(arg_ops.into_iter().zip(&method.params).map(|(arg, ty)| self.cast(arg, ty.clone())));
                                 return self.runtime(method.symbol, args, method.result);
+                            }
+                        }
+                        if class_name == "Env" {
+                            if let Some(method) = crate::builtins::env_methods().into_iter().find(|m| m.name == member) {
+                                return self.runtime(method.symbol, arg_ops, method.result);
                             }
                         }
                         if class_name == "Session" {

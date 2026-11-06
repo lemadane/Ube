@@ -19,6 +19,8 @@ fn print_usage() {
     );
     eprintln!("Usage: ube <command> [options]");
     eprintln!("Commands:");
+    eprintln!("  env [--key <current-key>] --add <key>:<value>[, ...]  Save encrypted values");
+    eprintln!("  env [--key <current-key>] <file.json>  Encrypt and consume a JSON file");
     eprintln!("  init [--name <name>]             Initialize the current directory");
     eprintln!("  install [--update]                Install locked local/Git dependencies");
     eprintln!("  add <alias> --path <dir>           Add and install a local dependency");
@@ -82,6 +84,47 @@ fn configure_runtime_linkage(cmd: &mut Command) {
     cmd.arg("-Wno-override-module");
 }
 
+fn parse_env_entries(args: &[String]) -> Result<Vec<(String, String)>, String> {
+    let invalid = || {
+        "Expected comma-separated <key>:<value> entries; quote values containing spaces".to_owned()
+    };
+    let mut entries = Vec::new();
+    let mut i = 0;
+    while i < args.len() {
+        let (name, initial) = args[i].split_once(':').ok_or_else(invalid)?;
+        i += 1;
+        let value = if initial.is_empty() && i < args.len() && args[i] != "," {
+            let value = args[i].as_str();
+            i += 1;
+            value
+        } else {
+            initial
+        };
+        let (value, separated) = match value.strip_suffix(',') {
+            Some(value) => (value, true),
+            None => (value, false),
+        };
+        entries.push((name.to_owned(), value.to_owned()));
+        if separated {
+            if i == args.len() {
+                return Err(invalid());
+            }
+        } else if i < args.len() {
+            if args[i] != "," {
+                return Err(invalid());
+            }
+            i += 1;
+            if i == args.len() {
+                return Err(invalid());
+            }
+        }
+    }
+    if entries.is_empty() {
+        return Err(invalid());
+    }
+    Ok(entries)
+}
+
 fn project_command(command: &str, args: &[String]) -> Result<(), String> {
     use ube_compiler::project;
     let cwd = env::current_dir().map_err(|e| e.to_string())?;
@@ -103,6 +146,48 @@ fn project_command(command: &str, args: &[String]) -> Result<(), String> {
             };
             project::install(&project::find_root(&cwd)?, update)
         }
+        "env" => {
+            let (current_key, entry_args, input) = match args {
+                [flag, rest @ ..] if flag == "--add" => (None, rest, None),
+                [flag, key, add, rest @ ..] if flag == "--key" && add == "--add" => {
+                    (Some(key.as_str()), rest, None)
+                }
+                [file] if !file.starts_with('-') => (None, &[][..], Some(Path::new(file))),
+                [flag, key, file] if flag == "--key" && !file.starts_with('-') => {
+                    (Some(key.as_str()), &[][..], Some(Path::new(file)))
+                }
+                _ => return Err(
+                    "Usage: ube env [--key <current-key>] <file.json> | --add <key>:<value>[, ...]"
+                        .into(),
+                ),
+            };
+            let root = project::find_root(&cwd)?;
+            project::verify_environment_ignored(&root)?;
+            eprintln!("WARNING: Encryption keys and values supplied on the command line may appear in shell history and process listings.");
+            let (key, consumed) = match input {
+                Some(path) => {
+                    let result = ube_runtime::secrets::import_file(&root, path, current_key)?;
+                    (result.key, Some(result.consumed))
+                }
+                None => {
+                    let entries = parse_env_entries(entry_args)?;
+                    (
+                        ube_runtime::secrets::add(&root, &entries, current_key)?,
+                        None,
+                    )
+                }
+            };
+            println!("Encrypted environment values saved");
+            eprintln!("WARNING: Keep the encryption key private. Never commit it or expose it in chats, screenshots, terminal recordings, or logs. Keep a secure backup in a password manager or secret manager.");
+            println!("Encryption key: {}", key.as_str());
+            eprintln!("Save this new key now. It replaces the previous key for the current configuration. Ube has not saved it.");
+            match consumed {
+                Some(true) => println!("Plaintext JSON file consumed"),
+                Some(false) => return Err("Encrypted values were saved and the new key was printed, but the plaintext JSON changed or could not be removed. Remove it manually after checking its contents.".into()),
+                None => (),
+            }
+            Ok(())
+        }
         "add" => project::add(&project::find_root(&cwd)?, args),
         "remove" if args.len() == 1 => project::remove(&project::find_root(&cwd)?, &args[0]),
         "clean" if args.is_empty() => project::clean(&project::find_root(&cwd)?),
@@ -114,11 +199,15 @@ fn project_command(command: &str, args: &[String]) -> Result<(), String> {
 
 // Return before main calls process::exit so TempDir's destructor runs on every
 // normal success/error path, including linking and execution failures.
-fn run_llvm(llvm_ir: &str) -> i32 {
-    run_llvm_timeout(llvm_ir, None)
+fn run_llvm(llvm_ir: &str, source: &Path) -> i32 {
+    run_llvm_timeout(llvm_ir, None, Some(source))
 }
 
-fn run_llvm_timeout(llvm_ir: &str, timeout: Option<std::time::Duration>) -> i32 {
+fn run_llvm_timeout(
+    llvm_ir: &str,
+    timeout: Option<std::time::Duration>,
+    source: Option<&Path>,
+) -> i32 {
     let directory = match tempfile::Builder::new().prefix("ube-run-").tempdir() {
         Ok(directory) => directory,
         Err(error) => {
@@ -144,8 +233,17 @@ fn run_llvm_timeout(llvm_ir: &str, timeout: Option<std::time::Duration>) -> i32 
             return 1;
         }
     }
+    let mut program = Command::new(&bin_path);
+    if env::var_os("UBE_ENV_FILE").is_none() {
+        if let Some(root) = source.and_then(|path| ube_compiler::project::find_root(path).ok()) {
+            let vault = root.join(".build/.conf");
+            if vault.is_file() {
+                program.env("UBE_ENV_FILE", vault);
+            }
+        }
+    }
     let status = if let Some(limit) = timeout {
-        match Command::new(&bin_path).spawn() {
+        match program.spawn() {
             Ok(mut child) => {
                 let started = std::time::Instant::now();
                 loop {
@@ -171,7 +269,7 @@ fn run_llvm_timeout(llvm_ir: &str, timeout: Option<std::time::Duration>) -> i32 
             Err(error) => Err(error),
         }
     } else {
-        Command::new(&bin_path).status()
+        program.status()
     };
     match status {
         Ok(status) => match status.code() {
@@ -206,7 +304,7 @@ fn main() {
         print_usage();
         return;
     }
-    if ["new", "init", "install", "add", "remove", "clean"].contains(&command.as_str()) {
+    if ["new", "init", "install", "add", "remove", "clean", "env"].contains(&command.as_str()) {
         if let Err(error) = project_command(command, &args[2..]) {
             eprintln!("Error: {error}");
             process::exit(1);
@@ -272,6 +370,20 @@ fn main() {
             Ok(())
         })();
         if let Err(error) = project {
+            eprintln!("Error: {error}");
+            process::exit(1);
+        }
+    }
+    if command == "build" {
+        let source = Path::new(&file_path);
+        let root = ube_compiler::project::find_root(source).unwrap_or_else(|_| {
+            source
+                .parent()
+                .filter(|path| !path.as_os_str().is_empty())
+                .unwrap_or_else(|| Path::new("."))
+                .to_owned()
+        });
+        if let Err(error) = ube_compiler::project::ensure_gitignore(&root) {
             eprintln!("Error: {error}");
             process::exit(1);
         }
@@ -402,7 +514,7 @@ fn main() {
             let mut emitter = TextualLlvmEmitter::new();
             let llvm_ir = emitter.emit_program(&ir_program);
 
-            let code = run_llvm(&llvm_ir);
+            let code = run_llvm(&llvm_ir, Path::new(&file_path));
             process::exit(code);
         }
         other => {

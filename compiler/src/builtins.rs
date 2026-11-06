@@ -13,6 +13,7 @@ const BUILTIN_CLASS_NAMES: &[&str] = &[
     "Distance",
     "Duration",
     "Error",
+    "Env",
     "Exchange",
     "File",
     "FileError",
@@ -683,4 +684,14 @@ pub fn sql_methods(class: &str) -> Vec<BuiltinMethod> {
         ],
         _ => vec![],
     }
+}
+
+/// Environment access never exports decrypted vault values into the process environment.
+pub fn env_methods() -> Vec<BuiltinMethod> {
+    use crate::types::Type;
+    vec![
+        BuiltinMethod { name: "get", symbol: "ube_env_get", params: vec![Type::String], result: Type::Nullable(Box::new(Type::String)), is_static: true },
+        BuiltinMethod { name: "require", symbol: "ube_env_require", params: vec![Type::String], result: Type::String, is_static: true },
+        BuiltinMethod { name: "has", symbol: "ube_env_has", params: vec![Type::String], result: Type::Bool, is_static: true },
+    ]
 }

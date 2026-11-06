@@ -74,6 +74,10 @@ fn new_init_manifest_build_run_and_clean_work_without_explicit_entry() {
     success(cli(dir.path(), &["new", "hello-world"]));
     let root = dir.path().join("hello-world");
     assert!(root.join("src/Main.ube").is_file());
+    assert_eq!(
+        fs::read_to_string(root.join(".gitignore")).unwrap(),
+        ".build/\n"
+    );
     assert!(!root.join("src/main.ube").exists());
     success(cli(&root, &["check"]));
     success(cli(&root, &["build"]));
@@ -86,10 +90,11 @@ fn new_init_manifest_build_run_and_clean_work_without_explicit_entry() {
     success(cli(&root, &["install"]));
     let lock = fs::read(root.join("ube.lock")).unwrap();
     success(cli(&root, &["clean"]));
-    assert!(!root.join(".build").exists());
+    assert!(!root.join(".build/hello-world").exists());
+    assert!(!root.join(".build/hello-world.ll").exists());
     assert!(root.join("src/Main.ube").is_file());
     assert_eq!(fs::read(root.join("ube.lock")).unwrap(), lock);
-    assert!(root.join(".ube/deps").exists());
+    assert!(root.join(".build/.deps").exists());
     success(cli(&root, &["clean"]));
     failure(cli(&root, &["init"]), "already exists");
 }
@@ -100,7 +105,16 @@ fn init_preserves_existing_source_and_checks_manifest_entry_names() {
     fs::create_dir(dir.path().join("src")).unwrap();
     let source = "class Custom { main() {} }";
     fs::write(dir.path().join("src/Custom.ube"), source).unwrap();
+    fs::write(
+        dir.path().join(".gitignore"),
+        "# Local rules\n.build/\nprivate.env",
+    )
+    .unwrap();
     success(cli(dir.path(), &["init", "--name", "existing-app"]));
+    assert_eq!(
+        fs::read_to_string(dir.path().join(".gitignore")).unwrap(),
+        "# Local rules\n.build/\nprivate.env"
+    );
     assert!(!dir.path().join("src/Main.ube").exists());
     assert_eq!(
         fs::read_to_string(dir.path().join("src/Custom.ube")).unwrap(),
@@ -159,14 +173,14 @@ fn local_dependencies_are_imported_locked_checked_and_removed() {
     success(cli(&app, &["install", "--update"]));
     assert!(success(cli(&app, &["run"])).contains("43"));
     fs::write(
-        app.join(".ube/deps/greet/src/Greeting.ube"),
+        app.join(".build/.deps/greet/src/Greeting.ube"),
         "class Greeting {}",
     )
     .unwrap();
     failure(cli(&app, &["check"]), "was modified");
     success(cli(&app, &["install"]));
     success(cli(&app, &["remove", "greet"]));
-    assert!(!app.join(".ube/deps/greet").exists());
+    assert!(!app.join(".build/.deps/greet").exists());
     assert!(!fs::read_to_string(app.join("ube.lock"))
         .unwrap()
         .contains("greet"));
@@ -206,7 +220,7 @@ fn transitive_dependencies_resolve_in_their_own_package_context() {
     let lock = fs::read_to_string(app.join("ube.lock")).unwrap();
     assert!(lock.contains("greet/numbers"));
     success(cli(&app, &["remove", "greet"]));
-    assert!(!app.join(".ube/deps/greet").exists());
+    assert!(!app.join(".build/.deps/greet").exists());
 }
 
 #[test]
@@ -337,12 +351,12 @@ fn install_rejects_source_symlinks_and_serializes_installations() {
     let app = dir.path().join("app");
     success(cli(&app, &["install"]));
     let lock = fs::read(app.join("ube.lock")).unwrap();
-    fs::write(app.join(".ube/install.lock"), "another installer").unwrap();
+    fs::write(app.join(".build/install.lock"), "another installer").unwrap();
     failure(cli(&app, &["install"]), "Cannot acquire");
-    assert!(app.join(".ube/install.lock").is_file());
-    fs::remove_file(app.join(".ube/install.lock")).unwrap();
+    assert!(app.join(".build/install.lock").is_file());
+    fs::remove_file(app.join(".build/install.lock")).unwrap();
     success(cli(&app, &["install"]));
-    assert!(!app.join(".ube/install.lock").exists());
+    assert!(!app.join(".build/install.lock").exists());
     assert_eq!(fs::read(app.join("ube.lock")).unwrap(), lock);
     #[cfg(unix)]
     {
@@ -358,4 +372,41 @@ fn install_rejects_source_symlinks_and_serializes_installations() {
         assert_eq!(fs::read(app.join("ube.toml")).unwrap(), manifest);
         assert_eq!(fs::read(app.join("ube.lock")).unwrap(), lock);
     }
+}
+
+#[test]
+fn build_creates_or_updates_gitignore_for_manifest_and_explicit_sources() {
+    let dir = tempfile::tempdir().unwrap();
+    success(cli(dir.path(), &["new", "app"]));
+    let root = dir.path().join("app");
+    fs::remove_file(root.join(".gitignore")).unwrap();
+    success(cli(&root, &["build"]));
+    assert_eq!(
+        fs::read_to_string(root.join(".gitignore")).unwrap(),
+        ".build/\n"
+    );
+    fs::write(root.join(".gitignore"), "# Custom rules\nprivate.env").unwrap();
+    success(cli(
+        &root.join("src"),
+        &["build", "Main.ube", "-o", "../.build/explicit"],
+    ));
+    let expected = "# Custom rules\nprivate.env\n.build/\n";
+    assert_eq!(
+        fs::read_to_string(root.join(".gitignore")).unwrap(),
+        expected
+    );
+    assert!(!root.join("src/.gitignore").exists());
+    success(cli(&root, &["build"]));
+    assert_eq!(
+        fs::read_to_string(root.join(".gitignore")).unwrap(),
+        expected
+    );
+    let standalone = dir.path().join("standalone");
+    fs::create_dir(&standalone).unwrap();
+    fs::write(standalone.join("Main.ube"), "class Main { main() {} }").unwrap();
+    success(cli(&standalone, &["build", "Main.ube"]));
+    assert_eq!(
+        fs::read_to_string(standalone.join(".gitignore")).unwrap(),
+        ".build/\n"
+    );
 }

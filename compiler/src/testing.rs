@@ -157,7 +157,9 @@ pub fn run(args: &[String]) -> i32 {
                     continue;
                 }
                 let llvm = TextualLlvmEmitter::new().emit_program(&ir);
-                if super::run_llvm_timeout(&llvm, Some(Duration::from_millis(timeout))) == 0 {
+                if super::run_llvm_timeout(&llvm, Some(Duration::from_millis(timeout)), Some(&file))
+                    == 0
+                {
                     println!("PASS {label}");
                     passed += 1;
                 } else {
