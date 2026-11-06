@@ -361,3 +361,109 @@ fn async_expression_uses_the_same_resumable_frame_for_captures() {
         .contains("define internal i1 @__ube_poll_UbeAsyncExpr"));
     expect(&program, "42\n");
 }
+
+#[test]
+fn async_trace_links_nested_submissions_awaits_and_legacy_callbacks() {
+    let program = Program::new(r#"
+    class Main {
+        async leaf(Channel<int> input) { final result=await input.receive() }
+        async middle(Channel<int> input) { await this.leaf(input) }
+        async legacyLeaf() { final exists=File.exists('/tmp') throw 'legacy failure' }
+        async legacyMiddle() { await this.legacyLeaf() }
+        main() {
+            final input=Channel<int>(1)
+            final task=this.middle(input)
+            input.close()
+            try { await task } catch(Error error) { print(error.stacktrace()) }
+            print('NEXT')
+            try { await this.legacyMiddle() } catch(Error error) { print(error.stacktrace()) }
+        }
+    }"#);
+    assert!(program.llvm.contains("define internal i1 @__ube_poll_Main_leaf"));
+    assert!(!program.llvm.contains("define internal i1 @__ube_poll_Main_legacyLeaf"));
+    let output=program.run();
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    let text=String::from_utf8_lossy(&output.stdout);
+    let (first,second)=text.split_once("NEXT\n").unwrap();
+    for (trace,leaf,parent) in [(first,"Main.leaf","Main.middle"),(second,"Main.legacyLeaf","Main.legacyMiddle")] {
+        assert!(trace.contains(leaf) && trace.contains(parent) && trace.contains("Main.main"), "{trace}");
+        assert!(trace.contains("--- spawned at ---"), "{trace}");
+        assert!(trace.matches("--- awaited at ---").count()>=2, "{trace}");
+    }
+    assert!(!second.contains("Main.middle"), "{second}");
+    assert!(!second.contains("Main.leaf"), "{second}");
+}
+
+#[test]
+fn async_trace_repeated_awaits_keep_separate_locations_and_rethrow_identity() {
+    let program=Program::new(r#"class Main {
+        async leaf() { throw 'shared failure' }
+        main() {
+            final task=this.leaf()
+            try { await task } catch(Error error) { print(error.stacktrace()) }
+            print('NEXT')
+            try { await task } catch(Error error) {
+                final trace=error.stacktrace()
+                print(trace)
+                try { throw error } catch(Error again) { print(trace==again.stacktrace()) }
+            }
+        }
+    }"#);
+    let output=program.run();
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    let text=String::from_utf8_lossy(&output.stdout);
+    let (first,second)=text.split_once("NEXT\n").unwrap();
+    assert!(first.contains("Main.main (7:"), "{first}");
+    assert!(second.contains("Main.main (9:"), "{second}");
+    assert!(!second.contains("Main.main (7:"), "{second}");
+    assert_eq!(first.matches("--- awaited at ---").count(),1,"{first}");
+    assert_eq!(second.matches("--- awaited at ---").count(),1,"{second}");
+    assert!(second.ends_with("true\n"),"{second}");
+}
+
+#[test]
+fn unhandled_async_chain_reports_leaf_submission_and_each_awaiter_in_order() {
+    let program = Program::new(r#"
+    class Main {
+        finished() { return }
+        async leaf(Channel<int> started, Channel<int> blocked) {
+            await started.send(1)
+            await blocked.receive()
+        }
+        async relay(Channel<int> started, Channel<int> blocked) {
+            await this.leaf(started, blocked)
+        }
+        main() {
+            this.finished()
+            final started=Channel<int>(1)
+            final blocked=Channel<int>(1)
+            final task=this.relay(started, blocked)
+            await started.receive()
+            blocked.close()
+            await task
+        }
+    }"#);
+    assert!(program.llvm.contains("define internal i1 @__ube_poll_Main_leaf"));
+    let output = program.run();
+    assert_eq!(output.status.code(), Some(1), "{output:?}");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("unhandled exception GenericError: channel is closed"), "{stderr}");
+    let sections: Vec<_> = stderr.split("--- awaited at ---").collect();
+    assert_eq!(sections.len(), 3, "{stderr}");
+    let origin = sections[0];
+    let submitted: Vec<_> = origin.split("--- spawned at ---").collect();
+    assert_eq!(submitted.len(), 3, "{stderr}");
+    assert!(submitted[0].contains("at Main.leaf ("), "{stderr}");
+    assert!(submitted[1].contains("at Main.relay ("), "{stderr}");
+    assert!(submitted[2].contains("at Main.main ("), "{stderr}");
+    assert!(sections[1].contains("at Main.relay ("), "{stderr}");
+    assert!(sections[2].contains("at Main.main ("), "{stderr}");
+    assert!(!sections[2].contains("at Main.relay"), "{stderr}");
+    assert!(!stderr.contains("Main.finished"), "{stderr}");
+    for line in stderr.lines().filter(|line| line.trim_start().starts_with("at Main.")) {
+        let location = line.split_once('(').unwrap().1.trim_end_matches(')');
+        let (line, column) = location.split_once(':').unwrap();
+        assert!(line.parse::<usize>().unwrap() > 0);
+        assert!(column.parse::<usize>().unwrap() > 0);
+    }
+}

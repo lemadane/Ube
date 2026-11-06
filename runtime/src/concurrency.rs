@@ -87,7 +87,7 @@ fn task_value(result: Result<AbiValue, TaskError>) -> AbiValue {
         Err(error) => {
             set_last_task_error(error.to_string());
             let record = match error {
-                TaskError::Exception(record) => record,
+                TaskError::Exception(record) => crate::exceptions::observe_exception(record),
                 other => crate::exceptions::generic(other.to_string()),
             };
             crate::exceptions::set_pending(record);
@@ -154,11 +154,17 @@ fn is_cancel_error(error: &TaskError) -> bool {
 fn error_record(error: TaskError) -> usize {
     match error { TaskError::Exception(record) => record, other => crate::exceptions::generic(other.to_string()) }
 }
+fn same_task_error(left: &TaskError, right: &TaskError) -> bool {
+    match (left, right) {
+        (TaskError::Exception(left), TaskError::Exception(right)) => crate::exceptions::same_exception(*left, *right),
+        _ => left == right,
+    }
+}
 fn merge_cleanup_error(primary: TaskError, cleanup: TaskError) -> TaskError {
     let (primary, suppressed) = if is_cancel_error(&primary) || primary == TaskError::Timeout {
         (error_record(cleanup), error_record(primary))
     } else { (error_record(primary), error_record(cleanup)) };
-    if primary != suppressed {
+    if !crate::exceptions::same_exception(primary, suppressed) {
         unsafe { (&*(primary as *const crate::exceptions::ExceptionRecord)).suppressed.lock().unwrap().push(suppressed); }
     }
     TaskError::Exception(primary)
@@ -636,10 +642,11 @@ fn spawn_abi_callback(
         unsafe { Box::from_raw(context as *mut UbeTaskContext) }
     };
     let log_context = crate::logging::snapshot();
+    let mut trace_context = crate::exceptions::submission_context();
     let task = spawn_task_impl(move |token| async move {
         let flag = token.flag();
         let children = token.children.clone();
-        let value = tokio::task::spawn_blocking(move || crate::logging::with_context(log_context, || {
+        let value = tokio::task::spawn_blocking(move || crate::logging::with_context(log_context, || crate::exceptions::with_trace_context(&mut trace_context, || {
             CURRENT_CHILDREN.with(|current| *current.borrow_mut() = Some(children));
             CURRENT_TASK_ERROR.with(|error| *error.borrow_mut() = None);
             crate::exceptions::set_pending(0);
@@ -652,7 +659,7 @@ fn spawn_abi_callback(
             let pending = crate::exceptions::take_pending();
             if pending != 0 { Err(TaskError::Exception(pending)) }
             else { error.map_or(Ok(value), |message| Err(TaskError::Failed(message))) }
-        }))
+        })))
         .await
         .map_err(|error| TaskError::Panicked(error.to_string()))?;
         value
@@ -950,7 +957,7 @@ where F: FnOnce(Vec<Task<AbiValue>>) -> Fut + Send + 'static,
         for child in &children { child.cancel(); }
         for child in &children {
             if let Err(error) = child.wait_result().await {
-                if child.cancelled_flag.load(Ordering::Acquire) && !is_cancel_error(&error) && outcome.as_ref().err() != Some(&error) {
+                if child.cancelled_flag.load(Ordering::Acquire) && !is_cancel_error(&error) && outcome.as_ref().err().is_none_or(|primary| !same_task_error(primary, &error)) {
                     outcome = Err(match outcome { Ok(_) => error, Err(primary) => merge_cleanup_error(primary, error) });
                 }
             }
@@ -1012,7 +1019,7 @@ pub extern "C" fn ube_task_outcome_error(handle: *mut c_void) -> *mut c_void {
         Ok(_) => std::ptr::null_mut(),
         Err(error) => {
             let record = match error { TaskError::Exception(record) => record, other => crate::exceptions::generic(other.to_string()) };
-            unsafe { (*(record as *const crate::exceptions::ExceptionRecord)).object as *mut c_void }
+            crate::exceptions::ube_exception_object(record as *mut c_void)
         }
     }
 }

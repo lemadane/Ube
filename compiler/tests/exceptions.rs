@@ -1348,3 +1348,99 @@ fn task_combinators_check_literal_elements_and_outcome_calls() {
     rejects("class Application { main() { TaskOutcome() } }", "does not create instances");
     rejects("class Application { main() { final results = await Task.allSettled([async 1]) final result = results.get('bad') } }", "Invalid task outcome method call");
 }
+
+#[test]
+fn stacktrace_records_nested_calls_and_preserves_original_throw() {
+    let output = native(r#"class Problem(string message) {}
+class Application {
+    fail() { throw Problem('boom') }
+    relay() { this.fail() }
+    finished() { return }
+    main() {
+        this.finished()
+        try { this.relay() } catch (Problem error) {
+            final original = error.stacktrace()
+            Console.printLine(original)
+            try { throw error } catch (Error again) {
+                Console.printLine(original == again.stacktrace())
+            }
+        }
+    }
+}"#);
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    let text = String::from_utf8_lossy(&output.stdout);
+    assert!(text.starts_with("Problem: boom\n  at Application.fail (3:"), "{text}");
+    let fail = text.find("at Application.fail").unwrap();
+    let relay = text.find("at Application.relay (4:").unwrap();
+    let main = text.find("at Application.main (8:").unwrap();
+    assert!(fail < relay && relay < main, "{text}");
+    assert!(!text.contains("Application.finished"), "{text}");
+    assert!(!text.contains("Problem.message"), "{text}");
+    assert!(text.ends_with("true\n"), "{text}");
+}
+
+#[test]
+fn stacktrace_captures_runtime_errors_and_unhandled_output() {
+    let caught = native(r#"class Application {
+    fail() { final cache=Cache.memory(0) }
+    main() { try { this.fail() } catch(Error error) { Console.printLine(error.stacktrace()) } }
+}"#);
+    assert!(caught.status.success(), "{}", String::from_utf8_lossy(&caught.stderr));
+    let text=String::from_utf8_lossy(&caught.stdout);
+    assert!(text.contains("at Application.fail (2:"), "{text}");
+    assert!(text.contains("at Application.main (3:"), "{text}");
+    let unhandled=native("class Application { fail() { throw 'boom' } main() { this.fail() } }");
+    assert!(!unhandled.status.success());
+    let stderr=String::from_utf8_lossy(&unhandled.stderr);
+    assert!(stderr.contains("unhandled exception GenericError: boom"), "{stderr}");
+    assert!(stderr.contains("at Application.fail (1:"), "{stderr}");
+    assert!(stderr.contains("at Application.main (1:"), "{stderr}");
+}
+
+#[test]
+fn async_stacktrace_retains_throwing_task_without_stale_frames() {
+    let output=native(r#"class Application {
+    async fail() { throw 'async boom' }
+    done() { return }
+    main() {
+        try { await this.fail() } catch(Error error) { Console.printLine(error.stacktrace()) }
+        this.done()
+        try { throw 'later' } catch(Error error) { Console.printLine(error.stacktrace()) }
+    }
+}"#);
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    let text=String::from_utf8_lossy(&output.stdout);
+    assert!(text.contains("GenericError: async boom\n  at Application.fail (2:"), "{text}");
+    let later=text.split("GenericError: later").nth(1).unwrap();
+    assert!(later.contains("at Application.main (7:"), "{text}");
+    assert!(!later.contains("Application.fail"), "{text}");
+    assert!(!later.contains("Application.done"), "{text}");
+}
+
+#[test]
+fn stacktrace_requires_an_error_instance_and_zero_arguments() {
+    rejects("class Application { main() { GenericError.stacktrace() } }", "error instance");
+    rejects("class Application { main() { try { throw 'bad' } catch(Error e) { e.stacktrace(1) } } }", "no arguments");
+}
+
+#[test]
+fn stacktrace_supports_error_compatible_traits_and_unthrown_instances() {
+    runs(r#"trait Retryable { string message() bool retryable() }
+    class Problem(string message,bool retryable) {}
+    class Application { main() {
+        Console.printLine(Problem('not thrown',true).stacktrace() == '')
+        try { throw Problem('retry',true) } catch(Retryable error) { Console.printLine(error.stacktrace()) }
+    }}"#, "true\nProblem: retry\n  at Application.main (5:21)\n");
+}
+
+#[test]
+fn native_math_arguments_match_decimal_and_integer_abis() {
+    runs(r#"class Application { main() {
+        Console.printLine(Math.sqrt(9))
+        Console.printLine(Math.pow(2,3))
+        Console.printLine(Math.isNaN(Math.sqrt(-1)))
+        Console.printLine(Math.gcd(12,8))
+        Console.printLine(Math.isEven(4))
+        Console.printLine(Math.round(1.234,2))
+    }}"#, "3\n8\ntrue\n4\ntrue\n1.23\n");
+}

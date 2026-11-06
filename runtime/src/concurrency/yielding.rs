@@ -163,6 +163,7 @@ pub extern "C" fn ube_task_spawn_poll(
         frame.set(index * 2, value, value.meta >> 8 == 7);
     }
     let mut log_context = crate::logging::snapshot();
+    let mut trace_context = crate::exceptions::submission_context();
     let task = spawn_task_impl(
         move |token| async move {
             let mut waiting: Option<
@@ -181,7 +182,7 @@ pub extern "C" fn ube_task_spawn_poll(
                         }
                     }
                     let (complete, pending) =
-                        crate::logging::with_context(log_context.clone(), || {
+                        crate::exceptions::with_trace_context(&mut trace_context, || crate::logging::with_context(log_context.clone(), || {
                             let old_children = CURRENT_CHILDREN
                                 .with(|current| current.replace(Some(token.children.clone())));
                             let old_cancel = CURRENT_CANCELLATION
@@ -212,7 +213,7 @@ pub extern "C" fn ube_task_spawn_poll(
                             CURRENT_CANCELLATION.with(|current| *current.borrow_mut() = old_cancel);
                             CURRENT_CHILDREN.with(|current| *current.borrow_mut() = old_children);
                             (complete, pending)
-                        });
+                        }));
                     if complete && pending != 0 {
                         return Poll::Ready(Err(TaskError::Exception(pending)));
                     }

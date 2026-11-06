@@ -1343,6 +1343,11 @@ impl IrBuilder {
     }
 
     fn build_stmt(&mut self, stmt: &Stmt) {
+        self.emit(IrInstruction::CallRuntime {
+            dest: None, symbol: "ube_trace_location".into(),
+            args: vec![IrOperand::ConstantString(format!("{}:{}", stmt.span.start.line, stmt.span.start.column))],
+            ret_ty: Type::Void,
+        });
         if !self.in_cleanup {
             let cancellation = self.runtime("ube_exception_poll_cancel", vec![], Type::Bytes);
             self.check_exception(cancellation);
@@ -1956,6 +1961,10 @@ impl IrBuilder {
                                 let mut args = vec![obj_op]; args.extend(arg_ops);
                                 return self.runtime(method.symbol, args, method.result);
                             }
+                        }
+                        if member == "stacktrace" && (class_name == "Error" || self.trait_members.get("Error").is_some_and(|members| members.contains(&class_name)) || self.trait_signatures.get(&(class_name.clone(), "message".into())).is_some_and(|(params, result)| params.is_empty() && *result == Type::String)) {
+                            let object = self.cast(obj_op, Type::Bytes);
+                            return self.runtime("ube_exception_stacktrace", vec![object], Type::String);
                         }
                         if member == "toJson" {
                             let value = obj_op;
@@ -2822,7 +2831,6 @@ impl IrBuilder {
                                 "lcm" => "ube_math_lcm",
                                 _ => "ube_math_pi",
                             };
-                            let dest = self.fresh_reg();
                             let ret_ty = match member.as_str() {
                                 "sign" | "gcd" | "lcm" => Type::Int,
                                 "isNaN" | "isInfinite" | "isFinite" | "isEven" | "isOdd" => {
@@ -2830,6 +2838,13 @@ impl IrBuilder {
                                 }
                                 _ => Type::Decimal,
                             };
+                            // Match the native ABI even when source arguments are ints.
+                            let integer_args = matches!(symbol, "ube_math_is_even" | "ube_math_is_odd" | "ube_math_gcd" | "ube_math_lcm");
+                            let arg_ops = arg_ops.into_iter().enumerate().map(|(index, arg)| {
+                                let ty = if integer_args || (symbol == "ube_math_round_decimals" && index == 1) { Type::Long } else { Type::Decimal };
+                                self.cast(arg, ty)
+                            }).collect();
+                            let dest = self.fresh_reg();
                             self.emit(IrInstruction::CallRuntime {
                                 dest: Some(dest),
                                 symbol: symbol.into(),

@@ -56,6 +56,7 @@ impl TextualLlvmEmitter {
         }
         self.output.push_str("declare void @ube_testicle_check(i1, i8*)\n");
         self.output.push_str("declare { i8*, i64 } @ube_gc_allocate(i64, i64, i64*, i64)\ndeclare void @ube_gc_frame_enter()\ndeclare void @ube_gc_frame_pin(i64, i8*)\ndeclare void @ube_gc_frame_leave(i8*)\ndeclare void @ube_gc_escape(i8*)\ndeclare i1 @ube_gc_root_remove(i64)\ndeclare void @ube_gc_store_reference(i8*, i64, i8*)\ndeclare i8* @ube_gc_load_reference(i8*, i64, i64)\ndeclare i1 @ube_gc_try_collect()\ndeclare i64 @ube_gc_object_count()\ndeclare i64 @ube_gc_reclaimed_count()\n");
+        self.output.push_str("declare void @ube_trace_enter(i8*)\ndeclare void @ube_trace_location(i8*)\ndeclare void @ube_trace_leave()\ndeclare void @ube_trace_suspend()\ndeclare i8* @ube_exception_stacktrace(i8*)\n");
         // External runtime declarations
         self.output.push_str("declare void @ube_runtime_init()\n");
         self.output
@@ -776,6 +777,8 @@ impl TextualLlvmEmitter {
                     }
                 }
                 buf.push_str("  call void @ube_gc_frame_enter()\n");
+                let trace_name = self.emit_operand(&IrOperand::ConstantString(format!("{}.{}", func.class_name, func.name)));
+                buf.push_str(&format!("  call void @ube_trace_enter(i8* {})\n", trace_name));
                 for (register, ty) in std::iter::once(&func.receiver).chain(func.params.iter()) {
                     let pin = self.gc_pin(&format!("%{}", register.0), ty, register.0 * 2);
                     if !pin.is_empty() { buf.push_str(&format!("  {}\n", pin)); }
@@ -795,6 +798,7 @@ impl TextualLlvmEmitter {
                     if !escape.is_empty() { buf.push_str(&format!("  {}\n", escape)); }
                 }
                 if let IrInstruction::Return { val } = instruction {
+                    buf.push_str("  call void @ube_trace_leave()\n");
                     let returned = val.as_ref().filter(|value| self.type_to_llvm(&value.get_type()).ends_with('*'));
                     let pointer = if let Some(value) = returned { { let operand = self.emit_operand(value); self.gc_pointer(&operand, &value.get_type()) } } else { (Vec::new(), "null".into()) };
                     for cast in pointer.0 { buf.push_str(&format!("  {}\n", cast)); }

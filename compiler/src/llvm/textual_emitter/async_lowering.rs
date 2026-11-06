@@ -66,6 +66,7 @@ fn inputs(instruction: &IrInstruction) -> Vec<IrOperand> {
 }
 fn nonblocking(symbol: &str) -> bool {
     symbol.starts_with("ube_exception_") && symbol != "ube_exception_fail_unhandled"
+        || symbol.starts_with("ube_trace_")
         || symbol.starts_with("ube_gc_")
         || symbol.starts_with("ube_list_")
         || symbol.starts_with("ube_map_")
@@ -192,11 +193,12 @@ impl TextualLlvmEmitter {
             offset += block.instructions.len();
         }
         let symbol = format!("__ube_poll_{}_{}", function.class_name, function.name);
-        let mut output = format!("define internal i1 @{symbol}(i8* %frame) {{\nentry:\n  call void @ube_gc_frame_enter()\n  %pc = call i64 @ube_poll_pc(i8* %frame)\n  switch i64 %pc, label %invalid [\n");
+        let trace_name = self.emit_operand(&IrOperand::ConstantString(format!("{}.{}", function.class_name, function.name)));
+        let mut output = format!("define internal i1 @{symbol}(i8* %frame) {{\nentry:\n  call void @ube_gc_frame_enter()\n  call void @ube_trace_enter(i8* {trace_name})\n  %pc = call i64 @ube_poll_pc(i8* %frame)\n  switch i64 %pc, label %invalid [\n");
         for index in 0..instructions.len() {
             output.push_str(&format!("    i64 {index}, label %state_{index}\n"));
         }
-        output.push_str("  ]\ninvalid:\n  unreachable\npending:\n  call void @ube_gc_frame_leave(i8* null)\n  ret i1 false\n");
+        output.push_str("  ]\ninvalid:\n  unreachable\npending:\n  call void @ube_trace_suspend()\n  call void @ube_gc_frame_leave(i8* null)\n  ret i1 false\n");
         for (index, instruction) in instructions.iter().enumerate() {
             output.push_str(&format!("state_{index}:\n  %step_{index} = call i1 @ube_poll_step(i8* %frame, i64 {index})\n  br i1 %step_{index}, label %body_{index}, label %pending\nbody_{index}:\n"));
             let mut names = HashMap::new();
@@ -325,6 +327,7 @@ impl TextualLlvmEmitter {
                         lines.push("call void @ube_poll_finish(i8* %frame, i64 0, i64 0)".into());
                         lines.push("call void @ube_gc_frame_leave(i8* null)".into());
                     }
+                    lines.push("call void @ube_trace_leave()".into());
                     lines.push("ret i1 true".into());
                 }
                 _ => lines.push(self.emit_instruction(instruction)),

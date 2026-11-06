@@ -2458,6 +2458,13 @@ impl TypeChecker {
                 match &callee.kind {
                     ExprKind::MemberAccess { object, member, .. } => {
                         if let Some(obj_ty) = self.check_expr(cls, object) {
+                            if member == "stacktrace" && matches!(&obj_ty, Type::Class { name } if name == "Error" || self.satisfies_trait(name, "Error")) {
+                                let class_receiver = matches!(&object.kind, ExprKind::Identifier(name) if self.symbol_table.lookup(name).is_none() && (self.classes.contains_key(name) || self.traits.contains_key(name)));
+                                if class_receiver || !args.is_empty() {
+                                    self.diagnostics.push(Diagnostic::error("stacktrace requires an error instance call with no arguments", Some(expr.span)));
+                                }
+                                return Some(Type::String);
+                            }
                             if member == "toJson" {
                                 if matches!(obj_ty, Type::AnonymousObject { .. } | Type::Function { .. }) {
                                     self.diagnostics.push(Diagnostic::error("JSON requires a declared data class or parsed JSON document; anonymous/function layouts are unsupported", Some(expr.span)));

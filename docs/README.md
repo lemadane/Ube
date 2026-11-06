@@ -12,6 +12,7 @@ Start with the [project README](../README.md) for language syntax, toolchain set
 
 ## Runtime and application services
 
+- [Error stack traces](stacktraces.md): captured call frames, task submission/await chains, readable diagnostics, and rethrows
 - [Concurrency](concurrency.md): tasks, channels, cancellation, cleanup, yielding, and backend limits
 - [Observability](observability.md): health, readiness, metrics, and cache measurements
 - [Memory](memory.md): allocation, ownership, garbage collection, and task roots
