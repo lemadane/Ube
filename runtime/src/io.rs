@@ -9,7 +9,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 mod http;
 mod http3;
 
-use crate::collections::{ube_list_add, ube_list_create, UbeList};
+use crate::collections::{ube_list_create, UbeList};
 use crate::datetime::{ube_datetime_from_unix, UbeDateTime};
 
 // Runtime failures use the same pending exception channel as generated methods.
@@ -300,7 +300,7 @@ pub extern "C" fn ube_directory_list(path_ptr: *const c_char) -> *mut UbeList {
             fail(format!("Invalid UTF-8 filename in '{path}'"));
             return list;
         };
-        ube_list_add(list, CString::new(name).unwrap().into_raw() as i64);
+        crate::collections::add_typed(list, CString::new(name).unwrap().into_raw() as i64, 1, 6, "string");
     }
     list
 }
@@ -1105,38 +1105,19 @@ pub struct UbeXmlElement {
 }
 
 #[no_mangle]
-pub extern "C" fn ube_json_parse(_ptr: *const c_char) -> *mut UbeJsonObject {
-    Box::into_raw(Box::new(UbeJsonObject { id: 1 }))
-}
+pub extern "C" fn ube_json_parse(ptr: *const c_char) -> *mut UbeJsonObject { crate::json::parse(ptr).cast() }
 #[no_mangle]
-pub extern "C" fn ube_json_stringify(_obj: *mut UbeJsonObject) -> *mut c_char {
-    CString::new("{\"name\":\"Lem\",\"age\":40}")
-        .unwrap()
-        .into_raw()
-}
+pub extern "C" fn ube_json_stringify(obj: *mut UbeJsonObject) -> *mut c_char { crate::json::stringify(obj.cast()) }
 #[no_mangle]
-pub extern "C" fn ube_jsonobject_get_string(
-    _obj: *mut UbeJsonObject,
-    _key: *const c_char,
-) -> *mut c_char {
-    CString::new("Lem").unwrap().into_raw()
-}
+pub extern "C" fn ube_jsonobject_get_string(obj: *mut UbeJsonObject, key: *const c_char) -> *mut c_char { crate::json::get_string(obj.cast(),key) }
 #[no_mangle]
-pub extern "C" fn ube_jsonobject_get_int(_obj: *mut UbeJsonObject, _key: *const c_char) -> i32 {
-    40
-}
+pub extern "C" fn ube_jsonobject_get_int(obj: *mut UbeJsonObject, key: *const c_char) -> i32 { crate::json::get_int(obj.cast(),key) }
 #[no_mangle]
-pub extern "C" fn ube_jsonobject_get_long(_obj: *mut UbeJsonObject, _key: *const c_char) -> i64 {
-    40
-}
+pub extern "C" fn ube_jsonobject_get_long(obj: *mut UbeJsonObject, key: *const c_char) -> i64 { crate::json::get_long(obj.cast(),key) }
 #[no_mangle]
-pub extern "C" fn ube_jsonobject_get_decimal(_obj: *mut UbeJsonObject, _key: *const c_char) -> f64 {
-    40.0
-}
+pub extern "C" fn ube_jsonobject_get_decimal(obj: *mut UbeJsonObject, key: *const c_char) -> f64 { crate::json::get_decimal(obj.cast(),key) }
 #[no_mangle]
-pub extern "C" fn ube_jsonobject_get_bool(_obj: *mut UbeJsonObject, _key: *const c_char) -> bool {
-    true
-}
+pub extern "C" fn ube_jsonobject_get_bool(obj: *mut UbeJsonObject, key: *const c_char) -> bool { crate::json::get_bool(obj.cast(),key) }
 
 #[no_mangle]
 pub extern "C" fn ube_xml_parse(_ptr: *const c_char) -> *mut UbeXmlDocument {

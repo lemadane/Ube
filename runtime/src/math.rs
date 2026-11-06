@@ -1,4 +1,4 @@
-use crate::collections::{ube_list_add, ube_list_create, ube_list_get, ube_list_len, UbeList};
+use crate::collections::{ube_list_create, ube_list_get, ube_list_len, UbeList};
 use std::ffi::CString;
 use std::os::raw::c_char;
 
@@ -219,7 +219,7 @@ pub extern "C" fn ube_random_uuid() -> *mut c_char {
 pub extern "C" fn ube_random_bytes(count: i64) -> *mut UbeList {
     let list = ube_list_create();
     for _ in 0..count {
-        ube_list_add(list, ube_random_int(0, 255));
+        crate::collections::add_typed(list, ube_random_int(0, 255), 1, 2, "long");
     }
     list
 }

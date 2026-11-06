@@ -316,9 +316,9 @@ impl IrBuilder {
     }
 
     fn emit(&mut self, instr: IrInstruction) {
-        let check = matches!(instr, IrInstruction::CallMethod { .. } | IrInstruction::CallTrait { .. })
+        let check = matches!(instr, IrInstruction::JsonEncode { .. } | IrInstruction::CallMethod { .. } | IrInstruction::CallTrait { .. })
             || matches!(&instr, IrInstruction::CallRuntime { symbol, .. }
-                if symbol.starts_with("ube_observability_") || symbol.starts_with("ube_metrics_") || symbol.starts_with("ube_task_outcome") || symbol.starts_with("ube_env_") || symbol.starts_with("ube_rest_") || symbol.starts_with("ube_mockery_") || symbol.starts_with("ube_testicle_") || symbol.starts_with("ube_exchange_") || symbol.starts_with("ube_money_") || symbol.starts_with("ube_orm_") || symbol.starts_with("ube_sql_") || symbol.starts_with("ube_jwt_") || symbol.starts_with("ube_oauth2_") || symbol.starts_with("ube_session_") || matches!(symbol.as_str(), "ube_request_session" | "ube_request_query" | "ube_request_header" | "ube_request_body" | "ube_response_redirect") || symbol.starts_with("ube_console_") || symbol.starts_with("ube_output_") || symbol.starts_with("ube_log_") || symbol.starts_with("ube_sqlite_") || symbol.starts_with("ube_file_") || symbol.starts_with("ube_directory_")
+                if symbol.starts_with("ube_kv_") || symbol.starts_with("ube_json") || symbol.starts_with("ube_cache_") || symbol.starts_with("ube_args_") || symbol.starts_with("ube_observability_") || symbol.starts_with("ube_metrics_") || symbol.starts_with("ube_task_outcome") || symbol.starts_with("ube_env_") || symbol.starts_with("ube_rest_") || symbol.starts_with("ube_mockery_") || symbol.starts_with("ube_testicle_") || symbol.starts_with("ube_exchange_") || symbol.starts_with("ube_money_") || symbol.starts_with("ube_orm_") || symbol.starts_with("ube_sql_") || symbol.starts_with("ube_jwt_") || symbol.starts_with("ube_oauth2_") || symbol.starts_with("ube_session_") || matches!(symbol.as_str(), "ube_request_session" | "ube_request_query" | "ube_request_header" | "ube_request_body" | "ube_response_redirect") || symbol.starts_with("ube_console_") || symbol.starts_with("ube_output_") || symbol.starts_with("ube_log_") || symbol.starts_with("ube_sqlite_") || symbol.starts_with("ube_file_") || symbol.starts_with("ube_directory_")
                     || symbol.starts_with("ube_stream_") || symbol.starts_with("ube_server_"));
         self.current_instructions.push(instr);
         if check {
@@ -1526,7 +1526,7 @@ impl IrBuilder {
                     let length_reg = self.fresh_reg();
                     self.emit(IrInstruction::CallRuntime {
                         dest: Some(length_reg),
-                        symbol: "ube_list_len".into(),
+                        symbol: if matches!(list.get_type(), Type::Class { name } if name == "ConsoleArgs") { "ube_args_len" } else { "ube_list_len" }.into(),
                         args: vec![list.clone()],
                         ret_ty: Type::Int,
                     });
@@ -1583,23 +1583,13 @@ impl IrBuilder {
                         self.insert_var(index_name.clone(), index_slot, Type::Int);
                     }
                     if let Some(loop_name) = loop_var {
-                        let value_reg = self.fresh_reg();
-                        self.emit(IrInstruction::CallRuntime {
-                            dest: Some(value_reg),
-                            symbol: "ube_list_get".into(),
-                            args: vec![list.clone(), IrOperand::Register(index_reg, Type::Int)],
-                            ret_ty: Type::Int,
-                        });
+                        let strings = matches!(list.get_type(), Type::Class { name } if name == "ConsoleArgs");
+                        let ty = if strings { Type::String } else { Type::Int };
+                        let value = self.runtime(if strings { "ube_args_get" } else { "ube_list_get" }, vec![list.clone(), IrOperand::Register(index_reg, Type::Int)], ty.clone());
                         let value_slot = self.fresh_reg();
-                        self.emit(IrInstruction::Alloca {
-                            dest: value_slot,
-                            ty: Type::Int,
-                        });
-                        self.emit(IrInstruction::Store {
-                            val: IrOperand::Register(value_reg, Type::Int),
-                            ptr: value_slot,
-                        });
-                        self.insert_var(loop_name.clone(), value_slot, Type::Int);
+                        self.emit(IrInstruction::Alloca { dest: value_slot, ty: ty.clone() });
+                        self.emit(IrInstruction::Store { val: value, ptr: value_slot });
+                        self.insert_var(loop_name.clone(), value_slot, ty);
                     }
                 }
 
@@ -1967,6 +1957,74 @@ impl IrBuilder {
                                 return self.runtime(method.symbol, args, method.result);
                             }
                         }
+                        if member == "toJson" {
+                            let value = obj_op;
+                            let dest = self.fresh_reg(); self.emit(IrInstruction::JsonEncode { dest, value });
+                            return IrOperand::Register(dest, Type::String);
+                        }
+                        if class_name == "Json" {
+                            return self.runtime("ube_json_parse", arg_ops.into_iter().take(1).collect(), Type::Class {name:"JsonObject".into()});
+                        }
+
+                        if class_name == "JsonArray" {
+                            let (symbol, ty) = match member.as_str() {
+                                "len" => ("ube_jsonarray_len", Type::Int),
+                                "get" => ("ube_jsonarray_get", Type::Class { name: "JsonObject".into() }),
+                                _ => ("ube_jsonarray_get_string", Type::String),
+                            };
+                            let mut args = vec![obj_op]; args.extend(arg_ops); return self.runtime(symbol, args, ty);
+                        }
+                        if class_name == "JsonObject"
+                        {
+                            let symbol = match member.as_str() {
+                                "getString" => "ube_jsonobject_get_string",
+                                "getInt" => "ube_jsonobject_get_int",
+                                "getLong" => "ube_jsonobject_get_long",
+                                "getDecimal" => "ube_jsonobject_get_decimal",
+                                "getBool" => "ube_jsonobject_get_bool",
+                                "getObject" => "ube_jsonobject_get_object",
+                                "getArray" => "ube_jsonobject_get_array",
+                                _ => "ube_jsonobject_get_string",
+                            };
+                            let dest = self.fresh_reg();
+                            let mut call_args = vec![obj_op];
+                            call_args.extend(arg_ops);
+                            let ret_ty = match member.as_str() {
+                                "getInt" => Type::Int,
+                                "getLong" => Type::Long,
+                                "getDecimal" => Type::Decimal,
+                                "getBool" => Type::Bool,
+                                "getObject" => Type::Class {
+                                    name: "JsonObject".into(),
+                                },
+                                "getArray" => Type::Class {
+                                    name: "JsonArray".into(),
+                                },
+                                _ => Type::String,
+                            };
+                            self.emit(IrInstruction::CallRuntime {
+                                dest: Some(dest),
+                                symbol: symbol.into(),
+                                args: call_args,
+                                ret_ty: ret_ty.clone(),
+                            });
+                            return IrOperand::Register(dest, ret_ty);
+                        }
+
+                        if class_name == "KeyValueStore" {
+                            if let Some(method) = crate::builtins::key_value_store_methods().into_iter().find(|m| m.name == member) {
+                                let mut args: Vec<_> = arg_ops.into_iter().zip(method.params).map(|(arg, ty)| self.cast(arg, ty)).collect();
+                                if !method.is_static { args.insert(0, obj_op); }
+                                return self.runtime(method.symbol, args, method.result);
+                            }
+                        }
+                        if class_name == "Cache" {
+                            if let Some(method) = crate::builtins::cache_methods().into_iter().find(|m| m.name == member) {
+                                let mut args: Vec<_> = arg_ops.into_iter().zip(method.params).map(|(arg, ty)| self.cast(arg, ty)).collect();
+                                if !method.is_static { args.insert(0, obj_op); }
+                                return self.runtime(method.symbol, args, method.result);
+                            }
+                        }
                         if crate::builtins::OBSERVABILITY_CLASSES.contains(&class_name.as_str()) {
                             if let Some(method) = crate::builtins::observability_methods(&class_name).into_iter().find(|m| m.name == member) {
                                 let args = arg_ops.into_iter().zip(method.params).map(|(arg, ty)| self.cast(arg, ty)).collect();
@@ -1984,7 +2042,16 @@ impl IrBuilder {
                             let result = if member == "get" { Type::Nullable(Box::new(Type::String)) } else { Type::Void };
                             return self.runtime(&format!("ube_session_{}", member), args, result);
                         }
+                        if class_name == "ConsoleArgs" {
+                            if let Some(method) = crate::builtins::console_args_methods().into_iter().find(|m| m.name == member) {
+                                let mut args = vec![obj_op]; args.extend(arg_ops);
+                                return self.runtime(method.symbol, args, method.result);
+                            }
+                        }
                         if class_name == "Log" || class_name == "Console" {
+                            if class_name == "Console" && member == "args" {
+                                return self.runtime("ube_console_args", arg_ops, Type::Class { name: "ConsoleArgs".into() });
+                            }
                             if class_name == "Console" && ["read", "readLine"].contains(&member.as_str()) {
                                 let symbol = if member == "read" { "ube_console_read" } else { "ube_console_read_line" };
                                 return self.runtime(symbol, arg_ops, Type::Nullable(Box::new(Type::String)));
@@ -2311,14 +2378,6 @@ impl IrBuilder {
                         }
 
                         if class_name == "DateTime"
-                            || member == "now"
-                            || member == "date"
-                            || member == "time"
-                            || member == "of"
-                            || member == "utc"
-                            || member == "parse"
-                            || member == "fromUnix"
-                            || member == "fromUnixMillis"
                         {
                             let symbol = match member.as_str() {
                                 "now" => "ube_datetime_now",
@@ -3216,77 +3275,6 @@ impl IrBuilder {
                             return IrOperand::Null;
                         }
 
-                        if class_name == "Json"
-                            || ["parse", "partialParse", "stringify", "from", "to"]
-                                .contains(&member.as_str())
-                        {
-                            let symbol = match member.as_str() {
-                                "parse" | "partialParse" => "ube_json_parse",
-                                "stringify" | "from" => "ube_json_stringify",
-                                _ => "ube_json_parse",
-                            };
-                            let dest = self.fresh_reg();
-                            let ret_ty = if member == "stringify" || member == "from" {
-                                Type::String
-                            } else {
-                                Type::Class {
-                                    name: "JsonObject".into(),
-                                }
-                            };
-                            self.emit(IrInstruction::CallRuntime {
-                                dest: Some(dest),
-                                symbol: symbol.into(),
-                                args: arg_ops,
-                                ret_ty: ret_ty.clone(),
-                            });
-                            return IrOperand::Register(dest, ret_ty);
-                        }
-
-                        if class_name == "JsonObject"
-                            || [
-                                "getString",
-                                "getInt",
-                                "getLong",
-                                "getDecimal",
-                                "getBool",
-                                "getObject",
-                                "getArray",
-                            ]
-                            .contains(&member.as_str())
-                        {
-                            let symbol = match member.as_str() {
-                                "getString" => "ube_jsonobject_get_string",
-                                "getInt" => "ube_jsonobject_get_int",
-                                "getLong" => "ube_jsonobject_get_long",
-                                "getDecimal" => "ube_jsonobject_get_decimal",
-                                "getBool" => "ube_jsonobject_get_bool",
-                                _ => "ube_jsonobject_get_string",
-                            };
-                            let dest = self.fresh_reg();
-                            let mut call_args = vec![obj_op];
-                            call_args.extend(arg_ops);
-                            let ret_ty = match member.as_str() {
-                                "getInt" => Type::Int,
-                                "getLong" => Type::Long,
-                                "getDecimal" => Type::Decimal,
-                                "getBool" => Type::Bool,
-                                "getObject" => Type::Class {
-                                    name: "JsonObject".into(),
-                                },
-                                "getArray" => Type::Class {
-                                    name: "JsonArray".into(),
-                                },
-                                _ => Type::String,
-                            };
-                            self.emit(IrInstruction::CallRuntime {
-                                dest: Some(dest),
-                                symbol: symbol.into(),
-                                args: call_args,
-                                ret_ty: ret_ty.clone(),
-                            });
-                            return IrOperand::Register(dest, ret_ty);
-                        }
-
                         if class_name == "Xml"
                             || ["parse", "partialParse", "create", "stringify", "from", "to"]
                                 .contains(&member.as_str())
@@ -3734,6 +3722,9 @@ impl IrBuilder {
                 let target_op = self.build_expr(target);
                 let index_op = self.build_expr(index);
                 if let Type::Class { ref name } = target_op.get_type() {
+                    if name == "ConsoleArgs" {
+                        return self.runtime("ube_args_get", vec![target_op, index_op], Type::String);
+                    }
                     if name == "TaskOutcomes" {
                         return self.runtime("ube_task_outcomes_get", vec![target_op, index_op], Type::Class { name: "TaskOutcome".into() });
                     }

@@ -599,7 +599,7 @@ Single quotes delimit one-line strings and character values: `'Hello'`, `'A'`, a
 
 Backticks delimit raw text blocks. A block can be inline or span multiple physical lines. Every character between the delimiters is preserved, including opening/trailing newlines, indentation, CR/LF line endings, double quotes, and backslashes. Raw blocks do not decode escapes or perform interpolation. The next backtick closes the block unconditionally; backticks cannot be escaped inside it. An unterminated block is a lexical error.
 
-Double quotes are reserved for JSON syntax, not standalone Ube literals. JSON payloads can be written inside raw text blocks and passed to `Json.parse`; JSON escaping remains part of the payload and is interpreted by the JSON parser, not the Ube lexer. No dedicated JSON literal type is introduced by this rule.
+Double quotes are reserved for JSON syntax, not standalone Ube literals. JSON payloads can be written inside raw text blocks and passed to `Json.toObject`; JSON escaping remains part of the payload and is interpreted by the JSON parser, not the Ube lexer. No dedicated JSON literal type is introduced by this rule.
 
 ```ube
 final character = 'A'

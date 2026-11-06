@@ -481,8 +481,8 @@ Generated class objects have tracing GC with automatic collection and explicit
 ownership and conservative escape pins still limit long-running reclamation;
 see [memory behavior](docs/memory.md) and [stabilization status](docs/stabilization.md).
 
-### 22. First-Class Native JSON & XML Record Mapping (`Json`, `JsonObject`, `JsonArray`, `Xml`, `XmlDocument`, `XmlElement`)
-- **Bi-Directional Document & Class Mapping**: `Json.parse(text)`, `Json.partialParse(text, TargetClass)`, `Json.stringify(obj)`, `Json.from(obj)`, `Json.to(text, TargetClass)`.
+### 22. Native JSON and document APIs (`Json`, `JsonObject`, `JsonArray`, `Xml`, `XmlDocument`, `XmlElement`)
+- **Automatic JSON encoding**: Concrete data objects provide `.toJson()`; `Json.toObject(text)` returns actual JSON data with typed getters. Automatic reconstruction into an application class is not implemented; `partialParse`/`to` currently accept only `JsonObject` as their target. See [JSON](docs/json.md).
 - **XML Document Traversal & Generation**: `Xml.parse(text)`, `Xml.create('root')`, `doc.root().child('tag').text()`, `doc.toString()`.
 - **Reversible Character Codec (`DataNameCodec`)**: Maps XML/JSON tag/key names with hyphens (`Facility-ID`), namespaces (`rest:KitchenOrderScan`), or dots to Ube identifier conventions (`Facility$hyphen$ID`, `rest$KitchenOrderScan`).
 - **Strict vs. Partial Parsing Modes**: Strict mode enforces 1-to-1 structural completeness; Partial mode selectively maps declared components while assigning defaults (`null`, `List.of()`, `0`, `false`).
@@ -494,7 +494,7 @@ One-line strings and character values use single quotes: `'Hello'`, `'A'`, and `
 
 Backticks delimit raw text blocks, inline or across multiple lines. They preserve all content exactly, including whitespace, line endings, double quotes, backslashes, and `${...}`. There is no escape processing, interpolation, indentation removal, or implicit trimming. The next backtick always closes the block, even after a backslash; a backtick cannot appear inside it.
 
-Double quotes are reserved for JSON syntax and are rejected as standalone Ube string delimiters. JSON payloads may contain ordinary double quotes inside a backtick block, then be passed to `Json.parse`. This does not introduce a separate JSON literal type.
+Double quotes are reserved for JSON syntax and are rejected as standalone Ube string delimiters. JSON payloads may contain ordinary double quotes inside a backtick block, then be passed to `Json.toObject`. This does not introduce a separate JSON literal type.
 
 ```ube
 final ordinary = 'Hello\nWorld'
@@ -1385,13 +1385,13 @@ class Application {
     main() {
         // 1. JSON Document Parsing & Getters
         final jsonText = '{"restaurantID": "0603", "orderType": "DineIn"}'
-        final json = Json.parse(jsonText)
+        final json = Json.toObject(jsonText)
         final restaurantId = json.getString('restaurantID')
         log('Restaurant ID: ${restaurantId}')
 
-        // 2. Strongly-Typed Record Mapping & Stringification
-        final scan = Json.partialParse(jsonText, KitchenOrderScan)
-        final formattedJson = Json.stringify(scan)
+        // 2. Explicit record construction and automatic JSON encoding
+        final scan = KitchenOrderScan(json.getString('restaurantID'), json.getString('orderType'))
+        final formattedJson = scan.toJson()
         log('JSON Stringified: ${formattedJson}')
 
         // 3. XML Traversal & Generation
@@ -1576,20 +1576,7 @@ See the [complete SQLite API reference](docs/sqlite.md) and
 
 ---
 
-## Documentation Links
-
-- [Language Specification Baseline (`LANGUAGE_SPEC_DRAFT.md`)](LANGUAGE_SPEC_DRAFT.md)
-- [Compiler & Runtime Architecture (`ARCHITECTURE.md`)](ARCHITECTURE.md)
-- [Phased Milestones & Roadmap (`MILESTONES.md`)](MILESTONES.md)
-
----
-
-## License
-
-Ube is open-source software licensed under the [MIT License](LICENSE).
-
-
-### Observability
+## Observability
 
 Ube has optional metrics and health endpoints on a separate localhost listener inside the application process:
 
@@ -1604,3 +1591,139 @@ Metrics.record('order_processing_seconds', 0.025)
 `GET /health/live`, `GET /health/ready`, and `GET /metrics` expose liveness, readiness, and Prometheus metrics. Readiness starts false (HTTP 503). Runtime measurements include uptime, task counts, GC counts, and resident memory on Linux. The listener is disabled until explicitly started, binds only to `127.0.0.1`, and stops during runtime cleanup. Call `Observability.stop()` to stop it earlier. Keep the application running after starting it.
 
 See [Observability](docs/observability.md) for the API, validation rules, supported measurements, and current limits.
+
+## Command-line arguments
+
+Keep `main()` parameterless and read application arguments through `Console.args()`:
+
+```ube
+// Main.ube
+class Main {
+    main() {
+        final args = Console.args()
+        for (arg in args) {
+            Console.printLine(arg)
+        }
+    }
+}
+```
+
+```bash
+ube run Main.ube -- hello 'two words' --verbose
+# Or run a built executable:
+./Main hello 'two words' --verbose
+```
+
+`Console.args()` returns a read-only `ConsoleArgs` collection, excluding the executable name. Use `args.len()`, `args.get(0)`, or `args[0]`; elements are strings. Empty arguments, whitespace, Unicode, and argument order are preserved. Invalid indexes raise catchable errors. With no arguments, the collection is empty. The CLI forwards everything after `--` unchanged as application arguments; with a project manifest, `ube run -- hello` works too. Native argument bytes that are not valid UTF-8 become Unicode replacement characters. The API exposes arguments only; it does not parse flags or read environment variables.
+
+## Persistent JSON records with KeyValueStore
+
+`KeyValueStore` retains records until explicitly changed or deleted. It has no cache TTL, eviction, or entry budget, and reads records from disk as needed. Durable SQLite WAL writes are the default; buffered writes require `openBuffered` explicitly.
+
+```ube
+// Inside an application method with a data-class instance named profile:
+final store = KeyValueStore.open('data/records.db')
+try {
+    store.set('user:42', profile.toJson())
+    final saved = Json.toObject(store.get('user:42') ?? '{}')
+    Console.printLine(saved.getString('name'))
+} finally {
+    store.close()
+}
+```
+
+Create the parent directory first. Concrete data objects have a default `.toJson()` method for their declared fields, nested data objects, lists, maps, scalars, and nullable values. Cycles, non-finite numbers, runtime resources, and unsupported map keys raise clear errors rather than silently losing data. JSON text is stored; automatic reconstruction into a Ube class is not implemented.
+
+The native end-to-end suite covers 5,000 records checked after reopen, four tasks writing 1,000 additional records and performing 1,000 atomic increments, three forced-kill runs recovering every acknowledged 1,000-record prefix, garbage collection during stress, and an injected write failure preserving the old record. These are correctness/process-crash tests, not physical power-loss or production-capacity claims.
+
+Read the [KeyValueStore reference](docs/key-value-store.md), [JSON serialization rules](docs/json.md), and [complete runnable object example](examples/key-value-store/README.md).
+
+## Shared and persistent cache
+
+Ube has one built-in `Cache` API for local memory, durable disk-backed storage, and clients of a shared server. Keys and values are strings; missing or expired entries return `null`.
+
+```ube
+// Main.ube
+class Main {
+    main() {
+        final cache = Cache.memory(67108864)
+        try {
+            cache.set('greeting', 'hello', 60000)
+            Console.printLine(cache.get('greeting') ?? 'missing')
+            cache.add('visits', '0', 0)
+            Console.printLine(cache.increment('visits', 1))
+            Console.printLine(cache.delete('greeting'))
+        } finally {
+            cache.close()
+        }
+    }
+}
+```
+
+This prints `hello`, `1`, and `true`. TTLs are milliseconds; zero means no time-based expiration. Reads do not extend the TTL. `add` inserts only when absent, and `increment` is atomic across tasks and shared-server clients.
+
+| Backend | Creation | Lifetime |
+| --- | --- | --- |
+| Embedded memory | `Cache.memory(bytes)` | Data lives inside the application process |
+| Embedded durable | `Cache.open(path, bytes)` | Unexpired, unevicted entries recover from SQLite WAL on reopen |
+| Embedded buffered | `Cache.openBuffered(path, bytes)` | Persistent atomic writes with possible recent-write loss after host/power failure |
+| Shared client | `Cache.connect('127.0.0.1:6380', token)` | Independent applications share a running cache server |
+
+A local cache can also call `cache.listen(address, token)` to expose its store from the application process. That listener stops when its application exits. Use the standalone CLI when cache and application restarts should be independent.
+
+### Start a standalone cache
+
+From the example project, with a matching Ube version installed:
+
+```bash
+cd examples/cache
+mkdir -p data
+read -rsp 'Cache token (at least 16 bytes): ' UBE_CACHE_TOKEN
+printf '\n'
+export UBE_CACHE_TOKEN
+ube cache --bind 127.0.0.1:6380 --memory 67108864 \
+  --disk data/shared.db --metrics 9090
+```
+
+In another terminal, enter the same directory and supply/export the same token. The two applications below communicate through that cache:
+
+```bash
+ube run writer/Main.ube
+ube run reader/Main.ube
+```
+
+On a fresh cache, the writer prints `1`; the reader prints `hello from another process` and `1`. The greeting expires after 60 seconds. Restarting either application leaves the server running. Restarting the persistent server retains the visit counter and any greeting whose TTL has not elapsed and which has not been evicted.
+
+The default cache listener is localhost port 6380. `--metrics 9090` exposes `/health/live`, `/health/ready`, and `/metrics` on a separate localhost HTTP listener. Cache metrics include hits, misses, writes, evictions, expirations, item count, and accounted bytes.
+
+### Cache examples and reference
+
+[The runnable example guide](examples/cache/README.md) includes source-checkout build instructions, exact commands, and expected outputs for:
+
+- [Memory operations and LRU eviction](examples/cache/memory/Main.ube)
+- [Persistence across application restarts](examples/cache/persistent/Main.ube)
+- [Expiration during downtime](examples/cache/ttl/Main.ube)
+- [Concurrent atomic counters](examples/cache/counter/Main.ube)
+- [Separate writer](examples/cache/writer/Main.ube) and [reader](examples/cache/reader/Main.ube) applications
+- [Embedded sharing with health and metrics](examples/cache/server/Main.ube)
+- [Cache-aside source fallback and error handling](examples/cache/cache-aside/Main.ube)
+
+All cache calls are synchronous and can raise catchable errors. The byte limit accounts for entries, not total process RSS; entries can be evicted even with TTL zero. Persistent data should live outside `.build` when it must survive `ube clean`. The shared protocol authenticates requests but has no built-in TLS; use an encrypted tunnel or TLS proxy across untrusted networks. It is Ube-specific, not Memcached wire-compatible.
+
+Read the [complete API and semantics](docs/cache.md), [application recipes](docs/cache-recipes.md), [deployment/recovery/troubleshooting guide](docs/cache-deployment.md), and [wire protocol](docs/cache-protocol.md).
+
+---
+
+## Documentation Links
+
+- [Documentation index and guides](docs/README.md)
+- [Cache reference and examples](docs/cache.md)
+- [Language Specification Baseline (`LANGUAGE_SPEC_DRAFT.md`)](LANGUAGE_SPEC_DRAFT.md)
+- [Compiler & Runtime Architecture (`ARCHITECTURE.md`)](ARCHITECTURE.md)
+- [Phased Milestones & Roadmap (`MILESTONES.md`)](MILESTONES.md)
+
+---
+
+## License
+
+Ube is open-source software licensed under the [MIT License](LICENSE).

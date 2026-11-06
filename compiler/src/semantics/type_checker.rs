@@ -66,6 +66,12 @@ impl TypeChecker {
             );
         }
 
+        self.classes.get_mut("Console").unwrap().methods.insert("args".into(), (vec![], Type::Class { name: "ConsoleArgs".into() }));
+        self.classes.insert("ConsoleArgs".into(), ClassInfo {
+            name: "ConsoleArgs".into(), fields: HashMap::new(),
+            methods: crate::builtins::console_args_methods().into_iter().map(|m| (m.name.into(), (m.params, m.result))).collect(),
+            param_types: vec![], min_constructor_args: 0, max_constructor_args: 0,
+        });
         if let Some(log) = self.classes.get_mut("Log") {
             log.methods.insert("put".into(), (vec![Type::String, Type::String], Type::Void));
             log.methods.insert("get".into(), (vec![Type::String], Type::Nullable(Box::new(Type::String))));
@@ -1117,6 +1123,16 @@ impl TypeChecker {
                 param_types: vec![], min_constructor_args: 0, max_constructor_args: 0,
             });
         }
+        self.classes.insert("KeyValueStore".into(), ClassInfo {
+            name: "KeyValueStore".into(), fields: HashMap::new(),
+            methods: crate::builtins::key_value_store_methods().into_iter().map(|m| (m.name.into(), (m.params, m.result))).collect(),
+            param_types: vec![], min_constructor_args: 0, max_constructor_args: 0,
+        });
+        self.classes.insert("Cache".into(), ClassInfo {
+            name: "Cache".into(), fields: HashMap::new(),
+            methods: crate::builtins::cache_methods().into_iter().map(|m| (m.name.into(), (m.params, m.result))).collect(),
+            param_types: vec![], min_constructor_args: 0, max_constructor_args: 0,
+        });
         for &name in crate::builtins::OBSERVABILITY_CLASSES {
             self.classes.insert(name.into(), ClassInfo {
                 name: name.into(), fields: HashMap::new(),
@@ -1585,7 +1601,7 @@ impl TypeChecker {
 
         let mut json_methods = HashMap::new();
         json_methods.insert(
-            "parse".into(),
+            "toObject".into(),
             (
                 vec![Type::String],
                 Type::Class {
@@ -1600,24 +1616,6 @@ impl TypeChecker {
                 Type::Class {
                     name: "JsonObject".into(),
                 },
-            ),
-        );
-        json_methods.insert(
-            "stringify".into(),
-            (
-                vec![Type::Class {
-                    name: "JsonObject".into(),
-                }],
-                Type::String,
-            ),
-        );
-        json_methods.insert(
-            "from".into(),
-            (
-                vec![Type::Class {
-                    name: "JsonObject".into(),
-                }],
-                Type::String,
             ),
         );
         json_methods.insert(
@@ -1921,6 +1919,9 @@ impl TypeChecker {
                         .filter(|p| p.default_value.is_none())
                         .count();
 
+                    if cls.methods.iter().any(|m| m.name == "toJson") || cls.primary_params.iter().any(|p| p.name == "toJson") {
+                        self.diagnostics.push(Diagnostic::error("toJson is reserved for automatic JSON serialization", Some(cls.span)));
+                    }
                     for param in &cls.primary_params {
                         let field_name = format!("_{}", param.name);
                         let field_ty = self.type_spec_to_type(&param.type_spec);
@@ -2189,10 +2190,11 @@ impl TypeChecker {
                 else_branch,
             } => {
                 self.symbol_table.push_scope();
+                let element_ty = if loop_var.is_some() && condition_or_iterable.as_ref().is_some_and(|expr| matches!(self.check_expr(cls, expr), Some(Type::Class { name }) if name == "ConsoleArgs")) { Type::String } else { Type::Int };
                 if let Some(lvar) = loop_var {
                     self.symbol_table.insert(Symbol {
                         name: lvar.clone(),
-                        ty: Type::Int,
+                        ty: element_ty,
                         is_mutable: false,
                     });
                 }
@@ -2456,6 +2458,16 @@ impl TypeChecker {
                 match &callee.kind {
                     ExprKind::MemberAccess { object, member, .. } => {
                         if let Some(obj_ty) = self.check_expr(cls, object) {
+                            if member == "toJson" {
+                                if matches!(obj_ty, Type::AnonymousObject { .. } | Type::Function { .. }) {
+                                    self.diagnostics.push(Diagnostic::error("JSON requires a declared data class or parsed JSON document; anonymous/function layouts are unsupported", Some(expr.span)));
+                                }
+                                let class_receiver = matches!(&object.kind, ExprKind::Identifier(name) if self.symbol_table.lookup(name).is_none() && self.classes.contains_key(name));
+                                if class_receiver || !args.is_empty() || obj_ty == Type::Void {
+                                    self.diagnostics.push(Diagnostic::error("toJson requires an instance call with no arguments", Some(expr.span)));
+                                }
+                                return Some(Type::String);
+                            }
                             if let Some(result) = self.check_orm_call(&obj_ty, object, member, args, &arg_types, expr.span) { return result; }
                             if let Type::Class { name } = &obj_ty {
                                 if (name == "List" || name == "Map") && member == "len" && args.is_empty() {
@@ -2546,6 +2558,46 @@ impl TypeChecker {
                                     }
                                     return method.map(|m| m.result);
                                 }
+                                if name == "Json" {
+                                    let valid = match member.as_str() {
+                                        "toObject" => args.len()==1 && arg_types==vec![Type::String],
+                                        "partialParse" | "to" => args.len()==2 && arg_types.first()==Some(&Type::String)
+                                            && matches!(&args[1].kind, ExprKind::Identifier(name) if name=="JsonObject" && self.symbol_table.lookup(name).is_none()),
+                                        _ => false,
+                                    };
+                                    if !class_receiver || !valid {
+                                        self.diagnostics.push(Diagnostic::error("Use Json.toObject(string); typed reconstruction is not implemented (partialParse/to currently accept only JsonObject)", Some(expr.span)));
+                                    }
+                                    return Some(Type::Class { name:"JsonObject".into() });
+                                }
+                                if name=="JsonObject" || name=="JsonArray" {
+                                    let method=self.classes[name].methods.get(member).cloned();
+                                    if class_receiver || method.as_ref().is_none_or(|(params,_)| params!=&arg_types || params.len()!=args.len()) {
+                                        self.diagnostics.push(Diagnostic::error("Invalid JSON document method arguments; an instance is required", Some(expr.span)));
+                                    }
+                                    return method.map(|(_,result)|result);
+                                }
+                                if name == "KeyValueStore" {
+                                    let Some(method) = crate::builtins::key_value_store_methods().into_iter().find(|m| m.name == member) else {
+                                        self.diagnostics.push(Diagnostic::error(format!("Unknown KeyValueStore method '{member}'"), Some(expr.span))); return None;
+                                    };
+                                    if class_receiver != method.is_static || args.len()!=method.params.len() || arg_types.len()!=method.params.len()
+                                        || !arg_types.iter().zip(&method.params).all(|(actual, expected)| self.is_assignable_to(actual, expected)) {
+                                        self.diagnostics.push(Diagnostic::error(format!("KeyValueStore.{member} requires {} with the declared arguments", if method.is_static { "a static call" } else { "an instance call" }), Some(expr.span)));
+                                    }
+                                    return Some(method.result);
+                                }
+                                if name == "Cache" {
+                                    let Some(method) = crate::builtins::cache_methods().into_iter().find(|m| m.name == member) else {
+                                        self.diagnostics.push(Diagnostic::error(format!("Unknown Cache method '{member}'"), Some(expr.span)));
+                                        return None;
+                                    };
+                                    if class_receiver != method.is_static || args.len() != method.params.len() || arg_types.len() != method.params.len()
+                                        || !arg_types.iter().zip(&method.params).all(|(actual, expected)| self.is_assignable_to(actual, expected)) {
+                                        self.diagnostics.push(Diagnostic::error(format!("Cache.{member} requires {} with the declared argument types", if method.is_static { "a static call" } else { "an instance call" }), Some(expr.span)));
+                                    }
+                                    return Some(method.result);
+                                }
                                 if crate::builtins::OBSERVABILITY_CLASSES.contains(&name.as_str()) {
                                     let Some(method) = crate::builtins::observability_methods(name).into_iter().find(|m| m.name == member) else {
                                         self.diagnostics.push(Diagnostic::error(format!("Unknown {name} method '{member}'"), Some(expr.span)));
@@ -2615,8 +2667,21 @@ impl TypeChecker {
                                     }
                                     return Some(result);
                                 }
+                                if name == "ConsoleArgs" {
+                                    let method = crate::builtins::console_args_methods().into_iter().find(|m| m.name == member);
+                                    if class_receiver || method.as_ref().is_none_or(|m| m.params != arg_types || args.len() != m.params.len()) {
+                                        self.diagnostics.push(Diagnostic::error("ConsoleArgs supports instance calls len() and get(int)", Some(expr.span)));
+                                    }
+                                    return method.map(|m| m.result);
+                                }
                                 if name == "Log" || name == "Console" {
                                     let static_call = matches!(&object.kind, ExprKind::Identifier(n) if self.symbol_table.lookup(n).is_none() && canonical_builtin_class_name(n).is_some());
+                                    if name == "Console" && member == "args" {
+                                        if !static_call || !args.is_empty() {
+                                            self.diagnostics.push(Diagnostic::error("Console.args requires a class call with no arguments", Some(expr.span)));
+                                        }
+                                        return Some(Type::Class { name: "ConsoleArgs".into() });
+                                    }
                                     if name == "Console" && ["read", "readLine"].contains(&member.as_str()) {
                                         if !static_call || !args.is_empty() {
                                             self.diagnostics.push(Diagnostic::error(format!("Console.{} requires a class call with no arguments", member), Some(expr.span)));
@@ -2864,11 +2929,21 @@ impl TypeChecker {
                     self.diagnostics.push(Diagnostic::error("Testicle does not create instances; use static assertion methods", Some(expr.span)));
                     return None;
                 }
+                if ["Json", "JsonObject", "JsonArray"].contains(&class_name) {
+                    self.diagnostics.push(Diagnostic::error("Use Json.toObject to create a JSON document", Some(expr.span))); return None;
+                }
+                if class_name == "KeyValueStore" {
+                    self.diagnostics.push(Diagnostic::error("Use KeyValueStore.open or openBuffered", Some(expr.span))); return None;
+                }
+                if class_name == "Cache" {
+                    self.diagnostics.push(Diagnostic::error("Use Cache.memory, Cache.open, Cache.openBuffered, or Cache.connect; Cache does not create instances directly", Some(expr.span)));
+                    return None;
+                }
                 if crate::builtins::OBSERVABILITY_CLASSES.contains(&class_name) {
                     self.diagnostics.push(Diagnostic::error(format!("{class_name} does not create instances; use its static methods"), Some(expr.span)));
                     return None;
                 }
-                if ["Env", "TaskOutcome", "TaskOutcomes"].contains(&class_name) {
+                if ["Env", "TaskOutcome", "TaskOutcomes", "ConsoleArgs"].contains(&class_name) {
                     self.diagnostics.push(Diagnostic::error(format!("{class_name} does not create instances; use its task or environment API"), Some(expr.span)));
                     return None;
                 }
@@ -3115,6 +3190,10 @@ impl TypeChecker {
                 let target_ty = self.check_expr(cls, target);
                 let index_ty = self.check_expr(cls, index);
                 if let Some(Type::Class { ref name }) = target_ty {
+                    if name == "ConsoleArgs" {
+                        if index_ty != Some(Type::Int) { self.diagnostics.push(Diagnostic::error("ConsoleArgs index must be int", Some(index.span))); }
+                        return Some(Type::String);
+                    }
                     if name == "TaskOutcomes" {
                         if index_ty != Some(Type::Int) { self.diagnostics.push(Diagnostic::error("TaskOutcomes index must be int", Some(index.span))); }
                         return Some(Type::Class { name: "TaskOutcome".into() });
@@ -3233,10 +3312,11 @@ impl TypeChecker {
                 else_branch,
             } => {
                 self.symbol_table.push_scope();
+                let element_ty = if loop_var.is_some() && condition_or_iterable.as_ref().is_some_and(|expr| matches!(self.check_expr(cls, expr), Some(Type::Class { name }) if name == "ConsoleArgs")) { Type::String } else { Type::Int };
                 if let Some(lvar) = loop_var {
                     self.symbol_table.insert(Symbol {
                         name: lvar.clone(),
-                        ty: Type::Int,
+                        ty: element_ty,
                         is_mutable: false,
                     });
                 }

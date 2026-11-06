@@ -1,0 +1,13 @@
+class Main {
+    main() {
+        final address = Env.get('UBE_CACHE_ADDRESS') ?? '127.0.0.1:6380'
+        final cache = Cache.connect(address, Env.require('UBE_CACHE_TOKEN'))
+        try {
+            cache.set('shared:greeting', 'hello from another process', 60000)
+            cache.add('shared:visits', '0', 0)
+            Console.printLine(cache.increment('shared:visits', 1))
+        } finally {
+            cache.close()
+        }
+    }
+}

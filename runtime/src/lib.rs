@@ -2,6 +2,9 @@ pub mod rest_in_peace;
 pub mod mockery;
 pub mod testing;
 pub mod collections;
+pub mod cache;
+pub mod key_value_store;
+pub mod json;
 pub mod concurrency;
 pub mod datetime;
 pub mod financial;
@@ -11,6 +14,7 @@ pub mod geo;
 pub mod io;
 pub mod math;
 pub mod logging;
+pub mod arguments;
 pub mod observability;
 pub mod memory;
 pub mod net;
@@ -35,6 +39,9 @@ pub extern "C" fn ube_runtime_init() {
 pub extern "C" fn ube_runtime_cleanup() {
     concurrency::ube_task_scope_leave();
     concurrency::ube_concurrency_cleanup();
+    key_value_store::cleanup();
+    json::cleanup();
+    cache::cleanup();
     observability::cleanup();
     orm::cleanup();
     sql::cleanup();
@@ -45,6 +52,7 @@ pub extern "C" fn ube_runtime_cleanup() {
     auth::cleanup();
     mockery::cleanup();
     exceptions::cleanup();
+    arguments::cleanup();
     memory::cleanup();
     // The explicit tracing heap is empty after cleanup.
     gc::ube_gc_collect();

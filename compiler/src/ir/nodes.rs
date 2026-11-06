@@ -50,6 +50,7 @@ impl IrOperand {
 #[derive(Debug, Clone, PartialEq)]
 pub enum IrInstruction {
     Cast { dest: Register, value: IrOperand, ty: Type },
+    JsonEncode { dest: Register, value: IrOperand },
     Alloca {
         dest: Register,
         ty: Type,

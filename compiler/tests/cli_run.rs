@@ -67,10 +67,12 @@ chmod 755 "$3"
         self.directory.path()
     }
     fn command(&self, id: &str, mode: &str) -> Command {
-        let source = self.root().join(format!("{id}.ube"));
+        let source_directory = self.root().join(id);
+        fs::create_dir_all(&source_directory).unwrap();
+        let source = source_directory.join("Application.ube");
         fs::write(
             &source,
-            format!("class Application {{ main() {{ print('run-{id}') }} }}"),
+            format!("class Application {{ main() {{ Console.printLine('run-{id}') }} }}"),
         )
         .unwrap();
         let mut paths = vec![self.root().join("bin")];

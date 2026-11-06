@@ -1,4 +1,5 @@
 mod async_lowering;
+mod json;
 use crate::ir::nodes::*;
 use crate::parser::BinaryOp;
 use crate::types::Type;
@@ -68,6 +69,9 @@ impl TextualLlvmEmitter {
         self.output.push_str("declare void @ube_output_f64(i32, double)\n");
         self.output.push_str("declare void @ube_output_bool(i32, i1)\n");
         self.output.push_str("declare void @ube_observability_start(i64)\ndeclare void @ube_observability_stop()\ndeclare void @ube_health_ready(i1)\ndeclare void @ube_metrics_increment(i8*)\ndeclare void @ube_metrics_add(i8*, double)\ndeclare void @ube_metrics_gauge(i8*, double)\ndeclare void @ube_metrics_record(i8*, double)\n");
+        self.output.push_str("declare void @ube_args_init(i32, i8**)\ndeclare i8* @ube_console_args()\ndeclare i32 @ube_args_len(i8*)\ndeclare i8* @ube_args_get(i8*, i32)\n");
+        self.output.push_str("declare i8* @ube_cache_memory(i64)\ndeclare i8* @ube_cache_open(i8*, i64)\ndeclare i8* @ube_cache_open_buffered(i8*, i64)\ndeclare i8* @ube_cache_connect(i8*, i8*)\ndeclare i8* @ube_cache_get(i8*, i8*)\ndeclare void @ube_cache_set(i8*, i8*, i8*, i64)\ndeclare i1 @ube_cache_add(i8*, i8*, i8*, i64)\ndeclare i64 @ube_cache_increment(i8*, i8*, i64)\ndeclare i1 @ube_cache_delete(i8*, i8*)\ndeclare void @ube_cache_listen(i8*, i8*, i8*)\ndeclare void @ube_cache_close(i8*)\n");
+        self.output.push_str("declare i8* @ube_kv_open(i8*)\ndeclare i8* @ube_kv_open_buffered(i8*)\ndeclare i8* @ube_kv_get(i8*, i8*)\ndeclare void @ube_kv_set(i8*, i8*, i8*)\ndeclare i1 @ube_kv_add(i8*, i8*, i8*)\ndeclare i1 @ube_kv_has(i8*, i8*)\ndeclare i1 @ube_kv_delete(i8*, i8*)\ndeclare i64 @ube_kv_increment(i8*, i8*, i64)\ndeclare void @ube_kv_close(i8*)\ndeclare void @ube_json_class(i8*)\ndeclare void @ube_json_field(i8*, i8*, i8*, i64, i64, i64, i64, i64)\ndeclare i8* @ube_to_json(i64, i64, i64, i8*)\ndeclare i8* @ube_jsonobject_get_object(i8*, i8*)\ndeclare i8* @ube_jsonobject_get_array(i8*, i8*)\ndeclare i32 @ube_jsonarray_len(i8*)\ndeclare i8* @ube_jsonarray_get(i8*, i32)\ndeclare i8* @ube_jsonarray_get_string(i8*, i32)\n");
         self.output.push_str("declare void @ube_log_set_level(i8*)\n");
         self.output.push_str("declare void @ube_log_put(i8*, i8*)\n");
         self.output.push_str("declare i8* @ube_log_get(i8*)\n");
@@ -79,13 +83,13 @@ impl TextualLlvmEmitter {
             .push_str("declare i8* @ube_string_concat(i8*, i8*)\n");
         self.output.push_str("declare i8* @ube_list_create()\n");
         self.output
-            .push_str("declare void @ube_list_add(i8*, i64)\n");
+            .push_str("declare void @ube_list_add(i8*, i64)\ndeclare void @ube_list_add_typed(i8*, i64, i64, i64, i8*)\n");
         self.output
             .push_str("declare i64 @ube_list_get(i8*, i64)\n");
         self.output.push_str("declare i64 @ube_list_len(i8*)\n");
         self.output.push_str("declare i8* @ube_map_create()\n");
         self.output
-            .push_str("declare void @ube_map_put(i8*, i64, i64)\n");
+            .push_str("declare void @ube_map_put(i8*, i64, i64)\ndeclare void @ube_map_put_typed(i8*, i64, i64, i64, i8*, i64, i64, i64, i8*)\n");
         self.output.push_str("declare i64 @ube_map_get(i8*, i64)\n");
         self.output.push_str("declare i1 @ube_map_contains_key(i8*, i64)\n");
         self.output.push_str("declare i64 @ube_map_len(i8*)\n");
@@ -645,6 +649,7 @@ impl TextualLlvmEmitter {
         // Identity uses names/signatures, never module-local pointer addresses.
         self.output.push_str("@llvm.global_ctors = appending global [1 x { i32, void ()*, i8* }] [{ i32, void ()*, i8* } { i32 65535, void ()* @ube_register_types, i8* null }]\n");
         self.output.push_str("define private void @ube_register_types() {\nentry:\n");
+        self.emit_json_schemas(ir_program);
         for function in &ir_program.functions {
             if !self.class_map.contains_key(&function.class_name) || function.is_async { continue; }
             let name = self.emit_operand(&IrOperand::ConstantString(function.class_name.clone()));
@@ -685,6 +690,7 @@ impl TextualLlvmEmitter {
                 .push_str("define i32 @main(i32 %argc, i8** %argv) {\n");
             self.output.push_str("entry:\n");
             self.output.push_str("  call void @ube_runtime_init()\n");
+            self.output.push_str("  call void @ube_args_init(i32 %argc, i8** %argv)\n");
             // Startup shares the IR builder's declaration zero-initialization path.
             self.output.push_str(&format!(
                 "  %app = call {}* @__ube.internal_zero(i8* null)\n", class_type
@@ -828,6 +834,7 @@ impl TextualLlvmEmitter {
 
     fn emit_instruction(&mut self, instr: &IrInstruction) -> String {
         match instr {
+            IrInstruction::JsonEncode { dest, value } => self.emit_json_encode(*dest, value),
             IrInstruction::Cast { dest, value, ty } => {
                 let (mut instructions, value) = self.coerce(value, ty);
                 if let Some(inner) = ty.nullable_scalar_inner() {
@@ -1232,6 +1239,35 @@ impl TextualLlvmEmitter {
                     }
                     return instrs.join("\n  ");
                 }
+                if symbol == "ube_map_put" {
+                    let map = self.emit_operand(&args[0]);
+                    let mut lines = Vec::new();
+                    let mut encoded_args = vec![format!("i8* {}", map)];
+                    for value in &args[1..] {
+                        let ty = value.get_type();
+                        let source = self.emit_operand(value);
+                        let (encoded, payload, meta) = self.encode_value(&ty, &source, &format!("map_value_{}", self.string_counter));
+                        self.string_counter += 1;
+                        lines.extend(encoded);
+                        let (kind, name) = self.json_kind(&ty);
+                        let name = self.emit_operand(&IrOperand::ConstantString(name));
+                        encoded_args.push(format!("i64 {}, i64 {}, i64 {}, i8* {}", payload, meta, kind, name));
+                    }
+                    lines.push(format!("call void @ube_map_put_typed({})", encoded_args.join(", ")));
+                    return lines.join("\n  ");
+                }
+                if symbol == "ube_list_add" {
+                    let list = self.emit_operand(&args[0]);
+                    let value = &args[1];
+                    let ty = value.get_type();
+                    let source = self.emit_operand(value);
+                    let (mut lines, payload, meta) = self.encode_value(&ty, &source, &format!("list_value_{}", self.string_counter));
+                    self.string_counter += 1;
+                    let (kind, name) = self.json_kind(&ty);
+                    let name = self.emit_operand(&IrOperand::ConstantString(name));
+                    lines.push(format!("call void @ube_list_add_typed(i8* {}, i64 {}, i64 {}, i64 {}, i8* {})", list, payload, meta, kind, name));
+                    return lines.join("\n  ");
+                }
                 for (index, a) in args.iter().enumerate() {
                     let arg_ty = a.get_type();
                     if symbol == "ube_channel_send_async" && index == 1 {
@@ -1549,7 +1585,7 @@ impl TextualLlvmEmitter {
             Type::Task(_) => "i8*".to_string(),
             Type::Channel(_) => "i8*".to_string(),
             Type::Class { name }
-                if matches!(name.as_str(), "Task" | "Channel" | "List" | "Map" | "TaskOutcome" | "TaskOutcomes") =>
+                if matches!(name.as_str(), "Task" | "Channel" | "List" | "Map" | "TaskOutcome" | "TaskOutcomes" | "ConsoleArgs" | "Cache" | "KeyValueStore") =>
             {
                 "i8*".to_string()
             }

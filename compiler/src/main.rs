@@ -20,6 +20,7 @@ fn print_usage() {
     );
     eprintln!("Usage: ube <command> [options]");
     eprintln!("Commands:");
+    eprintln!("  cache [--bind IP:port] [--memory bytes] [--disk path] [--buffered] [--metrics port] [--token-env name]  Run a shared cache");
     eprintln!("  env [--key <current-key>] --add <key>:<value>[, ...]  Save encrypted values");
     eprintln!("  env [--key <current-key>] <file.json>  Encrypt and consume a JSON file");
     eprintln!("  init [--name <name>] [--format toml|yaml|json]  Initialize the current directory");
@@ -40,7 +41,7 @@ fn print_usage() {
     eprintln!(
         "  test [path] [--timeout <ms>]       Discover and run native tests (default: tests/)"
     );
-    eprintln!("  run [file.ube]                    Compile and execute source file immediately");
+    eprintln!("  run [file.ube] [-- args...]       Compile and execute with application arguments");
 }
 
 fn configure_runtime_linkage(cmd: &mut Command) {
@@ -246,14 +247,15 @@ fn project_command(command: &str, args: &[String]) -> Result<(), String> {
 
 // Return before main calls process::exit so TempDir's destructor runs on every
 // normal success/error path, including linking and execution failures.
-fn run_llvm(llvm_ir: &str, source: &Path) -> i32 {
-    run_llvm_timeout(llvm_ir, None, Some(source))
+fn run_llvm(llvm_ir: &str, source: &Path, arguments: &[String]) -> i32 {
+    run_llvm_timeout(llvm_ir, None, Some(source), arguments)
 }
 
 fn run_llvm_timeout(
     llvm_ir: &str,
     timeout: Option<std::time::Duration>,
     source: Option<&Path>,
+    arguments: &[String],
 ) -> i32 {
     let directory = match tempfile::Builder::new().prefix("ube-run-").tempdir() {
         Ok(directory) => directory,
@@ -281,6 +283,7 @@ fn run_llvm_timeout(
         }
     }
     let mut program = Command::new(&bin_path);
+    program.args(arguments);
     if env::var_os("UBE_ENV_FILE").is_none() {
         if let Some(source) = source {
             let root = ube_compiler::project::find_root(source)
@@ -350,6 +353,12 @@ fn main() {
         print_usage();
         return;
     }
+    if command == "cache" {
+        if let Err(error) = ube_runtime::cache::command(&args[2..]) {
+            eprintln!("Error: {error}"); process::exit(1);
+        }
+        return;
+    }
     if ["new", "init", "install", "add", "remove", "clean", "env"].contains(&command.as_str()) {
         if let Err(error) = project_command(command, &args[2..]) {
             eprintln!("Error: {error}");
@@ -383,11 +392,15 @@ fn main() {
     let mut file_path = String::new();
     let mut out_binary = String::new();
     let mut is_release = false;
+    let mut program_args = Vec::new();
 
     let mut i = 2;
     while i < args.len() {
         let arg = &args[i];
-        if arg == "--release" {
+        if arg == "--" && command == "run" {
+            program_args.extend_from_slice(&args[i + 1..]);
+            break;
+        } else if arg == "--release" {
             is_release = true;
         } else if arg == "-o" && i + 1 < args.len() {
             i += 1;
@@ -560,7 +573,7 @@ fn main() {
             let mut emitter = TextualLlvmEmitter::new();
             let llvm_ir = emitter.emit_program(&ir_program);
 
-            let code = run_llvm(&llvm_ir, Path::new(&file_path));
+            let code = run_llvm(&llvm_ir, Path::new(&file_path), &program_args);
             process::exit(code);
         }
         other => {

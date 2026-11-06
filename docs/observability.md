@@ -54,3 +54,31 @@ Automatic measurements:
 Collection does not start an HTTP server implicitly. Registering application metrics before `start` is supported. Automatic task and GC measurements are snapshots and may change during a scrape.
 
 This is an initial implementation of metrics and health exposure. Distributed tracing, exporter plugins, dependency health probes, automatic application HTTP instrumentation, suspended-task/queue breakdowns, and attaching endpoints to an existing application server are not implemented.
+
+## Cache measurements
+
+An application using `Observability.start`, or a standalone server started with `ube cache --metrics PORT`, also exports:
+
+| Metric | Type | Meaning |
+| --- | --- | --- |
+| `ube_cache_hits_total` | Counter | Successful local-store lookups that found an unexpired value |
+| `ube_cache_misses_total` | Counter | Local-store lookups returning no value |
+| `ube_cache_writes_total` | Counter | Successful sets, inserted adds, increments, and deletions of existing entries |
+| `ube_cache_evictions_total` | Counter | Entries evicted while applying live writes |
+| `ube_cache_expirations_total` | Counter | Expired entries removed during live operations or metric collection |
+| `ube_cache_items` | Gauge | Current unexpired entries across locally registered stores |
+| `ube_cache_accounted_bytes` | Gauge | Keys, values, and the fixed per-entry accounting allowance across those stores |
+
+Counters have process lifetime and do not restore from disk. Expiration/eviction pruning performed while reopening a database is not counted as a live removal. A rejected write, an add that returns false, or deletion of a missing key does not increase the write counter. Network/authentication errors are not cache misses.
+
+Remote client processes do not export their server's cache contents through these gauges; scrape the owning server. No keys, values, tokens, or database paths become metric labels. Accounted bytes are not resident process memory; use the separate resident-memory measurement where supported.
+
+For the [embedded server example](../examples/cache/server/Main.ube) or a standalone cache started with `--metrics 9090`:
+
+```bash
+curl -fsS http://127.0.0.1:9090/health/live
+curl -fsS http://127.0.0.1:9090/health/ready
+curl -fsS http://127.0.0.1:9090/metrics
+```
+
+Cache readiness remains application controlled. The standalone command marks ready after successful startup; it does not continuously probe disk health. See [Cache](cache.md#observability) and [deployment](cache-deployment.md) for operating limits.

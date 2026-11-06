@@ -113,7 +113,8 @@ pub(super) fn layout(function: &IrFunction) -> Option<usize> {
     for instruction in function.blocks.iter().flat_map(|block| &block.instructions) {
         match instruction {
             IrInstruction::CallRuntime { symbol, .. } if !nonblocking(symbol) => return None,
-            IrInstruction::CallMethod { .. }
+            IrInstruction::JsonEncode { .. }
+            | IrInstruction::CallMethod { .. }
             | IrInstruction::CallTrait { .. }
             | IrInstruction::InstantiateClass { .. }
             | IrInstruction::ServerRoute { .. }

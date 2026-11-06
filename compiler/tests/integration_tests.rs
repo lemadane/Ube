@@ -3366,15 +3366,15 @@ fn test_server_http_protocol_versions_syntax_typecheck() {
 }
 
 #[test]
-fn test_e2e_json_parse_getters_stringify() {
+fn test_e2e_json_to_object_getters_to_json() {
     let source_code = r#"
         class Application {
             main() {
                 final text = '{"name": "Lem", "age": 40}'
-                final json = Json.parse(text)
+                final json = Json.toObject(text)
                 Console.printLine(json.getString('name'))
                 Console.printLine(json.getInt('age'))
-                final s = Json.stringify(json)
+                final s = json.toJson()
                 Console.printLine(s.len() > 0)
             }
         }
@@ -3399,13 +3399,13 @@ fn test_e2e_json_parse_getters_stringify() {
 }
 
 #[test]
-fn test_e2e_json_parse_error_handling() {
+fn test_e2e_json_to_object_error_handling() {
     let source_code = r#"
         
         class Application {
             main() {
                 try {
-                    final data = Json.parse('{invalid_json}')
+                    final data = Json.toObject('{invalid_json}')
         
                 }
                 catch (Error err) {
@@ -3503,7 +3503,7 @@ fn test_e2e_pure_ube_json_and_xml_record_mapping() {
         class Application {
             main() {
                 final jsonText = '{"restaurantID": "0603", "orderType": "DineIn"}'
-                final json = Json.parse(jsonText)
+                final json = Json.toObject(jsonText)
                 Console.printLine(json.getString('restaurantID'))
 
                 final xmlText = '<KitchenOrderScan><RestaurantID>0603</RestaurantID></KitchenOrderScan>'

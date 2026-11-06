@@ -1,0 +1,22 @@
+class Main {
+    main() {
+        final args = Console.args()
+        if (args.len() != 2) {
+            Console.printLine('Usage: ttl <database-path> <set|get>')
+            return
+        }
+        final cache = Cache.open(args[0], 4096)
+        try {
+            if (args[1] == 'set') {
+                cache.set('short', 'temporary', 2000)
+                Console.printLine('saved for two seconds')
+            } else if (args[1] == 'get') {
+                Console.printLine(cache.get('short') ?? 'expired or missing')
+            } else {
+                Console.printLine('Expected set or get')
+            }
+        } finally {
+            cache.close()
+        }
+    }
+}

@@ -1,0 +1,35 @@
+import Address
+import Profile
+
+class Main {
+    main() {
+        final args = Console.args()
+        if (args.len() != 2) {
+            Console.printLine('Usage: <database-path> <write|read|delete>')
+            return
+        }
+        final store = KeyValueStore.open(args[0])
+        try {
+            if (args[1] == 'write') {
+                final profile = Profile(42, 'Alice', Address('東京'))
+                store.set('user:42', profile.toJson())
+                Console.printLine('saved')
+            } else if (args[1] == 'read') {
+                if (store.has('user:42')) {
+                    final profile = Json.toObject(store.get('user:42') ?? '')
+                    Console.printLine(profile.getInt('id'))
+                    Console.printLine(profile.getString('name'))
+                    Console.printLine(profile.getObject('address').getString('city'))
+                } else {
+                    Console.printLine('missing')
+                }
+            } else if (args[1] == 'delete') {
+                Console.printLine(store.delete('user:42'))
+            } else {
+                Console.printLine('Expected write, read, or delete')
+            }
+        } finally {
+            store.close()
+        }
+    }
+}

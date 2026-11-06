@@ -3,7 +3,9 @@ const BUILTIN_CLASS_NAMES: &[&str] = &[
     "Testicle",
     "AssertionError",
     "Channel",
+    "Cache",
     "Console",
+    "ConsoleArgs",
     "Cookie",
     "Currency",
     "CurrencyMismatchError",
@@ -35,6 +37,7 @@ const BUILTIN_CLASS_NAMES: &[&str] = &[
     "OrmQuery",
     "OrmRows",
     "Json",
+    "KeyValueStore",
     "JsonArray",
     "JsonError",
     "JsonObject",
@@ -741,4 +744,50 @@ pub fn observability_methods(class: &str) -> Vec<BuiltinMethod> {
         "Health" => vec![method("ready", "ube_health_ready", vec![Type::Bool], Type::Void)],
         _ => vec![],
     }
+}
+
+/// Read-only command-line strings; unlike untyped List, indexing preserves string type.
+pub fn console_args_methods() -> Vec<BuiltinMethod> {
+    use crate::types::Type;
+    vec![
+        BuiltinMethod { name: "len", symbol: "ube_args_len", params: vec![], result: Type::Int, is_static: false },
+        BuiltinMethod { name: "get", symbol: "ube_args_get", params: vec![Type::Int], result: Type::String, is_static: false },
+    ]
+}
+
+/// Cache creation is explicit; memory, persistent, and remote backends share instance methods.
+pub fn cache_methods() -> Vec<BuiltinMethod> {
+    use crate::types::Type;
+    let cache = || Type::Class { name: "Cache".into() };
+    let method = |name, symbol, params, result, is_static| BuiltinMethod { name, symbol, params, result, is_static };
+    vec![
+        method("memory", "ube_cache_memory", vec![Type::Long], cache(), true),
+        method("open", "ube_cache_open", vec![Type::String, Type::Long], cache(), true),
+        method("openBuffered", "ube_cache_open_buffered", vec![Type::String, Type::Long], cache(), true),
+        method("connect", "ube_cache_connect", vec![Type::String, Type::String], cache(), true),
+        method("get", "ube_cache_get", vec![Type::String], Type::Nullable(Box::new(Type::String)), false),
+        method("set", "ube_cache_set", vec![Type::String, Type::String, Type::Long], Type::Void, false),
+        method("add", "ube_cache_add", vec![Type::String, Type::String, Type::Long], Type::Bool, false),
+        method("increment", "ube_cache_increment", vec![Type::String, Type::Long], Type::Long, false),
+        method("delete", "ube_cache_delete", vec![Type::String], Type::Bool, false),
+        method("listen", "ube_cache_listen", vec![Type::String, Type::String], Type::Void, false),
+        method("close", "ube_cache_close", vec![], Type::Void, false),
+    ]
+}
+
+pub fn key_value_store_methods() -> Vec<BuiltinMethod> {
+    use crate::types::Type;
+    let store = || Type::Class { name: "KeyValueStore".into() };
+    let method = |name, symbol, params, result, is_static| BuiltinMethod { name, symbol, params, result, is_static };
+    vec![
+        method("open", "ube_kv_open", vec![Type::String], store(), true),
+        method("openBuffered", "ube_kv_open_buffered", vec![Type::String], store(), true),
+        method("get", "ube_kv_get", vec![Type::String], Type::Nullable(Box::new(Type::String)), false),
+        method("set", "ube_kv_set", vec![Type::String, Type::String], Type::Void, false),
+        method("add", "ube_kv_add", vec![Type::String, Type::String], Type::Bool, false),
+        method("has", "ube_kv_has", vec![Type::String], Type::Bool, false),
+        method("delete", "ube_kv_delete", vec![Type::String], Type::Bool, false),
+        method("increment", "ube_kv_increment", vec![Type::String, Type::Long], Type::Long, false),
+        method("close", "ube_kv_close", vec![], Type::Void, false),
+    ]
 }

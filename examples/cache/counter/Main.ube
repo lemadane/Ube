@@ -1,0 +1,24 @@
+class Main {
+    async int incrementMany(Cache cache, int iterations) {
+        var index = 0
+        for (index < iterations) {
+            cache.increment('count', 1)
+            index = index + 1
+        }
+        return iterations
+    }
+
+    main() {
+        final cache = Cache.memory(4096)
+        try {
+            cache.set('count', '0', 0)
+            final first = this.incrementMany(cache, 100)
+            final second = this.incrementMany(cache, 100)
+            await first
+            await second
+            Console.printLine(cache.get('count') ?? 'missing')
+        } finally {
+            cache.close()
+        }
+    }
+}

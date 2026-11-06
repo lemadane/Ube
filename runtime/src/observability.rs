@@ -146,6 +146,7 @@ fn prometheus() -> String {
         "# TYPE ube_uptime_seconds gauge\nube_uptime_seconds {}\n# TYPE ube_ready gauge\nube_ready {}\n# TYPE ube_gc_objects gauge\nube_gc_objects {}\n# TYPE ube_gc_reclaimed_total counter\nube_gc_reclaimed_total {}\n",
         state().started.elapsed().as_secs_f64(), u8::from(state().ready.load(Ordering::Acquire)),
         crate::gc::ube_gc_object_count(), crate::gc::ube_gc_reclaimed_count());
+    output.push_str(&crate::cache::prometheus());
     let (registered, active) = crate::concurrency::observability_counts();
     output.push_str(&format!("# TYPE ube_tasks_registered gauge\nube_tasks_registered {registered}\n# TYPE ube_tasks_active gauge\nube_tasks_active {active}\n"));
     #[cfg(target_os = "linux")]
@@ -230,7 +231,7 @@ fn serve(mut stream: TcpStream) {
     let allow = if status == 405 { "Allow: GET\r\n" } else { "" };
     let _ = write!(stream, "HTTP/1.1 {status} {reason}\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\nCache-Control: no-store\r\n{allow}\r\n{body}", body.len());
 }
-fn start(port: u16) -> Result<(), String> {
+pub(crate) fn start(port: u16) -> Result<(), String> {
     let mut slot = state().listener.lock().unwrap();
     if slot.is_some() {
         return Err("Observability is already running; stop it before restarting".into());
