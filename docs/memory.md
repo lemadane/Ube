@@ -54,6 +54,12 @@ root, collection, and reclaimed-object counts. Ordinary `ube_free()` calls
 cannot invalidate GC-owned allocations. Runtime shutdown drains the tracing
 heap before releasing the legacy allocation registry.
 
+## Serialization ownership
+
+Automatic `.toJson()` and `.toXml()` share typed traversal that keeps managed references rooted while reading them. Runtime synchronization protects individual reads; callers must coordinate mutations for a consistent whole-graph snapshot. Collections retain inserted object references until runtime cleanup.
+
+Parsed XML documents, element handles, and `XmlOptions` are runtime-owned and retained until cleanup. They do not add XML fields or cached output to user objects. There is no explicit XML disposal API. Parser/output limits bound individual operations, not total process memory across repeated document creation. See [XML limits](xml.md).
+
 ## Validation
 
 The audit suite tests:

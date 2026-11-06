@@ -5,6 +5,7 @@ pub mod collections;
 pub mod cache;
 pub mod key_value_store;
 pub mod json;
+pub mod xml;
 pub mod concurrency;
 pub mod datetime;
 pub mod financial;
@@ -40,6 +41,7 @@ pub extern "C" fn ube_runtime_cleanup() {
     concurrency::ube_task_scope_leave();
     concurrency::ube_concurrency_cleanup();
     key_value_store::cleanup();
+    xml::cleanup();
     json::cleanup();
     cache::cleanup();
     observability::cleanup();

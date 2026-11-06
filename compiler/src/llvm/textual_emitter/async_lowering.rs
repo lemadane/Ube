@@ -115,6 +115,7 @@ pub(super) fn layout(function: &IrFunction) -> Option<usize> {
         match instruction {
             IrInstruction::CallRuntime { symbol, .. } if !nonblocking(symbol) => return None,
             IrInstruction::JsonEncode { .. }
+            | IrInstruction::XmlEncode { .. }
             | IrInstruction::CallMethod { .. }
             | IrInstruction::CallTrait { .. }
             | IrInstruction::InstantiateClass { .. }

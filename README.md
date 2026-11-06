@@ -481,12 +481,15 @@ Generated class objects have tracing GC with automatic collection and explicit
 ownership and conservative escape pins still limit long-running reclamation;
 see [memory behavior](docs/memory.md) and [stabilization status](docs/stabilization.md).
 
-### 22. Native JSON and document APIs (`Json`, `JsonObject`, `JsonArray`, `Xml`, `XmlDocument`, `XmlElement`)
-- **Automatic JSON encoding**: Concrete data objects provide `.toJson()`; `Json.toObject(text)` returns actual JSON data with typed getters. Automatic reconstruction into an application class is not implemented; `partialParse`/`to` currently accept only `JsonObject` as their target. See [JSON](docs/json.md).
-- **XML Document Traversal & Generation**: `Xml.parse(text)`, `Xml.create('root')`, `doc.root().child('tag').text()`, `doc.toString()`.
-- **Reversible Character Codec (`DataNameCodec`)**: Maps XML/JSON tag/key names with hyphens (`Facility-ID`), namespaces (`rest:KitchenOrderScan`), or dots to Ube identifier conventions (`Facility$hyphen$ID`, `rest$KitchenOrderScan`).
-- **Strict vs. Partial Parsing Modes**: Strict mode enforces 1-to-1 structural completeness; Partial mode selectively maps declared components while assigning defaults (`null`, `List.of()`, `0`, `false`).
-- **Structured Format Error Handling**: Typed error handling via `try`/`catch (Error err)` with `JsonParseError`, `XmlParseError`, `MissingDataError`, `ExcessDataError`.
+### 22. Native JSON and XML APIs (`Json`, `Xml`, `XmlOptions`, and document handles)
+
+- **Automatic serialization**: Objects, lists, and maps provide `.toJson()` and `.toXml()` without custom serializer methods.
+- **XML defaults and customization**: Class names become object roots, fields become child elements, lists use `<item>` children, maps use keyed `<entry>` elements, and nulls use `xsi:nil="true"`. `XmlOptions` customizes roots, attributes, field names, list item names, and namespaces.
+- **Document parsing**: `Json.toObject(text)` and `Xml.toObject(text)` return real document handles for traversal. Application classes are constructed explicitly; automatic typed reconstruction and schema-based strict/partial mapping are not implemented.
+- **XML document building**: `Xml.create('root')`, `document.root().element('name').text('Alice')`, and `document.toXml()` build and serialize explicit XML structures.
+- **Catchable format errors**: Parsing failures raise `JsonParseError` or `XmlParseError`; unsupported values, invalid customization, and traversal errors raise `JsonError` or `XmlError`.
+
+See [JSON](docs/json.md), [XML mapping rules and limits](docs/xml.md), and the [runnable XML example](examples/xml/README.md).
 
 ### 23. String Literals & Text Blocks
 
@@ -1373,34 +1376,52 @@ class Application {
 }
 ```
 
-### 18. First-Class Native JSON & XML Document and Record Mapping
+### 18. Native JSON and XML Serialization
 
-```java
-class KitchenOrderScan(
-    string RestaurantID,
-    string OrderType
-)
+Each class belongs in its matching source file:
 
-class Application {
+```ube
+// KitchenOrderScan.ube
+class KitchenOrderScan(string restaurantID, string orderType) {}
+```
+
+```ube
+// Main.ube
+import KitchenOrderScan
+
+class Main {
     main() {
-        // 1. JSON Document Parsing & Getters
-        final jsonText = '{"restaurantID": "0603", "orderType": "DineIn"}'
-        final json = Json.toObject(jsonText)
-        final restaurantId = json.getString('restaurantID')
-        log('Restaurant ID: ${restaurantId}')
-
-        // 2. Explicit record construction and automatic JSON encoding
+        final json = Json.toObject('{"restaurantID":"0603","orderType":"DineIn"}')
         final scan = KitchenOrderScan(json.getString('restaurantID'), json.getString('orderType'))
-        final formattedJson = scan.toJson()
-        log('JSON Stringified: ${formattedJson}')
+        Console.printLine(scan.toJson())
 
-        // 3. XML Traversal & Generation
-        final doc = Xml.create('user')
-        doc.root().element('name').text('Lem')
-        doc.root().element('age').text('40')
-        log('Generated XML:\n${doc.toString()}')
+        // Fields become elements by default.
+        Console.printLine(scan.toXml())
+        // <KitchenOrderScan><restaurantID>0603</restaurantID><orderType>DineIn</orderType></KitchenOrderScan>
+
+        // Choose a root name and store one field as an attribute.
+        final options = XmlOptions().root('order').attribute('restaurantID')
+        final xml = scan.toXml(options)
+        final document = Xml.toObject(xml)
+        Console.printLine(document.root().getAttribute('restaurantID')) // 0603
+        Console.printLine(document.root().child('orderType').text())    // DineIn
+
+        Console.printLine([1, 2].toXml())
+        // <list><item>1</item><item>2</item></list>
+        Console.printLine(['mode': 'dine-in'].toXml())
+        // <map><entry key="mode">dine-in</entry></map>
     }
 }
+```
+
+`Xml.toObject(xml)` returns an `XmlDocument`, not a reconstructed `KitchenOrderScan`. See [XML](docs/xml.md) for namespaces, nulls, escaping, attributes, traversal, and resource limits.
+
+The automated XML end-to-end suite compiles and executes native Ube programs, checks the shipped example through CLI `run` and `build`, and exchanges XML files between independent writer/reader processes. It also verifies corrupted-file failures, customization, and async behavior:
+
+```bash
+cargo build -p ube-runtime -p ube-compiler
+./target/debug/ube-compiler test examples/xml/tests
+cargo test -p ube-compiler --test xml_e2e
 ```
 
 ### 19. Zero Initialization & Explicit Construction

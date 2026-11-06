@@ -7,6 +7,7 @@ The sequence is foundation, one working financial API, then extensions justified
 ## Current Starting Point
 
 - The compiler emits textual LLVM IR and invokes `clang` to produce native executables.
+- Automatic `.toJson()` and `.toXml()` serialize concrete objects, lists, and maps. `Xml.toObject()` parses documents with explicit traversal; options configure roots, attributes, names, namespaces, and list items. Native tests cover CLI run/build and XML files across independent processes; see [XML](docs/xml.md). Typed XML-to-application reconstruction remains unimplemented.
 - Classes, structural traits, control flow, collections, and explicit exception propagation exist, but native correctness still needs broader coverage. The trait-polymorphism regression now compiles and executes at `-O0` and `-O2`; unrelated-class specialization and default-method lowering have been corrected. This does not establish correctness for every program.
 - Domain-specific names and lowering are embedded in the compiler. Its Cargo manifest directly depends on `ube-runtime`, whose dependencies include Tokio, TLS, and QUIC libraries. Package separation is a target, not the current architecture.
 - The calling-thread, loopback server supports HTTP/1.x, HTTP/2, and HTTP/3 with bounded request bodies and compiled-server integration tests. Middleware, WebSockets, and other advertised advanced APIs remain incomplete.
@@ -28,7 +29,7 @@ Keep the recently established rules consistent:
 - Single quotes delimit one-line strings and character values. Backticks delimit raw text blocks. Double quotes are reserved for JSON content, and semicolons are prohibited in code.
 - Loop `else` runs only for zero body entries. Documentation and executable examples cover normal completion, `break`, `continue`, and initially false conditions.
 
-Fix nullable scalar representation and task/channel transport as foundation work. This is a correctness requirement for existing types, not concurrency API expansion. Maintain existing async/task/channel regressions while stabilizing their exception and cleanup paths. Defer concurrency API expansion, new protocols, financial features, XML mapping, advanced date/time APIs, and additional syntax.
+Fix nullable scalar representation and task/channel transport as foundation work. This is a correctness requirement for existing types, not concurrency API expansion. Maintain existing async/task/channel regressions while stabilizing their exception and cleanup paths. Defer concurrency API expansion, new protocols, financial features, typed XML reconstruction and schema validation, advanced date/time APIs, and additional syntax.
 
 ### Work
 
@@ -80,6 +81,7 @@ Proposed package names are organizational targets, not syntax already supported 
 | Core compiler | Parse, resolve, check, and lower ordinary language constructs |
 | Core runtime | Allocation, core strings/collections, errors, task primitives where required, and a documented ABI |
 | `ube-json` | JSON parsing, validation, and serialization |
+| `ube-xml` | Bounded XML parsing, serialization, document traversal, and namespace handling |
 | `ube-money` | Exact monetary values and single-currency arithmetic |
 | `ube-io` | Files and the chosen persistence primitives |
 | `ube-http` | HTTP server and request/response behavior |
@@ -103,7 +105,7 @@ Remove domain-specific aliases, type-checker registrations, method-name special 
 
 Prerequisite: the financial API is used and its outstanding operational issues are understood. Add one independently testable package capability at a time.
 
-Candidates include HTTP/2, HTTP/3/QUIC, XML and record mapping, foreign exchange, richer currency catalogs, date/time extensions, and broader task/channel combinators. None is a mandatory item for the first financial API release. TLS needed for a deployment belongs in that deployment's requirements; protocol expansion does not have to precede a correctly deployed HTTP/1.1 service.
+Candidates include HTTP/2, HTTP/3/QUIC, typed XML reconstruction and schema validation, foreign exchange, richer currency catalogs, date/time extensions, and broader task/channel combinators. None is a mandatory item for the first financial API release. TLS needed for a deployment belongs in that deployment's requirements; protocol expansion does not have to precede a correctly deployed HTTP/1.1 service.
 
 For each addition require a concrete consumer, package ownership, compatibility policy, complete native/integration tests, and measured dependency and binary-size impact. An unavailable API must be absent from the stable surface or fail explicitly; it must not remain an advertised no-op.
 

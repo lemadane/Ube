@@ -37,3 +37,5 @@ The default serializer emits `id`, `name`, and `address` automatically. Methods 
 `data/` is ignored by Git and remains outside `.build`, so `ube clean` does not remove the records. Create its directory before opening the store. Do not open the same file with `Cache.open`; cache files and key-value-store files have different identities and policies.
 
 See [KeyValueStore](../../docs/key-value-store.md) and [JSON](../../docs/json.md) for durability, supported data types, limits, failure behavior, and stress-test commands.
+
+The store validates JSON text; automatic `.toXml()` does not change its format. See the [XML example](../xml/README.md) for object/list/map XML serialization and document traversal, and the [XML guide](../../docs/xml.md) for file round-trip coverage.

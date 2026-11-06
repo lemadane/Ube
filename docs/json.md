@@ -1,6 +1,6 @@
 # JSON and default `toJson()`
 
-Ube's concrete data objects have an automatic `toJson()` method. It returns JSON text describing their declared data fields. You do not need to write a serializer method or import a library.
+Ube's concrete data objects, lists, maps, and supported scalars have an automatic `toJson()` method. It returns JSON text; concrete objects encode their declared data fields. You do not need to write a serializer method or import a library.
 
 ```ube
 // Address.ube
@@ -31,6 +31,8 @@ class Main {
 ```
 
 The JSON object contains `id`, `name`, and nested `address` fields. Object-key order is not an application contract. `toJson()` requires a value instance, not a type name. See the [runnable persistence example](../examples/key-value-store/README.md).
+
+The same supported data can be encoded with [`.toXml()`](xml.md), using XML-specific roots, attributes, namespaces, and null rules. Both encoders share typed data traversal. XML parsing returns a document tree; JSON getters and XML element traversal are separate APIs.
 
 ## What is serialized
 

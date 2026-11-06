@@ -1,5 +1,5 @@
 //! Real JSON documents and compiler-described object serialization.
-use serde_json::{Map, Number, Value};
+use serde_json::{Number, Value};
 use std::{
     collections::{HashMap, HashSet},
     ffi::{c_char, c_void, CStr},
@@ -111,6 +111,29 @@ pub extern "C" fn ube_json_field(
             });
     }
 }
+/// Shared typed data traversal. Keep classes distinct from maps for XML names.
+pub(crate) enum Data {
+    Scalar(Value),
+    List(Vec<Data>),
+    Object { class: Option<String>, fields: Vec<(String, Data)> },
+}
+impl Data {
+    fn from_json(value: Value) -> Self {
+        match value {
+            Value::Array(values) => Self::List(values.into_iter().map(Self::from_json).collect()),
+            Value::Object(values) => Self::Object { class: None, fields: values.into_iter().map(|(key,value)| (key,Self::from_json(value))).collect() },
+            value => Self::Scalar(value),
+        }
+    }
+    fn into_json(self) -> Value {
+        match self {
+            Self::Scalar(value) => value,
+            Self::List(values) => Value::Array(values.into_iter().map(Self::into_json).collect()),
+            Self::Object { fields, .. } => Value::Object(fields.into_iter().map(|(key,value)| (key,value.into_json())).collect()),
+        }
+    }
+}
+
 struct Encoder {
     ancestry: HashSet<usize>,
     nodes: usize,
@@ -133,24 +156,24 @@ impl Encoder {
         kind: i64,
         name: &str,
         depth: usize,
-    ) -> Result<Value> {
+    ) -> Result<Data> {
         self.nodes += 1;
         if depth > MAX_DEPTH || self.nodes > MAX_NODES {
             return Err("JSON nesting or node limit exceeded".into());
         }
         self.charge(8)?;
         if kind & 256 != 0 && meta == 0 {
-            return Ok(Value::Null);
+            return Ok(Data::Scalar(Value::Null));
         }
         match kind&255 {
-            1=>Ok(Value::from(payload as i32)),2=>Ok(Value::from(payload)),3=>Ok(Value::from(payload as u8)),4=>Ok(Value::Bool(payload!=0)),
-            5=>Number::from_f64(f64::from_bits(payload as u64)).map(Value::Number).ok_or("Non-finite decimal cannot be represented as JSON".into()),
-            6=>{if payload==0{return Ok(Value::Null);}let value=text(payload as *const c_char)?;self.charge(value.len())?;Ok(Value::String(value.into()))},
+            1=>Ok(Data::Scalar(Value::from(payload as i32))),2=>Ok(Data::Scalar(Value::from(payload))),3=>Ok(Data::Scalar(Value::from(payload as u8))),4=>Ok(Data::Scalar(Value::Bool(payload!=0))),
+            5=>Number::from_f64(f64::from_bits(payload as u64)).map(|value|Data::Scalar(Value::Number(value))).ok_or("Non-finite decimal cannot be represented as JSON".into()),
+            6=>{if payload==0{return Ok(Data::Scalar(Value::Null));}let value=text(payload as *const c_char)?;self.charge(value.len())?;Ok(Data::Scalar(Value::String(value.into())))},
             7=>{
-                if payload==0{return Ok(Value::Null);}
+                if payload==0{return Ok(Data::Scalar(Value::Null));}
                 if !self.ancestry.insert(payload as usize){return Err("Circular object reference cannot be represented as JSON".into());}
                 let fields=schemas().lock().unwrap().get(name).cloned().ok_or_else(||format!("No JSON schema for {name}"))?;
-                let mut object=Map::new();
+                let mut object=Vec::new();
                 for field in fields {
                     self.charge(field.name.len())?;
                     let base=payload as *mut u8;
@@ -165,14 +188,14 @@ impl Encoder {
                         let pointer=crate::gc::ube_gc_load_reference(payload as *mut c_void,field.offset,self.pin);
                         self.value(pointer as i64,1,field.kind,&field.child,depth+1)?
                     };
-                    object.insert(field.name,value);
+                    object.push((field.name,value));
                 }
-                self.ancestry.remove(&(payload as usize));Ok(Value::Object(object))
+                self.ancestry.remove(&(payload as usize));Ok(Data::Object { class: Some(name.into()), fields: object })
             },
-            8=>{if payload==0{Ok(Value::Null)}else{let value=doc(payload as *mut c_void)?;self.check(&value,depth)?;Ok(value)}},
-            9=>Ok(Value::Null),
+            8=>{if payload==0{Ok(Data::Scalar(Value::Null))}else{let value=doc(payload as *mut c_void)?;self.check(&value,depth)?;Ok(Data::from_json(value))}},
+            9=>Ok(Data::Scalar(Value::Null)),
             10=>{
-                if payload==0{return Ok(Value::Null);}
+                if payload==0{return Ok(Data::Scalar(Value::Null));}
                 if !self.ancestry.insert(payload as usize){return Err("Circular list reference cannot be represented as JSON".into());}
                 let items=crate::collections::json_snapshot(payload as *mut crate::collections::UbeList, MAX_NODES.saturating_sub(self.nodes))?;
                 let mut values=Vec::with_capacity(items.len().min(MAX_NODES));
@@ -180,30 +203,31 @@ impl Encoder {
                     values.push(self.value(value,meta,kind,&name,depth+1)?);
                 }
                 self.ancestry.remove(&(payload as usize));
-                Ok(Value::Array(values))
+                Ok(Data::List(values))
             },
             11=>{
-                if payload==0{return Ok(Value::Null);}
+                if payload==0{return Ok(Data::Scalar(Value::Null));}
                 if !self.ancestry.insert(payload as usize){return Err("Circular map reference cannot be represented as JSON".into());}
                 let entries=crate::collections::json_map_snapshot(payload as *mut crate::collections::UbeMap, MAX_NODES.saturating_sub(self.nodes))?;
-                let mut object=Map::new();
+                let mut object=Vec::new();
+                let mut keys=HashSet::new();
                 for ((key,meta,kind,name),(value,value_meta,value_kind,value_name)) in entries {
                     if !(1..=6).contains(&(kind&255)) {
                         return Err("JSON map keys must be strings, finite numbers, or booleans".into());
                     }
                     let key=match self.value(key,meta,kind,&name,depth+1)? {
-                        Value::String(key)=>key,
-                        Value::Number(key)=>key.to_string(),
-                        Value::Bool(key)=>key.to_string(),
+                        Data::Scalar(Value::String(key))=>key,
+                        Data::Scalar(Value::Number(key))=>key.to_string(),
+                        Data::Scalar(Value::Bool(key))=>key.to_string(),
                         _=>return Err("JSON map keys cannot be null".into()),
                     };
                     self.charge(key.len())?;
-                    if object.contains_key(&key){return Err(format!("Duplicate JSON map key after conversion: {key}"));}
+                    if !keys.insert(key.clone()){return Err(format!("Duplicate JSON map key after conversion: {key}"));}
                     let value=self.value(value,value_meta,value_kind,&value_name,depth+1)?;
-                    object.insert(key,value);
+                    object.push((key,value));
                 }
                 self.ancestry.remove(&(payload as usize));
-                Ok(Value::Object(object))
+                Ok(Data::Object { class: None, fields: object })
             },
             _=>Err(format!("Type '{name}' cannot be serialized to JSON; runtime resources and values without type metadata are unsupported")),
         }
@@ -232,33 +256,22 @@ impl Encoder {
         Ok(())
     }
 }
+pub(crate) fn encode_data(payload: i64, meta: u64, kind: i64, name: &str) -> Result<Data> {
+    crate::gc::ube_gc_frame_enter();
+    let root = crate::gc::ube_gc_root_add(payload as *mut c_void);
+    let mut encoder = Encoder { ancestry: HashSet::new(), nodes: 0, bytes: 0, pin: 0 };
+    let result = encoder.value(payload, meta, kind, name, 0);
+    crate::gc::ube_gc_root_remove(root);
+    crate::gc::ube_gc_frame_leave(std::ptr::null_mut());
+    result
+}
 #[no_mangle]
-pub extern "C" fn ube_to_json(
-    payload: i64,
-    meta: u64,
-    kind: i64,
-    name: *const c_char,
-) -> *mut c_char {
+pub extern "C" fn ube_to_json(payload: i64, meta: u64, kind: i64, name: *const c_char) -> *mut c_char {
     run(|| {
-        crate::gc::ube_gc_frame_enter();
-        let root = crate::gc::ube_gc_root_add(payload as *mut c_void);
-        let result = (|| {
-            let mut encoder = Encoder {
-                ancestry: HashSet::new(),
-                nodes: 0,
-                bytes: 0,
-                pin: 0,
-            };
-            let value = encoder.value(payload, meta, kind, text(name)?, 0)?;
-            let text = serde_json::to_string(&value).map_err(|e| e.to_string())?;
-            if text.len() > MAX_BYTES {
-                return Err("Encoded JSON exceeds 16 MiB".into());
-            }
-            string(&text)
-        })();
-        crate::gc::ube_gc_root_remove(root);
-        crate::gc::ube_gc_frame_leave(std::ptr::null_mut());
-        result
+        let value = encode_data(payload, meta, kind, text(name)?)?.into_json();
+        let encoded = serde_json::to_string(&value).map_err(|e|e.to_string())?;
+        if encoded.len() > MAX_BYTES { return Err("Encoded JSON exceeds 16 MiB".into()); }
+        string(&encoded)
     })
 }
 pub(crate) fn parse(pointer: *const c_char) -> *mut c_void {

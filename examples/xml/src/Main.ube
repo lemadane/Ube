@@ -1,0 +1,21 @@
+import Profile
+
+class Main {
+    main() {
+        final profile = Profile(42, 'Alice & Bob', [95, 88])
+        final xml = profile.toXml()
+        Console.printLine(xml)
+
+        final document = Xml.toObject(xml)
+        Console.printLine(document.root().child('name').text())
+        Console.printLine(document.root().child('scores').childAt('item', 1).text())
+
+        final options = XmlOptions().root('p:person').namespace('p', 'urn:people').attribute('id')
+        final customized = Xml.toObject(profile.toXml(options)).root()
+        Console.printLine(customized.name())
+        Console.printLine(customized.namespaceUri())
+        Console.printLine(customized.getAttribute('id'))
+
+        Console.printLine(['display name': 'Alice'].toXml())
+    }
+}

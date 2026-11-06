@@ -12,7 +12,7 @@ Ube provides one string key/value API for embedded memory caches, persistent emb
 
 All examples use single-quoted Ube strings. Cache operations are synchronous; they do not return tasks. `Cache` is built in and requires no import or third-party package. Compile against the matching compiler/runtime revision.
 
-For records that must remain until explicitly changed or deleted, use [KeyValueStore](key-value-store.md). Its database format and retention rules are separate from Cache. See [JSON](json.md) for converting concrete data objects with `.toJson()`.
+For records that must remain until explicitly changed or deleted, use [KeyValueStore](key-value-store.md). Its database format and retention rules are separate from Cache. Cache values are strings: serialize objects, lists, or maps with [`.toJson()`](json.md) or [`.toXml()`](xml.md), then parse retrieved text explicitly with `Json.toObject()` or `Xml.toObject()`. Cache does not infer the payload format.
 
 ## Constructors
 

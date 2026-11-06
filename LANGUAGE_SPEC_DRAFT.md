@@ -611,3 +611,15 @@ where active = true`
 ```
 
 The SQL value contains two line breaks and no trailing newline. An opening line break, if present after the first backtick, would also be part of its value.
+
+## 16. Automatic Data Serialization
+
+Concrete object instances, lists, maps, and supported scalars expose `.toJson()` and `.toXml()` without an import or user-written method. The names `toJson` and `toXml` are reserved: custom methods and constructor fields with those names are rejected. Encoders include declared constructor fields, including private fields, recursively. Methods, computed getters, and object identity are omitted. Repeated references become repeated data; cyclic references, runtime resources, and non-finite decimals raise errors.
+
+`Json.toObject(text)` returns parsed JSON data. `Xml.toObject(text)` returns an `XmlDocument`, whose `root()` provides element traversal. Neither call automatically reconstructs an application class. XML scalar text has no implicit application type; callers choose how to interpret it.
+
+Default XML roots are the concrete class name, `list`, `map`, or `value`. Fields become child elements, list items use `item`, and map entries use `entry` with a `key` attribute. Null uses `xsi:nil="true"` with the XML Schema instance namespace; empty strings and empty containers remain distinct from null. Text and attributes are escaped.
+
+`.toXml(XmlOptions())` accepts optional fluent configuration: `.root(name)`, `.attribute(field)`, `.rename(field, name)`, `.namespace(prefix, uri)`, and `.listItem(name)`. Field attribute/rename rules apply to the root data class. Names must be valid and prefixes bound. Parsed documents and elements serialize with `.toXml()` without options; use document editing methods to change them.
+
+Malformed input raises `XmlParseError`; unsupported XML encoding or customization raises `XmlError`. Encoding and parsing enforce documented bounds. Serialization is synchronous and does not provide an atomic snapshot of a concurrently mutated object graph. See [JSON](docs/json.md) and [XML](docs/xml.md) for supported types, exact mappings, limits, and examples.

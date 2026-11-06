@@ -57,6 +57,14 @@ impl TextualLlvmEmitter {
         self.output.push_str("declare void @ube_testicle_check(i1, i8*)\n");
         self.output.push_str("declare { i8*, i64 } @ube_gc_allocate(i64, i64, i64*, i64)\ndeclare void @ube_gc_frame_enter()\ndeclare void @ube_gc_frame_pin(i64, i8*)\ndeclare void @ube_gc_frame_leave(i8*)\ndeclare void @ube_gc_escape(i8*)\ndeclare i1 @ube_gc_root_remove(i64)\ndeclare void @ube_gc_store_reference(i8*, i64, i8*)\ndeclare i8* @ube_gc_load_reference(i8*, i64, i64)\ndeclare i1 @ube_gc_try_collect()\ndeclare i64 @ube_gc_object_count()\ndeclare i64 @ube_gc_reclaimed_count()\n");
         self.output.push_str("declare void @ube_trace_enter(i8*)\ndeclare void @ube_trace_location(i8*)\ndeclare void @ube_trace_leave()\ndeclare void @ube_trace_suspend()\ndeclare i8* @ube_exception_stacktrace(i8*)\n");
+        self.output.push_str("declare i8* @ube_to_xml(i64, i64, i64, i8*, i8*)\ndeclare i8* @ube_xml_options_create()\n");
+        for class in ["XmlElement","XmlOptions"] {
+            for method in crate::builtins::xml_methods(class) {
+                if method.symbol.starts_with("ube_xmlement_"){continue;}
+                let params=std::iter::once("i8*".to_string()).chain(method.params.iter().map(|ty|self.type_to_llvm(ty))).collect::<Vec<_>>().join(", ");
+                self.output.push_str(&format!("declare {} @{}({})\n",self.type_to_llvm(&method.result),method.symbol,params));
+            }
+        }
         // External runtime declarations
         self.output.push_str("declare void @ube_runtime_init()\n");
         self.output
@@ -839,6 +847,7 @@ impl TextualLlvmEmitter {
     fn emit_instruction(&mut self, instr: &IrInstruction) -> String {
         match instr {
             IrInstruction::JsonEncode { dest, value } => self.emit_json_encode(*dest, value),
+            IrInstruction::XmlEncode { dest,value,options } => self.emit_xml_encode(*dest,value,options),
             IrInstruction::Cast { dest, value, ty } => {
                 let (mut instructions, value) = self.coerce(value, ty);
                 if let Some(inner) = ty.nullable_scalar_inner() {
@@ -1589,7 +1598,7 @@ impl TextualLlvmEmitter {
             Type::Task(_) => "i8*".to_string(),
             Type::Channel(_) => "i8*".to_string(),
             Type::Class { name }
-                if matches!(name.as_str(), "Task" | "Channel" | "List" | "Map" | "TaskOutcome" | "TaskOutcomes" | "ConsoleArgs" | "Cache" | "KeyValueStore") =>
+                if matches!(name.as_str(), "Task" | "Channel" | "List" | "Map" | "TaskOutcome" | "TaskOutcomes" | "ConsoleArgs" | "Cache" | "KeyValueStore" | "Xml" | "XmlDocument" | "XmlElement" | "XmlOptions") =>
             {
                 "i8*".to_string()
             }

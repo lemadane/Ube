@@ -21,10 +21,11 @@ Start with the [project README](../README.md) for language syntax, toolchain set
 - [Sessions](sessions.md): application sessions and cookies
 - [Financial types](financial.md): money and related calculations
 
-## Storage
+## Serialization and storage
 
 - [KeyValueStore](key-value-store.md): persistent JSON records, ownership, durability, and native stress tests
-- [JSON](json.md): default object serialization, real parsing/getters, and unsupported values
+- [XML](xml.md): automatic object/list/map serialization, documents, options, namespaces, and traversal
+- [JSON](json.md): object/list/map serialization, real parsing/getters, and unsupported values
 - [Runnable persistent-object example](../examples/key-value-store/README.md)
 
 - [SQL](sql.md): SQL access and parameters
@@ -39,7 +40,7 @@ Start with the [project README](../README.md) for language syntax, toolchain set
 
 ## Testing and project references
 
-- [Testing](testing.md)
+- [Testing](testing.md): Testicle and native serialization end-to-end regressions
 - [Mockery](mockery.md)
 - [RestInPeace](rest-in-peace.md): HTTP application tests
 - [Stabilization](stabilization.md)

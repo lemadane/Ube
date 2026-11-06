@@ -64,6 +64,8 @@ Ube/
 │       ├── lib.rs                  # C-ABI runtime init & cleanup
 │       ├── memory.rs               # Tracked heap allocations & shutdown cleanup
 │       ├── strings.rs              # UTF-8 string runtime primitives
+│       ├── json.rs                 # Shared typed data traversal and JSON encoding
+│       ├── xml.rs                  # XML documents, options, parsing, and encoding
 │       ├── io.rs                   # File, stream, and server I/O wrappers
 │       ├── logging.rs              # Severity filtering and Console/Log output
 │       ├── exceptions.rs           # Pending errors, structural identity & suppression
@@ -88,7 +90,7 @@ Untyped `List`/`Map` elements still use single-word storage. Nullable scalars an
 
 ## Proposed Core and Package Boundary
 
-The proposed three-phase scope is in [Roadmap v2](MILESTONES.md). The current compiler still has a Cargo dependency on `ube-runtime` and domain-specific registrations and lowering for financial, JSON, and server APIs. The runtime currently includes optional-domain dependencies such as TLS and QUIC libraries; the dependency boundary below has not been implemented.
+The proposed three-phase scope is in [Roadmap v2](MILESTONES.md). The current compiler still has a Cargo dependency on `ube-runtime` and domain-specific registrations and lowering for financial, JSON, XML, and server APIs. The runtime currently includes optional-domain dependencies such as TLS and QUIC libraries; the dependency boundary below has not been implemented.
 
 The target is a compiler that understands ordinary language constructs and a documented native ABI, with `Money`, `Json`, and `Server` provided by separately linked packages. A minimal local module/package loader, type metadata, symbol resolution, and native linking must exist before those APIs can be extracted. Moving files or repositories alone is insufficient.
 
@@ -206,11 +208,20 @@ include a JSON-escaped context object when the map is nonempty.
 The native task bridge captures a context snapshot before scheduling a callback.
 Each blocking worker installs that snapshot with an RAII guard, which restores
 its previous context when the callback exits. This isolates child and sibling
-tasks while supporting inheritance across nested task creation. The map is not
-installed on Tokio's shared async worker threads. Context is released at runtime
-cleanup; the process-wide severity threshold is independent of context.
+tasks while supporting inheritance across nested task creation. Yielding task
+callbacks restore and save context for each poll, so context follows the task
+across worker migration. Context is released at runtime cleanup; the process-wide
+severity threshold is independent of context.
 
 ---
+
+### Automatic Data Serialization
+
+The compiler supplies type and field metadata for automatic `.toJson()` and `.toXml()` calls. The runtime shares a typed traversal for concrete objects, lists, maps, and supported scalars. Collection entries retain serialization metadata; methods and native object identity are not serialized. This adds no cached XML fields to user objects. Traversal roots managed references and rejects cycles, unsupported resources, non-finite values, and excessive size or nesting.
+
+XML encoding lowers through `XmlEncode`, including optional `XmlOptions`, and uses normal exception propagation. `runtime/src/xml.rs` uses `roxmltree` for bounded parsing and owns document trees, element handles, and options until runtime cleanup. `Xml.toObject()` returns a document rather than reconstructing user classes. Namespace-aware traversal, explicit attributes, nulls, lists, and map entries follow the [XML rules](docs/xml.md). The parser dependency remains part of the current runtime; package extraction is proposed work.
+
+[Native end-to-end tests](docs/testing.md#serialization-end-to-end-regressions) compile and run serialization programs, exercise CLI run/build, and exchange XML files between independent processes. Serialization calls are synchronous and use the blocking async backend when required.
 
 ## 5. Memory Management & Garbage Collector Architecture
 

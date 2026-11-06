@@ -1095,15 +1095,6 @@ pub struct UbeJsonObject {
 pub struct UbeJsonArray {
     pub id: i64,
 }
-#[repr(C)]
-pub struct UbeXmlDocument {
-    pub id: i64,
-}
-#[repr(C)]
-pub struct UbeXmlElement {
-    pub id: i64,
-}
-
 #[no_mangle]
 pub extern "C" fn ube_json_parse(ptr: *const c_char) -> *mut UbeJsonObject { crate::json::parse(ptr).cast() }
 #[no_mangle]
@@ -1118,50 +1109,6 @@ pub extern "C" fn ube_jsonobject_get_long(obj: *mut UbeJsonObject, key: *const c
 pub extern "C" fn ube_jsonobject_get_decimal(obj: *mut UbeJsonObject, key: *const c_char) -> f64 { crate::json::get_decimal(obj.cast(),key) }
 #[no_mangle]
 pub extern "C" fn ube_jsonobject_get_bool(obj: *mut UbeJsonObject, key: *const c_char) -> bool { crate::json::get_bool(obj.cast(),key) }
-
-#[no_mangle]
-pub extern "C" fn ube_xml_parse(_ptr: *const c_char) -> *mut UbeXmlDocument {
-    Box::into_raw(Box::new(UbeXmlDocument { id: 1 }))
-}
-#[no_mangle]
-pub extern "C" fn ube_xml_create(_root: *const c_char) -> *mut UbeXmlDocument {
-    Box::into_raw(Box::new(UbeXmlDocument { id: 1 }))
-}
-#[no_mangle]
-pub extern "C" fn ube_xmldocument_root(_doc: *mut UbeXmlDocument) -> *mut UbeXmlElement {
-    Box::into_raw(Box::new(UbeXmlElement { id: 1 }))
-}
-#[no_mangle]
-pub extern "C" fn ube_xmldocument_to_string(_doc: *mut UbeXmlDocument) -> *mut c_char {
-    CString::new("<user><name>Lem</name><age>40</age></user>")
-        .unwrap()
-        .into_raw()
-}
-#[no_mangle]
-pub extern "C" fn ube_xmlement_child(
-    _elem: *mut UbeXmlElement,
-    _tag: *const c_char,
-) -> *mut UbeXmlElement {
-    Box::into_raw(Box::new(UbeXmlElement { id: 1 }))
-}
-#[no_mangle]
-pub extern "C" fn ube_xmlement_element(
-    _elem: *mut UbeXmlElement,
-    _tag: *const c_char,
-) -> *mut UbeXmlElement {
-    Box::into_raw(Box::new(UbeXmlElement { id: 1 }))
-}
-#[no_mangle]
-pub extern "C" fn ube_xmlement_text(
-    _elem: *mut UbeXmlElement,
-    _txt: *const c_char,
-) -> *mut UbeXmlElement {
-    Box::into_raw(Box::new(UbeXmlElement { id: 1 }))
-}
-#[no_mangle]
-pub extern "C" fn ube_xmlement_get_text(_elem: *mut UbeXmlElement) -> *mut c_char {
-    CString::new("Lem").unwrap().into_raw()
-}
 
 #[cfg(test)]
 mod error_tests {

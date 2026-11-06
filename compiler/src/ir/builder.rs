@@ -316,9 +316,9 @@ impl IrBuilder {
     }
 
     fn emit(&mut self, instr: IrInstruction) {
-        let check = matches!(instr, IrInstruction::JsonEncode { .. } | IrInstruction::CallMethod { .. } | IrInstruction::CallTrait { .. })
+        let check = matches!(instr, IrInstruction::JsonEncode { .. } | IrInstruction::XmlEncode { .. } | IrInstruction::CallMethod { .. } | IrInstruction::CallTrait { .. })
             || matches!(&instr, IrInstruction::CallRuntime { symbol, .. }
-                if symbol.starts_with("ube_kv_") || symbol.starts_with("ube_json") || symbol.starts_with("ube_cache_") || symbol.starts_with("ube_args_") || symbol.starts_with("ube_observability_") || symbol.starts_with("ube_metrics_") || symbol.starts_with("ube_task_outcome") || symbol.starts_with("ube_env_") || symbol.starts_with("ube_rest_") || symbol.starts_with("ube_mockery_") || symbol.starts_with("ube_testicle_") || symbol.starts_with("ube_exchange_") || symbol.starts_with("ube_money_") || symbol.starts_with("ube_orm_") || symbol.starts_with("ube_sql_") || symbol.starts_with("ube_jwt_") || symbol.starts_with("ube_oauth2_") || symbol.starts_with("ube_session_") || matches!(symbol.as_str(), "ube_request_session" | "ube_request_query" | "ube_request_header" | "ube_request_body" | "ube_response_redirect") || symbol.starts_with("ube_console_") || symbol.starts_with("ube_output_") || symbol.starts_with("ube_log_") || symbol.starts_with("ube_sqlite_") || symbol.starts_with("ube_file_") || symbol.starts_with("ube_directory_")
+                if symbol.starts_with("ube_kv_") || symbol.starts_with("ube_json") || symbol.starts_with("ube_xml") || symbol == "ube_to_xml" || symbol.starts_with("ube_cache_") || symbol.starts_with("ube_args_") || symbol.starts_with("ube_observability_") || symbol.starts_with("ube_metrics_") || symbol.starts_with("ube_task_outcome") || symbol.starts_with("ube_env_") || symbol.starts_with("ube_rest_") || symbol.starts_with("ube_mockery_") || symbol.starts_with("ube_testicle_") || symbol.starts_with("ube_exchange_") || symbol.starts_with("ube_money_") || symbol.starts_with("ube_orm_") || symbol.starts_with("ube_sql_") || symbol.starts_with("ube_jwt_") || symbol.starts_with("ube_oauth2_") || symbol.starts_with("ube_session_") || matches!(symbol.as_str(), "ube_request_session" | "ube_request_query" | "ube_request_header" | "ube_request_body" | "ube_response_redirect") || symbol.starts_with("ube_console_") || symbol.starts_with("ube_output_") || symbol.starts_with("ube_log_") || symbol.starts_with("ube_sqlite_") || symbol.starts_with("ube_file_") || symbol.starts_with("ube_directory_")
                     || symbol.starts_with("ube_stream_") || symbol.starts_with("ube_server_"));
         self.current_instructions.push(instr);
         if check {
@@ -1841,6 +1841,8 @@ impl IrBuilder {
                 generic_type,
                 args,
             } => {
+                if class_name=="XmlOptions" {return self.runtime("ube_xml_options_create",vec![],Type::Class{name:"XmlOptions".into()});}
+
                 if class_name == "Channel" {
                     let ty = generic_type
                         .as_ref()
@@ -1905,7 +1907,9 @@ impl IrBuilder {
                         }
                     }
                 }
-                let arg_ops: Vec<IrOperand> = args.iter().map(|a| self.build_expr(a)).collect();
+                let document_target=matches!(&callee.kind,ExprKind::MemberAccess{object,member,..}
+                    if ["partialParse","to"].contains(&member.as_str())&&matches!(&object.kind,ExprKind::Identifier(name) if ["Xml","Json"].contains(&name.as_str())&&self.lookup_var(name).is_none()));
+                let arg_ops: Vec<IrOperand> = args.iter().take(if document_target {1}else{args.len()}).map(|a| self.build_expr(a)).collect();
                 match &callee.kind {
                     ExprKind::MemberAccess { object, member, .. } => {
                         let static_class_name = match &object.kind {
@@ -1965,6 +1969,20 @@ impl IrBuilder {
                         if member == "stacktrace" && (class_name == "Error" || self.trait_members.get("Error").is_some_and(|members| members.contains(&class_name)) || self.trait_signatures.get(&(class_name.clone(), "message".into())).is_some_and(|(params, result)| params.is_empty() && *result == Type::String)) {
                             let object = self.cast(obj_op, Type::Bytes);
                             return self.runtime("ube_exception_stacktrace", vec![object], Type::String);
+                        }
+                        if member=="toXml" {
+                            if class_name=="XmlDocument"||class_name=="XmlElement" {return self.runtime("ube_xmldocument_to_string",vec![obj_op],Type::String);}
+                            let dest=self.fresh_reg();
+                            self.emit(IrInstruction::XmlEncode{dest,value:obj_op,options:arg_ops.into_iter().next()});
+                            return IrOperand::Register(dest,Type::String);
+                        }
+                        if crate::builtins::XML_CLASSES.contains(&class_name.as_str()) {
+                            if class_name=="XmlElement"&&member=="text"&&arg_ops.is_empty() {return self.runtime("ube_xmlement_get_text",vec![obj_op],Type::String);}
+                            if let Some(method)=crate::builtins::xml_methods(&class_name).into_iter().find(|m|m.name==member) {
+                                let mut call_args=Vec::new();if !method.is_static{call_args.push(obj_op);}
+                                call_args.extend(if class_name=="Xml"&&["partialParse","to"].contains(&member.as_str()){arg_ops.into_iter().take(1).collect::<Vec<_>>()}else{arg_ops});
+                                return self.runtime(method.symbol,call_args,method.result);
+                            }
                         }
                         if member == "toJson" {
                             let value = obj_op;
@@ -3288,91 +3306,6 @@ impl IrBuilder {
                                 ret_ty: Type::Void,
                             });
                             return IrOperand::Null;
-                        }
-
-                        if class_name == "Xml"
-                            || ["parse", "partialParse", "create", "stringify", "from", "to"]
-                                .contains(&member.as_str())
-                        {
-                            let symbol = match member.as_str() {
-                                "parse" | "partialParse" => "ube_xml_parse",
-                                "create" => "ube_xml_create",
-                                _ => "ube_xml_parse",
-                            };
-                            let dest = self.fresh_reg();
-                            let ret_ty = Type::Class {
-                                name: "XmlDocument".into(),
-                            };
-                            self.emit(IrInstruction::CallRuntime {
-                                dest: Some(dest),
-                                symbol: symbol.into(),
-                                args: arg_ops,
-                                ret_ty: ret_ty.clone(),
-                            });
-                            return IrOperand::Register(dest, ret_ty);
-                        }
-
-                        if class_name == "XmlDocument"
-                            || ["root", "toString"].contains(&member.as_str())
-                        {
-                            let symbol = match member.as_str() {
-                                "root" => "ube_xmldocument_root",
-                                "toString" => "ube_xmldocument_to_string",
-                                _ => "ube_xmldocument_root",
-                            };
-                            let dest = self.fresh_reg();
-                            let mut call_args = vec![obj_op];
-                            call_args.extend(arg_ops);
-                            let ret_ty = if member == "toString" {
-                                Type::String
-                            } else {
-                                Type::Class {
-                                    name: "XmlElement".into(),
-                                }
-                            };
-                            self.emit(IrInstruction::CallRuntime {
-                                dest: Some(dest),
-                                symbol: symbol.into(),
-                                args: call_args,
-                                ret_ty: ret_ty.clone(),
-                            });
-                            return IrOperand::Register(dest, ret_ty);
-                        }
-
-                        if class_name == "XmlElement"
-                            || ["child", "element", "text", "getText"].contains(&member.as_str())
-                        {
-                            let is_text_getter = member == "text" && arg_ops.is_empty();
-                            let symbol = match member.as_str() {
-                                "child" => "ube_xmlement_child",
-                                "element" => "ube_xmlement_element",
-                                "text" => {
-                                    if is_text_getter {
-                                        "ube_xmlement_get_text"
-                                    } else {
-                                        "ube_xmlement_text"
-                                    }
-                                }
-                                "getText" => "ube_xmlement_get_text",
-                                _ => "ube_xmlement_child",
-                            };
-                            let dest = self.fresh_reg();
-                            let mut call_args = vec![obj_op];
-                            call_args.extend(arg_ops);
-                            let ret_ty = if is_text_getter || member == "getText" {
-                                Type::String
-                            } else {
-                                Type::Class {
-                                    name: "XmlElement".into(),
-                                }
-                            };
-                            self.emit(IrInstruction::CallRuntime {
-                                dest: Some(dest),
-                                symbol: symbol.into(),
-                                args: call_args,
-                                ret_ty: ret_ty.clone(),
-                            });
-                            return IrOperand::Register(dest, ret_ty);
                         }
 
                         let mut target_method = member.clone();

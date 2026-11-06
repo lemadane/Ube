@@ -1,0 +1,9 @@
+[package]
+name = "xml-example"
+version = "0.1.0"
+edition = "2026"
+
+[build]
+entry = "src/Main.ube"
+
+[dependencies]

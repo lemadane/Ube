@@ -86,6 +86,7 @@ const BUILTIN_CLASS_NAMES: &[&str] = &[
     "TaskOutcomes",
     "WebSocket",
     "Xml",
+    "XmlOptions",
     "XmlDocument",
     "XmlElement",
     "XmlError",
@@ -790,4 +791,49 @@ pub fn key_value_store_methods() -> Vec<BuiltinMethod> {
         method("increment", "ube_kv_increment", vec![Type::String, Type::Long], Type::Long, false),
         method("close", "ube_kv_close", vec![], Type::Void, false),
     ]
+}
+
+pub const XML_CLASSES: &[&str] = &["Xml", "XmlDocument", "XmlElement", "XmlOptions"];
+pub fn xml_methods(class: &str) -> Vec<BuiltinMethod> {
+    use crate::types::Type;
+    let cls=|name:&str|Type::Class{name:name.into()};
+    let method=|name,symbol,params,result,is_static|BuiltinMethod{name,symbol,params,result,is_static};
+    match class {
+        "Xml"=>vec![
+            method("toObject","ube_xml_parse",vec![Type::String],cls("XmlDocument"),true),
+            method("parse","ube_xml_parse",vec![Type::String],cls("XmlDocument"),true),
+            method("create","ube_xml_create",vec![Type::String],cls("XmlDocument"),true),
+            method("partialParse","ube_xml_parse",vec![Type::String,cls("XmlDocument")],cls("XmlDocument"),true),
+            method("to","ube_xml_parse",vec![Type::String,cls("XmlDocument")],cls("XmlDocument"),true),
+            method("stringify","ube_xmldocument_to_string",vec![cls("XmlDocument")],Type::String,true),
+            method("from","ube_xmldocument_to_string",vec![cls("XmlDocument")],Type::String,true),
+        ],
+        "XmlDocument"=>vec![
+            method("root","ube_xmldocument_root",vec![],cls("XmlElement"),false),
+            method("toString","ube_xmldocument_to_string",vec![],Type::String,false),
+        ],
+        "XmlElement"=>vec![
+            method("child","ube_xmlement_child",vec![Type::String],cls("XmlElement"),false),
+            method("childAt","ube_xml_child_at",vec![Type::String,Type::Int],cls("XmlElement"),false),
+            method("childCount","ube_xml_child_count",vec![Type::String],Type::Int,false),
+            method("childNs","ube_xml_child_ns",vec![Type::String,Type::String],cls("XmlElement"),false),
+            method("element","ube_xmlement_element",vec![Type::String],cls("XmlElement"),false),
+            method("text","ube_xmlement_text",vec![Type::String],cls("XmlElement"),false),
+            method("getText","ube_xmlement_get_text",vec![],Type::String,false),
+            method("attribute","ube_xml_attribute",vec![Type::String,Type::String],cls("XmlElement"),false),
+            method("getAttribute","ube_xml_get_attribute",vec![Type::String],Type::String,false),
+            method("namespace","ube_xml_namespace",vec![Type::String,Type::String],cls("XmlElement"),false),
+            method("name","ube_xml_name",vec![],Type::String,false),
+            method("namespaceUri","ube_xml_namespace_uri",vec![],Type::String,false),
+            method("isNull","ube_xml_is_null",vec![],Type::Bool,false),
+        ],
+        "XmlOptions"=>vec![
+            method("root","ube_xml_options_root",vec![Type::String],cls("XmlOptions"),false),
+            method("attribute","ube_xml_options_attribute",vec![Type::String],cls("XmlOptions"),false),
+            method("rename","ube_xml_options_rename",vec![Type::String,Type::String],cls("XmlOptions"),false),
+            method("namespace","ube_xml_options_namespace",vec![Type::String,Type::String],cls("XmlOptions"),false),
+            method("listItem","ube_xml_options_item",vec![Type::String],cls("XmlOptions"),false),
+        ],
+        _=>vec![],
+    }
 }

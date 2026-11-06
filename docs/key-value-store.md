@@ -44,6 +44,8 @@ Create `data/` first. The [runnable example](../examples/key-value-store/README.
 
 `set` accepts **JSON text**, not an arbitrary object handle. Calling `.toJson()` explicitly makes that conversion visible. Reading returns JSON text, not a reconstructed class instance. Automatic typed reconstruction, schema migration, and arbitrary object-graph persistence are not implemented.
 
+[XML serialization](xml.md) does not change this JSON-only storage contract: raw `.toXml()` output is not a valid store value. For an XML file, use `File.write` and `File.read`, then `Xml.toObject`; the native XML suite tests that path across independent processes.
+
 ## API
 
 `KeyValueStore` is built in and needs no import. It cannot be directly constructed with `KeyValueStore()`.

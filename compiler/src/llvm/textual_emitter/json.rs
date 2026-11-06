@@ -38,6 +38,14 @@ impl TextualLlvmEmitter {
         ));
         lines.join("\n  ")
     }
+    pub(super) fn emit_xml_encode(&mut self,dest:Register,value:&IrOperand,options:&Option<IrOperand>)->String {
+        let ty=value.get_type();let (kind,name)=self.json_kind(&ty);let source=self.emit_operand(value);
+        let (mut lines,payload,meta)=self.encode_value(&ty,&source,&format!("xml_{}",dest.0));
+        let name=self.emit_operand(&IrOperand::ConstantString(name));
+        let options=options.as_ref().map(|value|self.emit_operand(value)).unwrap_or_else(||"null".into());
+        lines.push(format!("%{} = call i8* @ube_to_xml(i64 {}, i64 {}, i64 {}, i8* {}, i8* {})",dest.0,payload,meta,kind,name,options));
+        lines.join("\n  ")
+    }
     pub(super) fn emit_json_schemas(&mut self, program: &IrProgram) {
         for class in &program.classes {
             let owner = self.emit_operand(&IrOperand::ConstantString(class.name.clone()));

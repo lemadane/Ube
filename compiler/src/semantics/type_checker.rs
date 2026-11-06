@@ -1702,139 +1702,13 @@ impl TypeChecker {
             },
         );
 
-        let mut xml_methods = HashMap::new();
-        xml_methods.insert(
-            "parse".into(),
-            (
-                vec![Type::String],
-                Type::Class {
-                    name: "XmlDocument".into(),
-                },
-            ),
-        );
-        xml_methods.insert(
-            "partialParse".into(),
-            (
-                vec![Type::String],
-                Type::Class {
-                    name: "XmlDocument".into(),
-                },
-            ),
-        );
-        xml_methods.insert(
-            "create".into(),
-            (
-                vec![Type::String],
-                Type::Class {
-                    name: "XmlDocument".into(),
-                },
-            ),
-        );
-        xml_methods.insert(
-            "stringify".into(),
-            (
-                vec![Type::Class {
-                    name: "XmlDocument".into(),
-                }],
-                Type::String,
-            ),
-        );
-        xml_methods.insert(
-            "from".into(),
-            (
-                vec![Type::Class {
-                    name: "XmlDocument".into(),
-                }],
-                Type::String,
-            ),
-        );
-        xml_methods.insert(
-            "to".into(),
-            (
-                vec![Type::String, Type::String],
-                Type::Class {
-                    name: "XmlDocument".into(),
-                },
-            ),
-        );
-
-        self.classes.insert(
-            "Xml".into(),
-            ClassInfo {
-                name: "Xml".into(),
-                fields: HashMap::new(),
-                methods: xml_methods,
-                param_types: Vec::new(),
-                min_constructor_args: 0,
-                max_constructor_args: 0,
-            },
-        );
-
-        let mut xmldoc_methods = HashMap::new();
-        xmldoc_methods.insert(
-            "root".into(),
-            (
-                Vec::new(),
-                Type::Class {
-                    name: "XmlElement".into(),
-                },
-            ),
-        );
-        xmldoc_methods.insert("toString".into(), (Vec::new(), Type::String));
-
-        self.classes.insert(
-            "XmlDocument".into(),
-            ClassInfo {
-                name: "XmlDocument".into(),
-                fields: HashMap::new(),
-                methods: xmldoc_methods,
-                param_types: Vec::new(),
-                min_constructor_args: 0,
-                max_constructor_args: 0,
-            },
-        );
-
-        let mut xmlem_methods = HashMap::new();
-        xmlem_methods.insert(
-            "child".into(),
-            (
-                vec![Type::String],
-                Type::Class {
-                    name: "XmlElement".into(),
-                },
-            ),
-        );
-        xmlem_methods.insert(
-            "element".into(),
-            (
-                vec![Type::String],
-                Type::Class {
-                    name: "XmlElement".into(),
-                },
-            ),
-        );
-        xmlem_methods.insert(
-            "text".into(),
-            (
-                vec![Type::String],
-                Type::Class {
-                    name: "XmlElement".into(),
-                },
-            ),
-        );
-        xmlem_methods.insert("getText".into(), (Vec::new(), Type::String));
-
-        self.classes.insert(
-            "XmlElement".into(),
-            ClassInfo {
-                name: "XmlElement".into(),
-                fields: HashMap::new(),
-                methods: xmlem_methods,
-                param_types: Vec::new(),
-                min_constructor_args: 0,
-                max_constructor_args: 0,
-            },
-        );
+        for name in crate::builtins::XML_CLASSES {
+            self.classes.insert((*name).into(), ClassInfo {
+                name:(*name).into(), fields:HashMap::new(),
+                methods:crate::builtins::xml_methods(name).into_iter().map(|m|(m.name.into(),(m.params,m.result))).collect(),
+                param_types:vec![],min_constructor_args:0,max_constructor_args:0,
+            });
+        }
 
         let format_errors = vec![
             "JsonError",
@@ -1919,8 +1793,10 @@ impl TypeChecker {
                         .filter(|p| p.default_value.is_none())
                         .count();
 
-                    if cls.methods.iter().any(|m| m.name == "toJson") || cls.primary_params.iter().any(|p| p.name == "toJson") {
-                        self.diagnostics.push(Diagnostic::error("toJson is reserved for automatic JSON serialization", Some(cls.span)));
+                    for reserved in ["toJson", "toXml"] {
+                        if cls.methods.iter().any(|m|m.name==reserved)||cls.primary_params.iter().any(|p|p.name==reserved) {
+                            self.diagnostics.push(Diagnostic::error(format!("{reserved} is reserved for automatic serialization"),Some(cls.span)));
+                        }
                     }
                     for param in &cls.primary_params {
                         let field_name = format!("_{}", param.name);
@@ -2465,6 +2341,17 @@ impl TypeChecker {
                                 }
                                 return Some(Type::String);
                             }
+                            if member == "toXml" {
+                                let class_receiver=matches!(&object.kind,ExprKind::Identifier(name) if self.symbol_table.lookup(name).is_none()&&(self.classes.contains_key(name)||self.traits.contains_key(name)));
+                                let document=matches!(&obj_ty,Type::Class{name} if name=="XmlDocument"||name=="XmlElement");
+                                if class_receiver||obj_ty==Type::Void||args.len()>1||(document&&!args.is_empty())||(!args.is_empty()&&arg_types!=vec![Type::Class{name:"XmlOptions".into()}]) {
+                                    self.diagnostics.push(Diagnostic::error("toXml requires an instance and optionally one XmlOptions value; XML document/element handles accept no options",Some(expr.span)));
+                                }
+                                if matches!(obj_ty,Type::AnonymousObject{..}|Type::Function{..}) {
+                                    self.diagnostics.push(Diagnostic::error("XML requires a declared data class; anonymous/function layouts are unsupported",Some(expr.span)));
+                                }
+                                return Some(Type::String);
+                            }
                             if member == "toJson" {
                                 if matches!(obj_ty, Type::AnonymousObject { .. } | Type::Function { .. }) {
                                     self.diagnostics.push(Diagnostic::error("JSON requires a declared data class or parsed JSON document; anonymous/function layouts are unsupported", Some(expr.span)));
@@ -2485,9 +2372,7 @@ impl TypeChecker {
                                     if name == "Distance" && ["meters", "kilometers", "miles"].contains(&member.as_str()) {
                                         return Some(Type::Decimal);
                                     }
-                                    if name == "XmlElement" && member == "text" {
-                                        return Some(Type::String);
-                                    }
+
                                 }
                                 if name == "Server" && ["enableHttp3", "http3Port"].contains(&member.as_str()) {
                                     let (params, result) = self.classes[name].methods[member].clone();
@@ -2564,6 +2449,17 @@ impl TypeChecker {
                                         self.diagnostics.push(Diagnostic::error("Invalid task outcome method call", Some(expr.span)));
                                     }
                                     return method.map(|m| m.result);
+                                }
+                                if crate::builtins::XML_CLASSES.contains(&name.as_str()) {
+                                    if name=="XmlElement"&&member=="text"&&args.is_empty() {
+                                        if class_receiver {self.diagnostics.push(Diagnostic::error("XML text requires an instance",Some(expr.span)));}
+                                        return Some(Type::String);
+                                    }
+                                    let method=crate::builtins::xml_methods(name).into_iter().find(|m|m.name==member);
+                                    let valid=method.as_ref().is_some_and(|method|method.is_static==class_receiver&&method.params==arg_types&&method.params.len()==args.len());
+                                    let target_valid= !["partialParse","to"].contains(&member.as_str())||name!="Xml"||matches!(args.get(1).map(|arg|&arg.kind),Some(ExprKind::Identifier(target)) if target=="XmlDocument"&&self.symbol_table.lookup(target).is_none());
+                                    if !valid||!target_valid {self.diagnostics.push(Diagnostic::error("Invalid XML method, receiver, or arguments; Xml.toObject(string) returns a document, not a reconstructed application class",Some(expr.span)));}
+                                    return method.map(|method|method.result);
                                 }
                                 if name == "Json" {
                                     let valid = match member.as_str() {
@@ -2953,6 +2849,9 @@ impl TypeChecker {
                 if ["Env", "TaskOutcome", "TaskOutcomes", "ConsoleArgs"].contains(&class_name) {
                     self.diagnostics.push(Diagnostic::error(format!("{class_name} does not create instances; use its task or environment API"), Some(expr.span)));
                     return None;
+                }
+                if ["Xml","XmlDocument","XmlElement"].contains(&class_name) {
+                    self.diagnostics.push(Diagnostic::error("Use Xml.toObject(text) or Xml.create(root); XML handles cannot be constructed",Some(expr.span)));return None;
                 }
                 if class_name == "Gc" {
                     self.diagnostics.push(Diagnostic::error("Use Gc.collect(), Gc.objects(), or Gc.reclaimed(); Gc does not create instances", Some(expr.span)));

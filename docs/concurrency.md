@@ -124,3 +124,9 @@ resources follow their own documented synchronization rules.
 Compiler and runtime must be rebuilt together for the checked transport metadata
 and outcome ABI. Native runtime ownership still includes shutdown-lived handles
 and conservative escape pins; this change does not provide complete resource GC.
+
+## Serialization in tasks
+
+`.toJson()`, `.toXml()`, and `Xml.toObject()` are synchronous. Methods using serialization operations outside the yielding slice use the blocking backend; XML documents can still be returned across async calls. Native XML regressions cover async returns and catchable failures. See [XML](xml.md) and [testing](testing.md#serialization-end-to-end-regressions).
+
+Serialization protects individual runtime reads and roots references, but does not freeze a mutable object graph. Coordinate concurrent writes when several fields or entries must describe the same logical instant.

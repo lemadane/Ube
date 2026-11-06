@@ -51,6 +51,7 @@ impl IrOperand {
 pub enum IrInstruction {
     Cast { dest: Register, value: IrOperand, ty: Type },
     JsonEncode { dest: Register, value: IrOperand },
+    XmlEncode { dest: Register, value: IrOperand, options: Option<IrOperand> },
     Alloca {
         dest: Register,
         ty: Type,

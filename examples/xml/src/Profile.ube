@@ -1,0 +1,1 @@
+class Profile(int id, string name, List scores) {}
