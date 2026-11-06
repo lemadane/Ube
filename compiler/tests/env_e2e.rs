@@ -1156,3 +1156,43 @@ fn selected_project_without_vault_never_loads_callers_secrets() {
         .unwrap();
     assert_eq!(success(output).trim(), "false");
 }
+
+#[test]
+fn yaml_and_json_projects_preserve_secret_lookup_boundaries() {
+    let caller = Fixture::new();
+    populate(&caller);
+    for format in ["yaml", "json"] {
+        let project = Fixture::new();
+        let data: serde_json::Value =
+            toml_edit::de::from_str(&fs::read_to_string(project.root.join("ube.toml")).unwrap())
+                .unwrap();
+        let text = if format == "yaml" {
+            serde_yaml::to_string(&data).unwrap()
+        } else {
+            serde_json::to_string_pretty(&data).unwrap()
+        };
+        fs::write(project.root.join(format!("ube.{format}")), text).unwrap();
+        fs::remove_file(project.root.join("ube.toml")).unwrap();
+        project.source("class Main { main() { print(Env.has('UBE_SECRET_TEST_PASSWORD')) } }");
+        success(project.cli(&["build"]));
+        assert_eq!(
+            success(
+                caller
+                    .command(project.root.join(".build/env-app"), &caller.root)
+                    .output()
+                    .unwrap()
+            )
+            .trim(),
+            "false"
+        );
+        let source = project.root.join("src/Main.ube");
+        let output = caller
+            .command(env!("CARGO_BIN_EXE_ube-compiler"), &caller.root)
+            .args(["run", source.to_str().unwrap()])
+            .output()
+            .unwrap();
+        assert_eq!(success(output).trim(), "false");
+        populate(&project);
+        assert_eq!(success(project.cli(&["run"])).trim(), "true");
+    }
+}

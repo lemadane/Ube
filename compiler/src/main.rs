@@ -22,13 +22,15 @@ fn print_usage() {
     eprintln!("Commands:");
     eprintln!("  env [--key <current-key>] --add <key>:<value>[, ...]  Save encrypted values");
     eprintln!("  env [--key <current-key>] <file.json>  Encrypt and consume a JSON file");
-    eprintln!("  init [--name <name>]             Initialize the current directory");
+    eprintln!("  init [--name <name>] [--format toml|yaml|json]  Initialize the current directory");
     eprintln!("  install [--update]                Install locked local/Git dependencies");
     eprintln!("  add <alias> --path <dir>           Add and install a local dependency");
     eprintln!("  add <alias> --git <url> [--rev <revision>]  Add a Git dependency");
     eprintln!("  remove <alias>                    Remove a dependency");
     eprintln!("  clean                             Remove Ube-managed .build outputs");
-    eprintln!("  new <project-name>                  Create a new Ube project folder structure");
+    eprintln!(
+        "  new <project-name> [--format toml|yaml|json]  Create a new Ube project folder structure"
+    );
     eprintln!(
         "  check [file.ube]                  Check source code for syntax and semantic errors"
     );
@@ -129,15 +131,53 @@ fn parse_env_entries(args: &[String]) -> Result<Vec<(String, String)>, String> {
 fn project_command(command: &str, args: &[String]) -> Result<(), String> {
     use ube_compiler::project;
     let cwd = env::current_dir().map_err(|e| e.to_string())?;
+    if let Ok(root) = project::find_root(&cwd) {
+        project::manifest_path(&root)?;
+    }
     match command {
-        "new" if args.len() == 1 => project::new_project(Path::new(&args[0])),
+        "new" => {
+            let (mut path, mut format) = (None, None);
+            let mut i = 0;
+            while i < args.len() {
+                match args[i].as_str() {
+                    "--format" if i + 1 < args.len() && format.is_none() => {
+                        i += 1;
+                        format = Some(args[i].as_str());
+                    }
+                    arg if !arg.starts_with('-') && path.is_none() => path = Some(arg),
+                    _ => {
+                        return Err("Usage: ube new <project-name> [--format toml|yaml|json]".into())
+                    }
+                }
+                i += 1;
+            }
+            project::new_project_with_format(
+                Path::new(path.ok_or("Project name required")?),
+                format.unwrap_or("toml"),
+            )
+        }
         "init" => {
-            let name = match args {
-                [] => None,
-                [flag, name] if flag == "--name" => Some(name.as_str()),
-                _ => return Err("Usage: ube init [--name <name>]".into()),
-            };
-            project::init(&cwd, name)
+            let (mut name, mut format) = (None, None);
+            let mut i = 0;
+            while i < args.len() {
+                match args[i].as_str() {
+                    "--name" if i + 1 < args.len() && name.is_none() => {
+                        i += 1;
+                        name = Some(args[i].as_str());
+                    }
+                    "--format" if i + 1 < args.len() && format.is_none() => {
+                        i += 1;
+                        format = Some(args[i].as_str());
+                    }
+                    _ => {
+                        return Err(
+                            "Usage: ube init [--name <name>] [--format toml|yaml|json]".into()
+                        )
+                    }
+                }
+                i += 1;
+            }
+            project::init_with_format(&cwd, name, format.unwrap_or("toml"))
         }
         "install" => {
             let update = match args {
@@ -243,9 +283,8 @@ fn run_llvm_timeout(
     let mut program = Command::new(&bin_path);
     if env::var_os("UBE_ENV_FILE").is_none() {
         if let Some(source) = source {
-            let root = ube_compiler::project::find_root(source).unwrap_or_else(|_| {
-                source.parent().unwrap_or_else(|| Path::new(".")).to_owned()
-            });
+            let root = ube_compiler::project::find_root(source)
+                .unwrap_or_else(|_| source.parent().unwrap_or_else(|| Path::new(".")).to_owned());
             program.env("UBE_ENV_PROJECT_ROOT", root);
         }
     }

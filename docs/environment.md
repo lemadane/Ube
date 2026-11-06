@@ -153,7 +153,7 @@ latest key through your deployment secret manager when running the application.
 even when that project has no vault. They never automatically load a different
 project's vault from the caller's working directory. A built executable searches
 its own directory and ancestors for `.build/.conf`, stopping at the nearest
-`ube.toml`. Finding a project without a vault also stops lookup; it does not
+supported manifest (`ube.toml`, `ube.yaml`, or `ube.json`). Finding a project without a vault also stops lookup; it does not
 fall back to another project. Working directory discovery is used only when
 neither a vault nor a project boundary was found beside the executable.
 An explicit `UBE_ENV_FILE` overrides automatic discovery. For a deployed

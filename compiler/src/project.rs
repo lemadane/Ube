@@ -9,6 +9,7 @@ use std::{
 use toml_edit::{value, ArrayOfTables, DocumentMut, InlineTable, Item, Table, Value};
 
 type Result<T> = std::result::Result<T, String>;
+pub const MANIFEST_NAMES: [&str; 3] = ["ube.toml", "ube.yaml", "ube.json"];
 const BUILD_MARKER: &str = ".ube-build";
 const DEPS_MARKER: &str = ".ube-dependencies";
 
@@ -27,6 +28,7 @@ pub struct Manifest {
     pub version: String,
     pub entry: PathBuf,
     pub document: DocumentMut,
+    manifest_name: String,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -50,6 +52,61 @@ fn read_document(path: &Path) -> Result<DocumentMut> {
         .map_err(|e| format!("{}: {e}", path.display()))?
         .parse()
         .map_err(|e| format!("{}: {e}", path.display()))
+}
+
+pub fn manifest_path(root: &Path) -> Result<PathBuf> {
+    let files: Vec<_> = MANIFEST_NAMES
+        .iter()
+        .filter(|name| root.join(name).exists())
+        .collect();
+    match files.as_slice() {
+        [name] => Ok(root.join(name)),
+        [] => Err("No Ube manifest found; expected ube.toml, ube.yaml, or ube.json".into()),
+        _ => Err(
+            "Multiple Ube manifests found; keep exactly one of ube.toml, ube.yaml, or ube.json"
+                .into(),
+        ),
+    }
+}
+
+fn read_manifest(path: &Path) -> Result<DocumentMut> {
+    if path.extension().and_then(|s| s.to_str()) == Some("toml") {
+        return read_document(path);
+    }
+    let text = fs::read_to_string(path).map_err(|e| format!("{}: {e}", path.display()))?;
+    let data: serde_json::Value = if path.extension().and_then(|s| s.to_str()) == Some("json") {
+        serde_json::from_str(&text).map_err(|e| format!("{}: {e}", path.display()))?
+    } else {
+        serde_yaml::from_str(&text).map_err(|e| format!("{}: {e}", path.display()))?
+    };
+    if !data.is_object() {
+        return Err(format!("{}: manifest must be an object", path.display()));
+    }
+    toml_edit::ser::to_document(&data).map_err(|e| format!("{}: {e}", path.display()))
+}
+
+fn serialize_manifest(document: &DocumentMut, name: &str) -> Result<String> {
+    if name.ends_with(".toml") {
+        return Ok(document.to_string());
+    }
+    let data: serde_json::Value =
+        toml_edit::de::from_str(&document.to_string()).map_err(|e| e.to_string())?;
+    if name.ends_with(".json") {
+        serde_json::to_string_pretty(&data)
+            .map(|text| text + "\n")
+            .map_err(|e| e.to_string())
+    } else {
+        serde_yaml::to_string(&data).map_err(|e| e.to_string())
+    }
+}
+
+fn format_name(format: &str) -> Result<&'static str> {
+    match format {
+        "toml" => Ok("ube.toml"),
+        "yaml" => Ok("ube.yaml"),
+        "json" => Ok("ube.json"),
+        _ => Err("Manifest format must be toml, yaml, or json".into()),
+    }
 }
 
 fn identifier(name: &str) -> bool {
@@ -80,19 +137,20 @@ pub fn find_root(start: &Path) -> Result<PathBuf> {
         dir.pop();
     }
     for root in dir.ancestors() {
-        if root.join("ube.toml").is_file() {
+        if MANIFEST_NAMES.iter().any(|name| root.join(name).exists()) {
             return Ok(root.to_owned());
         }
     }
-    Err("No ube.toml found. Run 'ube init' to initialize a project.".into())
+    Err("No Ube manifest (ube.toml, ube.yaml, or ube.json) found. Run 'ube init' to initialize a project.".into())
 }
 
 pub fn manifest(root: &Path) -> Result<Manifest> {
-    let document = read_document(&root.join("ube.toml"))?;
+    let path = manifest_path(root)?;
+    let document = read_manifest(&path)?;
     let package = document
         .get("package")
         .and_then(Item::as_table_like)
-        .ok_or("ube.toml requires a [package] table")?;
+        .ok_or("Manifest requires a package table")?;
     let name = package
         .get("name")
         .and_then(Item::as_str)
@@ -135,6 +193,7 @@ pub fn manifest(root: &Path) -> Result<Manifest> {
         version,
         entry,
         document,
+        manifest_name: path.file_name().unwrap().to_string_lossy().into_owned(),
     };
     dependencies(&result)?;
     Ok(result)
@@ -186,6 +245,11 @@ fn dependencies(manifest: &Manifest) -> Result<BTreeMap<String, Dependency>> {
 }
 
 pub fn init(root: &Path, name: Option<&str>) -> Result<()> {
+    init_with_format(root, name, "toml")
+}
+
+pub fn init_with_format(root: &Path, name: Option<&str>, format: &str) -> Result<()> {
+    let manifest_name = format_name(format)?;
     let name = name
         .map(str::to_owned)
         .or_else(|| root.file_name().and_then(|s| s.to_str()).map(str::to_owned))
@@ -193,8 +257,10 @@ pub fn init(root: &Path, name: Option<&str>) -> Result<()> {
     if !package_name(&name) {
         return Err(format!("Invalid package name '{name}'"));
     }
-    if root.join("ube.toml").exists() {
-        return Err("ube.toml already exists; initialization does not overwrite projects".into());
+    if MANIFEST_NAMES.iter().any(|name| root.join(name).exists()) {
+        return Err(
+            "A Ube manifest already exists; initialization does not overwrite projects".into(),
+        );
     }
     let entry = root.join("src/Main.ube");
     // Existing source trees are preserved, including an existing Main.ube.
@@ -216,7 +282,11 @@ pub fn init(root: &Path, name: Option<&str>) -> Result<()> {
     }
     fs::create_dir_all(root.join("tests")).map_err(|e| e.to_string())?;
     ensure_gitignore(root)?;
-    fs::write(root.join("ube.toml"), doc.to_string()).map_err(|e| e.to_string())?;
+    fs::write(
+        root.join(manifest_name),
+        serialize_manifest(&doc, manifest_name)?,
+    )
+    .map_err(|e| e.to_string())?;
     println!("Initialized Ube project '{name}'");
     if !entry.is_file() {
         println!("Set [build].entry to an existing class-named source file before building.");
@@ -225,10 +295,15 @@ pub fn init(root: &Path, name: Option<&str>) -> Result<()> {
 }
 
 pub fn new_project(path: &Path) -> Result<()> {
+    new_project_with_format(path, "toml")
+}
+
+pub fn new_project_with_format(path: &Path, format: &str) -> Result<()> {
+    format_name(format)?;
     if path.exists() {
         return Err(format!("{} already exists", path.display()));
     }
-    init(path, None)?;
+    init_with_format(path, None, format)?;
     fs::write(
         path.join("README.md"),
         "# Ube project\n\n```sh\nube build\nube run\nube test\n```\n",
@@ -491,18 +566,19 @@ fn source_files(dir: &Path, base: &Path, files: &mut Vec<PathBuf>) -> Result<()>
 }
 
 fn package_files(root: &Path) -> Result<Vec<PathBuf>> {
-    let mut files = vec![PathBuf::from("ube.toml")];
+    let manifest = manifest_path(root)?;
+    let mut files = vec![PathBuf::from(manifest.file_name().unwrap())];
     let src = root.join("src");
     if fs::symlink_metadata(&src)
         .map_err(|e| format!("{}: {e}", src.display()))?
         .file_type()
         .is_symlink()
-        || fs::symlink_metadata(root.join("ube.toml"))
+        || fs::symlink_metadata(&manifest)
             .map_err(|e| e.to_string())?
             .file_type()
             .is_symlink()
     {
-        return Err("Package src and ube.toml cannot be symlinks".into());
+        return Err("Package src and manifest cannot be symlinks".into());
     }
     source_files(&src, root, &mut files)?;
     files.sort();
@@ -699,8 +775,11 @@ fn install_manifest(project: &Manifest, update: bool) -> Result<()> {
         .map_err(|e| e.to_string())?;
     let lock = lock_document(&installer.resolved);
     fs::write(stage.path().join("ube.lock"), lock).map_err(|e| e.to_string())?;
-    fs::write(stage.path().join("ube.toml"), project.document.to_string())
-        .map_err(|e| e.to_string())?;
+    fs::write(
+        stage.path().join(&project.manifest_name),
+        serialize_manifest(&project.document, &project.manifest_name)?,
+    )
+    .map_err(|e| e.to_string())?;
     let previous_lock = if project.root.join("ube.lock").exists() {
         Some(fs::read(project.root.join("ube.lock")).map_err(|e| e.to_string())?)
     } else {
@@ -723,7 +802,10 @@ fn install_manifest(project: &Manifest, update: bool) -> Result<()> {
         }
         return Err(e.to_string());
     }
-    if let Err(e) = fs::rename(stage.path().join("ube.toml"), project.root.join("ube.toml")) {
+    if let Err(e) = fs::rename(
+        stage.path().join(&project.manifest_name),
+        project.root.join(&project.manifest_name),
+    ) {
         if let Some(bytes) = previous_lock {
             let _ = fs::write(project.root.join("ube.lock"), bytes);
         } else {

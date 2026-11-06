@@ -441,3 +441,180 @@ fn build_requires_valid_gitignore_for_manifest_and_explicit_sources() {
     fs::write(standalone.join(".gitignore"), ".build/\n").unwrap();
     success(cli(&standalone, &["build", "Main.ube"]));
 }
+
+fn read_manifest_data(path: &Path) -> serde_json::Value {
+    let text = fs::read_to_string(path).unwrap();
+    match path.extension().unwrap().to_str().unwrap() {
+        "json" => serde_json::from_str(&text).unwrap(),
+        "yaml" => serde_yaml::from_str(&text).unwrap(),
+        _ => toml_edit::de::from_str(&text).unwrap(),
+    }
+}
+
+#[test]
+fn manifest_formats_support_scaffolding_mixed_dependencies_and_builds() {
+    let dir = tempfile::tempdir().unwrap();
+    for (format, dependency_format) in [("toml", "yaml"), ("yaml", "json"), ("json", "toml")] {
+        let name = format!("app-{format}");
+        success(cli(dir.path(), &["new", &name, "--format", format]));
+        let app = dir.path().join(&name);
+        let filename = format!("ube.{format}");
+        assert!(app.join(&filename).is_file());
+        assert_eq!(
+            fs::read_to_string(app.join(".gitignore")).unwrap(),
+            ".build/\n"
+        );
+        let library = dir.path().join(format!("lib-{format}"));
+        fs::create_dir(&library).unwrap();
+        success(cli(
+            &library,
+            &["init", "--format", dependency_format, "--name", "greetings"],
+        ));
+        fs::remove_file(library.join("src/Main.ube")).unwrap();
+        fs::write(
+            library.join("src/Greeting.ube"),
+            "class Greeting { int value() { return 42 } }",
+        )
+        .unwrap();
+        let library_path = library.to_str().unwrap();
+        success(cli(
+            &app.join("src"),
+            &["add", "greet", "--path", library_path],
+        ));
+        let data = read_manifest_data(&app.join(&filename));
+        assert!(data["dependencies"]["greet"]["path"].is_string());
+        for other in ["toml", "yaml", "json"] {
+            assert_eq!(app.join(format!("ube.{other}")).exists(), other == format);
+        }
+        assert!(app
+            .join(format!(".build/.deps/greet/ube.{dependency_format}"))
+            .is_file());
+        fs::write(
+            app.join("src/Main.ube"),
+            "import greet.Greeting\nclass Main { main() { print(Greeting().value()) } }",
+        )
+        .unwrap();
+        success(cli(&app.join("src"), &["check"]));
+        success(cli(&app, &["build"]));
+        assert!(success(cli(&app, &["run"])).contains("42"));
+        let lock = fs::read(app.join("ube.lock")).unwrap();
+        success(cli(&app, &["install"]));
+        assert_eq!(fs::read(app.join("ube.lock")).unwrap(), lock);
+        success(cli(&app, &["remove", "greet"]));
+        assert!(read_manifest_data(&app.join(&filename))["dependencies"]
+            .as_object()
+            .unwrap()
+            .is_empty());
+        assert!(!app.join(".build/.deps/greet").exists());
+        failure(
+            cli(&app, &["init", "--format", dependency_format]),
+            "already exists",
+        );
+    }
+}
+
+#[test]
+fn conflicting_or_invalid_manifests_fail_without_modification() {
+    let dir = tempfile::tempdir().unwrap();
+    success(cli(dir.path(), &["new", "app"]));
+    let app = dir.path().join("app");
+    let original = fs::read(app.join("ube.toml")).unwrap();
+    for extra in ["ube.yaml", "ube.json"] {
+        fs::write(app.join(extra), "{}").unwrap();
+        for args in [
+            &["check"][..],
+            &["check", "src/Main.ube"],
+            &["build"],
+            &["test"],
+            &["install"],
+            &["clean"],
+            &["env", "--add", "X:fake"],
+        ] {
+            failure(cli(&app, args), "Multiple Ube manifests");
+        }
+        assert_eq!(fs::read(app.join("ube.toml")).unwrap(), original);
+        fs::remove_file(app.join(extra)).unwrap();
+    }
+    fs::remove_file(app.join("ube.toml")).unwrap();
+    for (filename, invalid) in [
+        ("ube.yaml", "package:\n  name: app\n  version: 1\n"),
+        ("ube.json", r#"{"package":{"name":"app","version":1}}"#),
+        ("ube.yaml", "package: ["),
+        ("ube.json", "{broken"),
+        ("ube.json", "[]"),
+    ] {
+        fs::write(app.join(filename), invalid).unwrap();
+        let output = cli(&app, &["check"]);
+        assert!(!output.status.success());
+        assert_eq!(fs::read_to_string(app.join(filename)).unwrap(), invalid);
+        fs::remove_file(app.join(filename)).unwrap();
+    }
+    failure(
+        cli(dir.path(), &["new", "invalid", "--format", "xml"]),
+        "format must be",
+    );
+    assert!(!dir.path().join("invalid").exists());
+}
+
+#[test]
+fn git_snapshots_preserve_yaml_dependency_and_json_project_manifests() {
+    let dir = tempfile::tempdir().unwrap();
+    success(cli(dir.path(), &["new", "library", "--format", "yaml"]));
+    let library = dir.path().join("library");
+    fs::write(
+        library.join("src/Greeting.ube"),
+        "class Greeting { int value() { return 42 } }",
+    )
+    .unwrap();
+    git(&library, &["init", "-q"]);
+    let revision = commit(&library);
+    success(cli(dir.path(), &["new", "app", "--format", "json"]));
+    let app = dir.path().join("app");
+    success(cli(
+        &app,
+        &[
+            "add",
+            "greet",
+            "--git",
+            library.to_str().unwrap(),
+            "--rev",
+            &revision,
+        ],
+    ));
+    fs::write(
+        app.join("src/Main.ube"),
+        "import greet.Greeting\nclass Main { main() { print(Greeting().value()) } }",
+    )
+    .unwrap();
+    success(cli(&app, &["check"]));
+    assert_eq!(
+        read_manifest_data(&app.join("ube.json"))["dependencies"]["greet"]["rev"],
+        revision
+    );
+    assert!(app.join(".build/.deps/greet/ube.yaml").is_file());
+    let lock = fs::read(app.join("ube.lock")).unwrap();
+    success(cli(&app, &["install"]));
+    assert_eq!(fs::read(app.join("ube.lock")).unwrap(), lock);
+    assert!(!app.join("ube.toml").exists());
+    assert!(!app.join("ube.yaml").exists());
+    success(cli(&app, &["remove", "greet"]));
+    assert!(read_manifest_data(&app.join("ube.json"))["dependencies"]
+        .as_object()
+        .unwrap()
+        .is_empty());
+    failure(
+        cli(
+            dir.path(),
+            &[
+                "new",
+                "duplicate-flags",
+                "--format",
+                "yaml",
+                "--format",
+                "json",
+            ],
+        ),
+        "Usage:",
+    );
+    assert!(!dir.path().join("duplicate-flags").exists());
+}

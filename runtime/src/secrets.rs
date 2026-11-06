@@ -345,7 +345,10 @@ fn discover(start: &Path) -> Option<Option<PathBuf>> {
         if vault.is_file() {
             return Some(Some(vault));
         }
-        if directory.join("ube.toml").is_file() {
+        if ["ube.toml", "ube.yaml", "ube.json"]
+            .iter()
+            .any(|name| directory.join(name).is_file())
+        {
             return Some(None);
         }
     }

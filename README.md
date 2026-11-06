@@ -24,11 +24,24 @@ ube test
 ube clean
 ```
 
-`ube new` creates `ube.toml`, `src/Main.ube` containing `class Main`, a `tests/`
+`ube new` creates `ube.toml` by default, `src/Main.ube` containing `class Main`, a `tests/`
 directory, a README, and a `.gitignore`. `ube init` preserves existing source
 files, creates or updates `.gitignore` with `.build/` while preserving
 existing rules, and refuses to overwrite an existing manifest. If your sources already
 exist, set the entry path to their correctly capitalized filename.
+
+Projects support exactly one manifest: `ube.toml`, `ube.yaml`, or `ube.json`.
+All formats use the same fields and validation. Multiple manifests in one
+project cause an error; Ube never silently chooses one. TOML remains the default:
+
+```sh
+ube new my-app --format yaml
+ube init --name my-app --format json
+```
+
+`ube add`, `ube remove`, and `ube install` preserve the selected format.
+YAML and JSON are serialized again when dependencies change, so formatting and
+YAML comments may change. `ube.lock` always uses the same TOML format.
 
 ```toml
 [package]
@@ -47,10 +60,10 @@ greetings = { path = "../greetings" }
 ```
 
 With no source argument, `ube check`, `ube emit-ir`, `ube emit-llvm`, `ube build`,
-and `ube run` find the nearest `ube.toml` in the current directory or its parents.
-The default entry is `src/Main.ube`. Before compilation, `ube build` creates or
-updates the project's `.gitignore` to include `.build/`, preserving existing
-rules without duplicate entries. This also applies to explicit source builds;
+and `ube run` find the nearest supported manifest in the current directory or its parents.
+The default entry is `src/Main.ube`. Before compilation, `ube build` verifies
+that `.gitignore` protects `.build/` and fails on missing or conflicting rules.
+This also applies to explicit source builds;
 standalone files use their containing directory. `ube build` writes the executable and LLVM
 IR to `.build/<package-name>` and `.build/<package-name>.ll`; `--release` and
 `-o <output>` are supported. Explicit file commands such as
