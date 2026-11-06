@@ -51,7 +51,9 @@ removed. Unlike `--add`, it does not require the previous key, so a complete JSO
 file can reset the configuration even if the old key is lost. If `--key` is
 explicitly supplied, the old configuration must authenticate before replacement.
 It uses the same atomic save, key rotation, printed-key warning, and Git checks.
-After the encrypted save is verified, Ube removes the input JSON automatically.
+After the encrypted save is verified, Ube prints and flushes the new key before
+removing the input JSON automatically. If writing the key fails, the JSON remains
+available for another import, which generates a fresh key.
 No plaintext backup or decrypted configuration file is created.
 
 Invalid JSON, rejected values, wrong keys, Git protection failures, and failed
@@ -147,10 +149,14 @@ latest key through your deployment secret manager when running the application.
 
 ## Vault discovery and deployment
 
-`ube run` and `ube test` forward the source project's vault path to temporary
-executables. A built executable searches its own directory and ancestors for
-`.build/.conf`, then the current working directory and its ancestors. Searches
-stop at the nearest `ube.toml`, including a project with no vault. For a deployed
+`ube run` and `ube test` bind temporary executables to the source project,
+even when that project has no vault. They never automatically load a different
+project's vault from the caller's working directory. A built executable searches
+its own directory and ancestors for `.build/.conf`, stopping at the nearest
+`ube.toml`. Finding a project without a vault also stops lookup; it does not
+fall back to another project. Working directory discovery is used only when
+neither a vault nor a project boundary was found beside the executable.
+An explicit `UBE_ENV_FILE` overrides automatic discovery. For a deployed
 binary away from its project, explicitly configure:
 
 ```sh

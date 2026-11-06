@@ -375,38 +375,69 @@ fn install_rejects_source_symlinks_and_serializes_installations() {
 }
 
 #[test]
-fn build_creates_or_updates_gitignore_for_manifest_and_explicit_sources() {
+fn build_requires_valid_gitignore_for_manifest_and_explicit_sources() {
     let dir = tempfile::tempdir().unwrap();
     success(cli(dir.path(), &["new", "app"]));
     let root = dir.path().join("app");
-    fs::remove_file(root.join(".gitignore")).unwrap();
-    success(cli(&root, &["build"]));
-    assert_eq!(
-        fs::read_to_string(root.join(".gitignore")).unwrap(),
-        ".build/\n"
-    );
-    fs::write(root.join(".gitignore"), "# Custom rules\nprivate.env").unwrap();
-    success(cli(
-        &root.join("src"),
-        &["build", "Main.ube", "-o", "../.build/explicit"],
-    ));
-    let expected = "# Custom rules\nprivate.env\n.build/\n";
-    assert_eq!(
-        fs::read_to_string(root.join(".gitignore")).unwrap(),
-        expected
-    );
+    let ignore = root.join(".gitignore");
+    fs::remove_file(&ignore).unwrap();
+    failure(cli(&root, &["build"]), "Build requires .gitignore");
+    assert!(!ignore.exists());
+    for rules in [
+        "",
+        "# .build/\n",
+        "private.env\n",
+        ".build/\n!.build/\n",
+        ".build/\n! .build/\n",
+        "!.build/\n.build/\n",
+        ".build/\n!/.build/.conf\n",
+        ".build/\n!**/.build/**\n",
+    ] {
+        fs::write(&ignore, rules).unwrap();
+        failure(
+            cli(&root, &["build"]),
+            if rules.contains('!') {
+                "! exceptions"
+            } else {
+                "Build requires .gitignore"
+            },
+        );
+        failure(
+            cli(&root.join("src"), &["build", "Main.ube"]),
+            if rules.contains('!') {
+                "! exceptions"
+            } else {
+                "Build requires .gitignore"
+            },
+        );
+        assert_eq!(fs::read_to_string(&ignore).unwrap(), rules);
+    }
+    for rules in [
+        ".build\n",
+        "/.build/\n",
+        "# !.build/\r\n.build/\r\n!public/\r\n",
+    ] {
+        fs::write(&ignore, rules).unwrap();
+        success(cli(&root, &["build"]));
+        assert_eq!(fs::read_to_string(&ignore).unwrap(), rules);
+    }
     assert!(!root.join("src/.gitignore").exists());
+    git(&root, &["init", "-q"]);
+    fs::write(&ignore, ".build/\n!*/\n").unwrap();
+    failure(cli(&root, &["build"]), "does not ignore");
+    fs::write(&ignore, ".build/\n").unwrap();
     success(cli(&root, &["build"]));
-    assert_eq!(
-        fs::read_to_string(root.join(".gitignore")).unwrap(),
-        expected
-    );
+    fs::write(root.join(".build/.conf"), "fake-ciphertext").unwrap();
+    git(&root, &["add", "--all"]);
+    assert!(git(&root, &["ls-files", "--", ".build/.conf"]).is_empty());
+
     let standalone = dir.path().join("standalone");
     fs::create_dir(&standalone).unwrap();
     fs::write(standalone.join("Main.ube"), "class Main { main() {} }").unwrap();
-    success(cli(&standalone, &["build", "Main.ube"]));
-    assert_eq!(
-        fs::read_to_string(standalone.join(".gitignore")).unwrap(),
-        ".build/\n"
+    failure(
+        cli(&standalone, &["build", "Main.ube"]),
+        "Build requires .gitignore",
     );
+    fs::write(standalone.join(".gitignore"), ".build/\n").unwrap();
+    success(cli(&standalone, &["build", "Main.ube"]));
 }

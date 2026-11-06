@@ -1,6 +1,7 @@
 mod testing;
 use std::env;
 use std::fs;
+use std::io::Write;
 use std::path::Path;
 use std::process::{self, Command};
 use ube_compiler::{DiagnosticEmitter, IrBuilder, TextualLlvmEmitter, TypeChecker};
@@ -164,10 +165,10 @@ fn project_command(command: &str, args: &[String]) -> Result<(), String> {
             let root = project::find_root(&cwd)?;
             project::verify_environment_ignored(&root)?;
             eprintln!("WARNING: Encryption keys and values supplied on the command line may appear in shell history and process listings.");
-            let (key, consumed) = match input {
+            let (key, imported) = match input {
                 Some(path) => {
-                    let result = ube_runtime::secrets::import_file(&root, path, current_key)?;
-                    (result.key, Some(result.consumed))
+                    let mut result = ube_runtime::secrets::import_file(&root, path, current_key)?;
+                    (std::mem::take(&mut result.key), Some(result))
                 }
                 None => {
                     let entries = parse_env_entries(entry_args)?;
@@ -177,11 +178,17 @@ fn project_command(command: &str, args: &[String]) -> Result<(), String> {
                     )
                 }
             };
-            println!("Encrypted environment values saved");
+
             eprintln!("WARNING: Keep the encryption key private. Never commit it or expose it in chats, screenshots, terminal recordings, or logs. Keep a secure backup in a password manager or secret manager.");
-            println!("Encryption key: {}", key.as_str());
+            {
+                let mut output = std::io::stdout().lock();
+                writeln!(output, "Encryption key: {}", key.as_str())
+                    .and_then(|_| output.flush())
+                    .map_err(|_| "Could not print the encryption key. Any input JSON file was preserved; retry the import to generate a new key.")?;
+            }
+            println!("Encrypted environment values saved");
             eprintln!("Save this new key now. It replaces the previous key for the current configuration. Ube has not saved it.");
-            match consumed {
+            match imported.as_ref().map(|result| result.consume()) {
                 Some(true) => println!("Plaintext JSON file consumed"),
                 Some(false) => return Err("Encrypted values were saved and the new key was printed, but the plaintext JSON changed or could not be removed. Remove it manually after checking its contents.".into()),
                 None => (),
@@ -235,11 +242,11 @@ fn run_llvm_timeout(
     }
     let mut program = Command::new(&bin_path);
     if env::var_os("UBE_ENV_FILE").is_none() {
-        if let Some(root) = source.and_then(|path| ube_compiler::project::find_root(path).ok()) {
-            let vault = root.join(".build/.conf");
-            if vault.is_file() {
-                program.env("UBE_ENV_FILE", vault);
-            }
+        if let Some(source) = source {
+            let root = ube_compiler::project::find_root(source).unwrap_or_else(|_| {
+                source.parent().unwrap_or_else(|| Path::new(".")).to_owned()
+            });
+            program.env("UBE_ENV_PROJECT_ROOT", root);
         }
     }
     let status = if let Some(limit) = timeout {
@@ -383,7 +390,7 @@ fn main() {
                 .unwrap_or_else(|| Path::new("."))
                 .to_owned()
         });
-        if let Err(error) = ube_compiler::project::ensure_gitignore(&root) {
+        if let Err(error) = ube_compiler::project::verify_build_gitignore(&root) {
             eprintln!("Error: {error}");
             process::exit(1);
         }

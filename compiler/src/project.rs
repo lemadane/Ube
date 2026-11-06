@@ -266,6 +266,41 @@ pub fn ensure_gitignore(root: &Path) -> Result<()> {
     Ok(())
 }
 
+/// Builds validate existing protection rather than silently repairing it.
+pub fn verify_build_gitignore(root: &Path) -> Result<()> {
+    let path = root.join(".gitignore");
+    let metadata = fs::symlink_metadata(&path)
+        .map_err(|_| "Build requires .gitignore containing .build/".to_owned())?;
+    if !metadata.is_file() || metadata.file_type().is_symlink() {
+        return Err("Build requires a regular .gitignore file, not a symlink".into());
+    }
+    let contents = fs::read_to_string(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+    let mut found = false;
+    for line in contents.lines() {
+        let rule = line.trim();
+        if rule.starts_with('#') {
+            continue;
+        }
+        if let Some(exception) = rule.strip_prefix('!') {
+            if exception
+                .trim_start()
+                .split('/')
+                .any(|part| part == ".build")
+            {
+                return Err(
+                    "Build refused: .gitignore must not contain ! exceptions for .build".into(),
+                );
+            }
+        } else if matches!(rule, ".build" | ".build/" | "/.build" | "/.build/") {
+            found = true;
+        }
+    }
+    if !found {
+        return Err("Build requires .gitignore containing .build/".into());
+    }
+    verify_environment_ignored(root)
+}
+
 /// Check Git's effective rules and index, not just the text of .gitignore.
 pub fn verify_environment_ignored(root: &Path) -> Result<()> {
     if !root.ancestors().any(|path| path.join(".git").exists()) {

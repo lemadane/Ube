@@ -113,10 +113,11 @@ explicit source path or custom `-o` outside `.build/` must be removed separately
 ## Encrypted environment values
 
 Store configuration once instead of supplying every variable on each execution.
-Ube encrypts it into `.build/.conf`. `ube new`, `ube init`, and `ube build`
-ensure `.gitignore` includes `.build/`. In Git repositories, `ube env` also checks
-Git's effective ignore rules and refuses to save if the configuration is tracked
-or not ignored.
+Ube encrypts it into `.build/.conf`. `ube new` and `ube init` ensure `.gitignore`
+includes `.build/`. `ube build` fails if that ignore rule is missing or any
+`.build` exception prefixed by `!` (including `! `) is present. In Git repositories,
+builds and `ube env` also check Git's effective ignore rules and refuse to proceed
+if the configuration is tracked or not ignored.
 
 Import a nonempty JSON object with string values:
 
@@ -134,8 +135,9 @@ ube env file.json
 
 **JSON import replaces the entire configuration.** Variables absent from the
 file are removed, and the previous encryption key is not required. After a
-verified encrypted save, Ube consumes (deletes) the input JSON and prints a new
-encryption key. Invalid input or a failed save preserves the input. If deletion
+verified encrypted save, Ube prints and flushes the new encryption key before
+consuming (deleting) the input JSON. If key output fails, the JSON is preserved
+so you can retry the import. Invalid input or a failed save also preserves the input. If deletion
 fails after saving, Ube still prints the new key and reports that the plaintext
 needs manual removal. Deletion cannot erase Git history, editor history, or backups.
 

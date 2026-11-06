@@ -145,10 +145,21 @@ fn outside_project(path: &Path, root: &Path) -> Result<()> {
 
 pub struct ImportOutcome {
     pub key: Zeroizing<String>,
-    pub consumed: bool,
+    input: PathBuf,
+    original: Zeroizing<Vec<u8>>,
 }
 
-/// Preserve input on validation/encryption failure; consume only after a verified save.
+impl ImportOutcome {
+    /// Call only after the generated key has been successfully written and flushed.
+    pub fn consume(&self) -> bool {
+        let unchanged = bounded_read(&self.input, LIMIT)
+            .map(|latest| *latest == *self.original)
+            .unwrap_or(false);
+        unchanged && fs::remove_file(&self.input).is_ok()
+    }
+}
+
+/// Save encrypted values, retaining the input until the caller delivers the key.
 pub fn import_file(root: &Path, input: &Path, current_key: Option<&str>) -> Result<ImportOutcome> {
     if input.extension().and_then(|extension| extension.to_str()) != Some("json") {
         return Err("Input must be a .json file".into());
@@ -170,13 +181,11 @@ pub fn import_file(root: &Path, input: &Path, current_key: Option<&str>) -> Resu
     let mut map = values(&bytes)?;
     let entries = Zeroizing::new(std::mem::take(&mut map.0).into_iter().collect::<Vec<_>>());
     let key = save(root, &entries, current_key, true)?;
-    // Never delete a file that changed since it was read. On cleanup failure the
-    // caller must still receive the generated key for the successfully saved vault.
-    let unchanged = bounded_read(input, LIMIT)
-        .map(|latest| *latest == *bytes)
-        .unwrap_or(false);
-    let consumed = unchanged && fs::remove_file(input).is_ok();
-    Ok(ImportOutcome { key, consumed })
+    Ok(ImportOutcome {
+        key,
+        input: input.to_path_buf(),
+        original: bytes,
+    })
 }
 
 struct EditGuard(PathBuf);
@@ -330,14 +339,14 @@ fn save(
     Ok(Zeroizing::new(hex::encode(&key_bytes)))
 }
 
-fn discover(start: &Path) -> Option<PathBuf> {
+fn discover(start: &Path) -> Option<Option<PathBuf>> {
     for directory in start.ancestors() {
         let vault = directory.join(".build/.conf");
         if vault.is_file() {
-            return Some(vault);
+            return Some(Some(vault));
         }
         if directory.join("ube.toml").is_file() {
-            break;
+            return Some(None);
         }
     }
     None
@@ -351,12 +360,22 @@ fn vault_path() -> Result<Option<PathBuf>> {
         }
         return Ok(Some(path));
     }
+    // The CLI binds temporary executables to their source project, even when
+    // that project has no vault. Never fall through to the caller's directory.
+    if let Some(root) = std::env::var_os("UBE_ENV_PROJECT_ROOT") {
+        let vault = PathBuf::from(root).join(".build/.conf");
+        return Ok(vault.is_file().then_some(vault));
+    }
     if let Ok(executable) = std::env::current_exe() {
         if let Some(path) = executable.parent().and_then(discover) {
-            return Ok(Some(path));
+            return Ok(path);
         }
     }
-    Ok(std::env::current_dir().ok().as_deref().and_then(discover))
+    Ok(std::env::current_dir()
+        .ok()
+        .as_deref()
+        .and_then(discover)
+        .flatten())
 }
 
 fn lookup(name: &str) -> Result<Option<Zeroizing<String>>> {
