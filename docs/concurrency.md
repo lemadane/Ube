@@ -1,13 +1,13 @@
 # Concurrency in Ube
 
-Async calls start immediately. Use `await` to obtain the result; failures use
+Tasks start immediately. Use `.await()` to obtain the result; failures use
 ordinary `try`, `catch`, and `finally`.
 
 ```ube
-final userTask = users.fetch(id)
-final ordersTask = orders.fetch(id)
-final user = await userTask
-final orders = await ordersTask
+final userTask = Async.start(() -> users.fetch(id))
+final ordersTask = Async.start(() -> orders.fetch(id))
+final user = userTask.await()
+final orders = ordersTask.await()
 ```
 
 ## Yielding native methods: first supported slice
@@ -65,11 +65,19 @@ There is no implicit detached-task API.
 
 | Operation | Behavior |
 |---|---|
-| `await Async.all(tasks)` | Values in input order; first failure cancels remaining work. |
-| `await Async.any(tasks)` | First success; all failures produce an aggregate error. |
-| `await Async.race(tasks)` | First completion, whether successful or failed. |
-| `await Async.allSettled(tasks)` | An immutable `TaskOutcomes` sequence preserving each success or error. |
-| `await task.timeout(ms)` | On expiry, cancels the task and joins cleanup before reporting the timeout. |
+| `Async.start(operation)` | Starts one `Func() -> T` and returns `Async<T>`. |
+| `Async.startAll([operations])` | Starts zero-argument functions and returns their values in input order. The argument is currently a list literal. |
+| `Async.completed(value)` | Creates an already successful `Async<T>`. |
+| `Async.failed(error)` | Creates an already failed `Async<void>` that preserves the supplied `Error`. |
+| `Async.delay(ms)` | Completes after the delay; a negative delay fails. |
+| `Async.all(tasks).await()` | Values in input order; first failure cancels remaining work. |
+| `Async.any(tasks).await()` | First success; all failures produce an aggregate error. |
+| `Async.race(tasks).await()` | First completion, whether successful or failed. |
+| `Async.allSettled(tasks).await()` | An immutable `TaskOutcomes` sequence preserving each success or error. |
+| `task.timeout(ms).await()` | On expiry, cancels the task and joins cleanup before reporting the timeout. |
+| `task.cancel()` | Requests cooperative cancellation and reports whether this call initiated it. |
+| `task.isCompleted()` | Reports whether a success or failure is already available. |
+| `task.isCancelled()` | Reports whether cancellation has been requested or delivered. |
 
 Combinators cancel and join remaining workers before publishing their result.
 Cancelling or timing out a combinator also cancels and joins its inputs.

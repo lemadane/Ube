@@ -1968,6 +1968,64 @@ impl IrBuilder {
                     return IrOperand::Null;
                 }
                 if let ExprKind::MemberAccess { object, member, .. } = &callee.kind {
+                    let async_class = matches!(&object.kind, ExprKind::Identifier(name)
+                        if name == "Async" && self.lookup_var(name).is_none());
+                    if async_class && member == "startAll" {
+                        if let [Expr { kind: ExprKind::ListLiteral(operations), .. }] = args.as_slice() {
+                            let list = self.runtime("ube_list_create", vec![], Type::Class { name: "List".into() });
+                            for operation in operations {
+                                let task = if let ExprKind::Closure { params, expression } = &operation.kind {
+                                    if params.is_empty() {
+                                        self.build_deferred_expression(expression)
+                                    } else {
+                                        IrOperand::Null
+                                    }
+                                } else {
+                                    let invocation = Expr {
+                                        kind: ExprKind::Call { callee: Box::new(operation.clone()), args: Vec::new() },
+                                        span: operation.span,
+                                    };
+                                    self.build_deferred_expression(&invocation)
+                                };
+                                self.runtime("ube_list_add", vec![list.clone(), task], Type::Void);
+                            }
+                            return self.runtime(
+                                "ube_task_all_async",
+                                vec![list],
+                                Type::Async(Box::new(Type::Class { name: "List".into() })),
+                            );
+                        }
+                        self.diagnostics.push(Diagnostic::error(
+                            "Async.startAll expects one list literal containing zero-argument Func values",
+                            Some(expr.span),
+                        ));
+                        return IrOperand::Null;
+                    }
+                    if async_class && member == "completed" {
+                        if let [value] = args.as_slice() {
+                            let value = self.build_expr(value);
+                            let result = value.get_type();
+                            return self.runtime("ube_task_completed_value", vec![value], Type::Async(Box::new(result)));
+                        }
+                        return IrOperand::Null;
+                    }
+                    if async_class && member == "failed" {
+                        if let [error] = args.as_slice() {
+                            let error = self.build_expr(error);
+                            let record = self.make_exception(error, args[0].span);
+                            return self.runtime("ube_task_failed", vec![record], Type::Async(Box::new(Type::Void)));
+                        }
+                        return IrOperand::Null;
+                    }
+                    if async_class && member == "delay" {
+                        if let [milliseconds] = args.as_slice() {
+                            let milliseconds = self.build_expr(milliseconds);
+                            return self.runtime("ube_task_delay", vec![milliseconds], Type::Async(Box::new(Type::Void)));
+                        }
+                        return IrOperand::Null;
+                    }
+                }
+                if let ExprKind::MemberAccess { object, member, .. } = &callee.kind {
                     if let Some(class_name) = self.static_class(object) {
                         if let Some(method) = self.class_decls.get(&class_name).and_then(|c| c.methods.iter().find(|m| m.is_static && m.name == *member)).cloned() {
                             let args = args.iter().zip(&method.params).map(|(arg, param)| {
@@ -2414,6 +2472,8 @@ impl IrBuilder {
                                 "race" => "ube_task_race_async",
                                 "allSettled" => "ube_task_all_settled_async",
                                 "cancel" => "ube_task_cancel",
+                                "isCompleted" => "ube_task_is_completed",
+                                "isCancelled" => "ube_task_was_cancelled",
                                 _ => "ube_task_await",
                             };
                             let dest = self.fresh_reg();
@@ -2424,11 +2484,11 @@ impl IrBuilder {
                                 },
                                 "all" => Type::Async(Box::new(Type::Class { name: "List".into() })),
                                 "allSettled" => Type::Async(Box::new(Type::Class { name: "TaskOutcomes".into() })),
-                                "cancel" => Type::Bool,
+                                "cancel" | "isCompleted" | "isCancelled" => Type::Bool,
                                 _ => Type::Async(Box::new(Type::Int)),
                             };
                             let mut call_args = Vec::new();
-                            if member == "cancel" || member == "timeout" {
+                            if matches!(member.as_str(), "cancel" | "timeout" | "isCompleted" | "isCancelled") {
                                 call_args.push(obj_op);
                                 if member == "timeout" {
                                     call_args.extend(arg_ops);

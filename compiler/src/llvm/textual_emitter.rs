@@ -105,6 +105,10 @@ impl TextualLlvmEmitter {
         self.output.push_str("declare i64 @ube_map_len(i8*)\n");
         self.output.push_str("declare i8* @ube_task_create(i64)\n");
         self.output
+            .push_str("declare i8* @ube_task_completed_value(i64, i64)\n");
+        self.output.push_str("declare i8* @ube_task_failed(i8*)\n");
+        self.output.push_str("declare i8* @ube_task_delay(i64)\n");
+        self.output
             .push_str("declare i8* @ube_task_spawn_value(i64, i8*)\n");
         self.output
             .push_str("declare i8* @ube_task_context_create(i64)\n");
@@ -136,6 +140,8 @@ impl TextualLlvmEmitter {
         self.output
             .push_str("declare i8* @ube_task_all_settled_async(i8*)\n");
         self.output.push_str("declare i1 @ube_task_cancel(i8*)\n");
+        self.output.push_str("declare i1 @ube_task_is_completed(i8*)\n");
+        self.output.push_str("declare i1 @ube_task_was_cancelled(i8*)\n");
         self.output
             .push_str("declare i8* @ube_task_timeout(i8*, i64)\n");
         self.output
@@ -1313,6 +1319,24 @@ impl TextualLlvmEmitter {
                     lines.push(format!("call void @ube_list_add_typed(i8* {}, i64 {}, i64 {}, i64 {}, i8* {})", list, payload, meta, kind, name));
                     return lines.join("\n  ");
                 }
+                if symbol == "ube_task_completed_value" {
+                    let value = &args[0];
+                    let ty = value.get_type();
+                    let source = self.emit_operand(value);
+                    let (mut lines, payload, meta) = self.encode_value(
+                        &ty,
+                        &source,
+                        &format!("completed_value_{}", self.string_counter),
+                    );
+                    self.string_counter += 1;
+                    if let Some(register) = dest {
+                        lines.push(format!(
+                            "%{} = call i8* @ube_task_completed_value(i64 {}, i64 {})",
+                            register.0, payload, meta
+                        ));
+                    }
+                    return lines.join("\n  ");
+                }
                 for (index, a) in args.iter().enumerate() {
                     let arg_ty = a.get_type();
                     if symbol == "ube_channel_send_async" && index == 1 {
@@ -1344,6 +1368,7 @@ impl TextualLlvmEmitter {
                         continue;
                     }
                     if (symbol == "ube_channel_create_capacity"
+                        || symbol == "ube_task_delay"
                         || (symbol == "ube_task_timeout" && index == 1))
                         && arg_ty == Type::Int
                     {

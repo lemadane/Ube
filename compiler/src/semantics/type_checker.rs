@@ -2359,7 +2359,7 @@ impl TypeChecker {
                         ));
                         None
                     }
-                    Type::Async(_) if member == "cancel" => Some(Type::Bool),
+                    Type::Async(_) if matches!(member.as_str(), "cancel" | "isCompleted" | "isCancelled") => Some(Type::Bool),
                     Type::Async(_) if member == "timeout" => Some(obj_ty.clone()),
                     Type::Channel(_) if matches!(member.as_str(), "send" | "receive" | "close") => {
                         Some(Type::Void)
@@ -2539,6 +2539,38 @@ impl TypeChecker {
                                         self.diagnostics.push(Diagnostic::error("Async.start expects a zero-argument Func", Some(args[0].span)));
                                     }
                                     return Some(Type::Async(return_type.clone()));
+                                }
+                                if name == "Async" && member == "startAll" {
+                                    if !class_receiver {
+                                        self.diagnostics.push(Diagnostic::error("Async.startAll requires a class call", Some(expr.span)));
+                                    }
+                                    let valid = matches!(args.as_slice(), [Expr { kind: ExprKind::ListLiteral(operations), .. }]
+                                        if operations.iter().all(|operation| matches!(self.check_expr(cls, operation), Some(Type::Function { params, .. }) if params.is_empty())));
+                                    if !valid {
+                                        self.diagnostics.push(Diagnostic::error("Async.startAll expects one list literal containing zero-argument Func values", Some(expr.span)));
+                                    }
+                                    return Some(Type::Async(Box::new(Type::Class { name: "List".into() })));
+                                }
+                                if name == "Async" && member == "completed" {
+                                    if !class_receiver || args.len() != 1 || matches!(arg_types.first(), None | Some(Type::Void)) {
+                                        self.diagnostics.push(Diagnostic::error("Async.completed expects one value", Some(expr.span)));
+                                        return None;
+                                    }
+                                    return Some(Type::Async(Box::new(arg_types[0].clone())));
+                                }
+                                if name == "Async" && member == "failed" {
+                                    let valid = class_receiver && args.len() == 1 && matches!(arg_types.first(), Some(Type::Class { name }) if name == "Error" || self.satisfies_trait(name, "Error"));
+                                    if !valid {
+                                        self.diagnostics.push(Diagnostic::error("Async.failed expects one Error", Some(expr.span)));
+                                    }
+                                    return Some(Type::Async(Box::new(Type::Void)));
+                                }
+                                if name == "Async" && member == "delay" {
+                                    let valid = class_receiver && args.len() == 1 && matches!(arg_types.first(), Some(Type::Int | Type::Long));
+                                    if !valid {
+                                        self.diagnostics.push(Diagnostic::error("Async.delay expects one Int argument: milliseconds", Some(expr.span)));
+                                    }
+                                    return Some(Type::Async(Box::new(Type::Void)));
                                 }
                                 if name == "Async" && ["all", "any", "race", "allSettled"].contains(&member.as_str()) {
                                     if !class_receiver { self.diagnostics.push(Diagnostic::error("Async combinators require a class call", Some(expr.span))); }
@@ -2741,7 +2773,10 @@ impl TypeChecker {
                             if matches!(&obj_ty, Type::Class { name } if name == "List" || name == "Map") && arg_types.iter().any(|ty| ty.nullable_scalar_inner().is_some() || matches!(ty, Type::Async(inner) if inner.nullable_scalar_inner().is_some())) {
                                 self.diagnostics.push(Diagnostic::error("Nullable scalar values and tasks with nullable scalar results are not supported in untyped collection storage yet", Some(expr.span)));
                             }
-                            if matches!(obj_ty, Type::Async(_)) && member == "cancel" {
+                            if matches!(obj_ty, Type::Async(_)) && matches!(member.as_str(), "cancel" | "isCompleted" | "isCancelled") {
+                                if !args.is_empty() {
+                                    self.diagnostics.push(Diagnostic::error(format!("Async.{member} expects no arguments"), Some(expr.span)));
+                                }
                                 return Some(Type::Bool);
                             }
                             if matches!(obj_ty, Type::Async(_)) && member == "timeout" {

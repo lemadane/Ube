@@ -311,6 +311,23 @@ Fut: Future<Output=Result<T,TaskError>> + Send + 'static {
     }
 }
 
+fn completed_task<T>(outcome: Result<T, TaskError>) -> Task<T>
+where
+    T: Clone + Send + Sync + 'static,
+{
+    let cancelled = matches!(outcome, Err(TaskError::Cancelled));
+    let (_result_tx, result) = watch::channel(Some(outcome));
+    let (cancellation, _) = watch::channel(cancelled);
+    Task {
+        result,
+        cancellation,
+        cancellation_requested: Arc::new(AtomicBool::new(cancelled)),
+        cancelled_flag: Arc::new(AtomicBool::new(cancelled)),
+        children: Arc::new(StdMutex::new(Vec::new())),
+        observed: Arc::new(AtomicBool::new(false)),
+    }
+}
+
 // Scope exit cancels unfinished children and joins every callback before
 // publishing the parent's result. Already-observed errors are not rethrown.
 async fn finish_children(children: Arc<StdMutex<Vec<Task<AbiValue>>>>) -> Option<TaskError> {
@@ -396,6 +413,14 @@ where
         let children = self.children.lock().unwrap().clone();
         for child in children { child.cancel(); }
         self.cancellation.send(true).is_ok()
+    }
+
+    pub fn is_completed(&self) -> bool {
+        self.result.borrow().is_some()
+    }
+
+    pub fn is_cancelled(&self) -> bool {
+        self.cancelled_flag.load(Ordering::Acquire)
     }
 
     pub async fn all(tasks: Vec<Self>) -> Result<Vec<T>, TaskError> {
@@ -673,6 +698,35 @@ pub extern "C" fn ube_task_create(val: i64) -> *mut c_void {
 }
 
 #[no_mangle]
+pub extern "C" fn ube_task_completed_value(payload: i64, meta: u64) -> *mut c_void {
+    track_abi_task(completed_task(Ok(AbiValue { payload, meta })))
+}
+
+#[no_mangle]
+pub extern "C" fn ube_task_failed(record: *mut c_void) -> *mut c_void {
+    let error = if record.is_null() {
+        TaskError::Failed("Async.failed requires an Error".into())
+    } else {
+        TaskError::Exception(record as usize)
+    };
+    track_abi_task(completed_task(Err(error)))
+}
+
+#[no_mangle]
+pub extern "C" fn ube_task_delay(milliseconds: i64) -> *mut c_void {
+    if milliseconds < 0 {
+        return track_abi_task(completed_task(Err(TaskError::Failed(
+            "delay must not be negative".into(),
+        ))));
+    }
+    let duration = Duration::from_millis(milliseconds as u64);
+    track_abi_task(spawn_task(move |_| async move {
+        tokio::time::sleep(duration).await;
+        Ok(AbiValue::default())
+    }))
+}
+
+#[no_mangle]
 pub extern "C" fn ube_task_await(ptr: *mut c_void) -> i64 { ube_task_await_value(ptr).payload }
 
 #[no_mangle]
@@ -758,6 +812,16 @@ pub extern "C" fn ube_task_cancel(ptr: *mut c_void) -> bool {
         return false;
     }
     lookup_task(ptr).map(|task| task.cancel()).unwrap_or(false)
+}
+
+#[no_mangle]
+pub extern "C" fn ube_task_is_completed(ptr: *mut c_void) -> bool {
+    !ptr.is_null() && lookup_task(ptr).is_ok_and(|task| task.is_completed())
+}
+
+#[no_mangle]
+pub extern "C" fn ube_task_was_cancelled(ptr: *mut c_void) -> bool {
+    !ptr.is_null() && lookup_task(ptr).is_ok_and(|task| task.is_cancelled())
 }
 
 /// Returns a new task that fails with "task timed out" (and cancels `ptr`)
@@ -1279,6 +1343,28 @@ mod tests {
         });
         assert!(cancelled.cancel());
         assert_eq!(cancelled.await_result(), Err(TaskError::Cancelled));
+    }
+
+    #[test]
+    fn completed_failed_delay_and_status_ffi_are_observable() {
+        let completed = ube_task_completed_value(42, 1);
+        assert!(ube_task_is_completed(completed));
+        assert!(!ube_task_was_cancelled(completed));
+        assert_eq!(ube_task_await_value(completed), AbiValue { payload: 42, meta: 1 });
+
+        let failed = ube_task_failed(crate::exceptions::generic("expected".into()) as *mut c_void);
+        assert!(ube_task_is_completed(failed));
+        assert_eq!(ube_task_await_value(failed), AbiValue::default());
+        assert_eq!(crate::exceptions::message(crate::exceptions::take_pending()), "expected");
+
+        let delayed = ube_task_delay(10_000);
+        assert!(!ube_task_is_completed(delayed));
+        assert!(ube_task_cancel(delayed));
+        assert!(ube_task_was_cancelled(delayed));
+        assert_eq!(ube_task_await_value(delayed), AbiValue::default());
+        assert_eq!(crate::exceptions::message(crate::exceptions::take_pending()), "task was cancelled");
+
+        for task in [completed, failed, delayed] { ube_task_dispose(task); }
     }
 
     #[test]

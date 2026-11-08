@@ -172,11 +172,49 @@ class App {
 }
 
 #[test]
+fn async_construction_batch_and_status_apis_run() {
+    runs(
+        r#"
+class App {
+    start() {
+        final completed = Async.completed('ready')
+        Console.printLine(completed.isCompleted())
+        Console.printLine(completed.isCancelled())
+        Console.printLine(completed.await())
+
+        final batch = Async.startAll([() -> 10, () -> 20])
+        Console.printLine(batch.await().len())
+
+        Async.delay(1).await()
+        Console.printLine('delayed')
+
+        final pending = Async.delay(10000)
+        Console.printLine(pending.isCompleted())
+        Console.printLine(pending.cancel())
+        Console.printLine(pending.isCancelled())
+
+        try {
+            Async.failed(GenericError('expected failure')).await()
+        } catch (Error error) {
+            Console.printLine(error.message())
+        }
+    }
+}
+"#,
+        "true\nfalse\nready\n2\ndelayed\nfalse\ntrue\ntrue\nexpected failure\n",
+    );
+}
+#[test]
 fn invalid_function_signatures_and_calls_are_diagnosed() {
     for (source, expected) in [
         ("class App { start() { final f = (int n) -> n f() } }", "Func expects 1 arguments"),
         ("class App { start() { Async.start(1) } }", "zero-argument Func"),
         ("class App { start() { Async.start((int value) -> value) } }", "zero-argument Func"),
+        ("class App { start() { Async.startAll([() -> 1, 2]) } }", "zero-argument Func values"),
+        ("class App { start() { Async.completed() } }", "expects one value"),
+        ("class App { start() { Async.failed(1) } }", "expects one Error"),
+        ("class App { start() { Async.delay('later') } }", "milliseconds"),
+        ("class App { start() { Async.delay(1).isCompleted(1) } }", "expects no arguments"),
         ("class App { start() { (Func() -> int) = () -> 1 } }", "variable name after parenthesized Func type"),
         ("class App { start() { final f = () -> 1 f(2) } }", "Func expects 0 arguments"),
         ("class App { start() { final f = (int n) -> n f('wrong') } }", "Func argument 1"),

@@ -424,6 +424,8 @@ See the [runnable context example](examples/log_context/App.ube).
 
 ### 14. Concurrency Runtime (Tokio)
 - `Async.start(() -> expression)` submits a zero-argument function to the shared multithreaded Tokio runtime. Captured values are retained for the task, and `.await()` returns its result.
+- `Async.startAll([operations])` starts several zero-argument functions and collects their values in input order. `Async.completed(value)`, `Async.failed(error)`, and `Async.delay(ms)` construct tasks without an `async` declaration.
+- Tasks support `.cancel()`, `.timeout(ms)`, `.isCompleted()`, and `.isCancelled()`. `Async.all`, `Async.any`, `Async.race`, and `Async.allSettled` combine existing tasks.
 - The Rust runtime provides typed `Task<T>` results/errors, completion-based combinators, timeouts, cancellation, and bounded closable channels.
 - The compiler ABI transports task and channel values through an inline two-word value (64-bit payload plus presence metadata), encoding primitive values and pointers. `Async.start` produces `Async<T>`; `.await()` retrieves `T`; failures propagate into a surrounding `try`/`catch`.
 - One rule: **start work with `Async.start`, then call `.await()` when its result is needed.** Ordinary methods need no `async` declaration.
