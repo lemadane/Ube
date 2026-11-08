@@ -1,6 +1,6 @@
 import orm_types.User
-class Application {
-    main() {
+class App {
+    start() {
         final db = SQL.open('sqlite::memory:')
         final users = Orm.model(db, User, 'users')
         try {

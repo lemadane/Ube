@@ -14,12 +14,12 @@ class Profile(int id, string name, Address address) {}
 ```
 
 ```ube
-// Main.ube
+// App.ube
 import Address
 import Profile
 
-class Main {
-    main() {
+class App {
+    start() {
         final profile = Profile(42, 'Alice', Address('東京'))
         Console.printLine(profile.toJson())
 

@@ -204,8 +204,8 @@ fn serde_json_for_fixture(
 fn fluent_requests_send_real_methods_headers_queries_json_and_inspect_responses() {
     let fixture = HttpFixture::new();
     let source = r#"
-        class Application {
-            main() {
+        class App {
+            start() {
                 final request = RestInPeace.at('BASE').header('X-Custom', 'custom').bearer('token').query('q', 'a & b').accept('application/json')
                 request.json(`{"name":"Ada"}`)
                 final response = request.post('/inspect').expectStatus(201).expectHeader('x-test', 'fixture').expectJsonString('/method', 'POST')
@@ -254,8 +254,8 @@ fn fluent_requests_send_real_methods_headers_queries_json_and_inspect_responses(
 fn json_types_assertion_failures_limits_timeouts_and_closed_handles_are_recoverable() {
     let fixture = HttpFixture::new();
     let source = r#"
-        class Application {
-            main() {
+        class App {
+            start() {
                 final request = RestInPeace.at('BASE')
                 final response = request.get('/values')
                 Testicle.equal('Ada', response.jsonString('/name'))
@@ -393,7 +393,7 @@ fn https_verifies_certificates_and_negotiates_http2_with_an_explicit_test_ca() {
     });
     let source = format!(
         r#"
-        class Application {{ main() {{
+        class App {{ start() {{
             final untrusted = RestInPeace.at('https://localhost:{port}')
             var caught = false
             try {{ untrusted.get('/') }} catch (RestInPeaceError error) {{ caught = true }}
@@ -431,7 +431,7 @@ fn compiler_rejects_invalid_factories_receivers_types_arity_and_nulls() {
         "RestInPeaceResponse.status()",
         "RestInPeace.given().get('http://localhost').expectStatus('ok')",
     ] {
-        let source = format!("class Application {{ main() {{ {body} }} }}");
+        let source = format!("class App {{ start() {{ {body} }} }}");
         let mut parser = Parser::new(Lexer::new(&source));
         let program = parser.parse_program();
         assert!(
@@ -467,7 +467,7 @@ fn rest_in_peace_tests_a_real_compiled_ube_http_service() {
         &service_source,
         format!(
             r#"
-        class Application {{ main() {{
+        class App {{ start() {{
             final server = Server()
             server.get('/health', request -> Response.ok('ready'))
             server.post('/echo', request -> Response.ok(request.body()))

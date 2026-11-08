@@ -18,7 +18,7 @@ struct Program {
 impl Program {
     fn new(source: &str) -> Self {
         let temp = tempfile::tempdir().unwrap();
-        let source = support::write_source(&temp.path().join("Main.ube"), source);
+        let source = support::write_source(&temp.path().join("App.ube"), source);
         fs::write(temp.path().join(".gitignore"), ".build/\n").unwrap();
         let executable = temp.path().join("program");
         let runtime = std::env::current_exe()
@@ -73,7 +73,7 @@ fn expect(program: &Program, expected: &str) {
 fn native_frame_keeps_locals_loops_branches_and_multiple_awaits() {
     let program = Program::new(
         r#"
-        class Main {
+        class App {
             async int receive(Channel<int> inbox, int offset) {
                 var sum = offset var index = 0
                 for (index < 3) {
@@ -83,7 +83,7 @@ fn native_frame_keeps_locals_loops_branches_and_multiple_awaits() {
                 }
                 return sum
             }
-            main() {
+            start() {
                 final inbox = Channel<int>(3) final task = this.receive(inbox, 10)
                 final a = await inbox.send(1) final b = await inbox.send(-2) final c = await inbox.send(3)
                 print(await task)
@@ -93,7 +93,7 @@ fn native_frame_keeps_locals_loops_branches_and_multiple_awaits() {
     );
     assert!(program
         .llvm
-        .contains("define internal i1 @__ube_poll_Main_receive"));
+        .contains("define internal i1 @__ube_poll_App_receive"));
     assert!(program.llvm.contains("call i8* @ube_task_spawn_poll("));
     expect(&program, "16\n");
 }
@@ -102,12 +102,12 @@ fn native_frame_keeps_locals_loops_branches_and_multiple_awaits() {
 fn native_frame_cancellation_runs_yielding_finally_before_completion() {
     let program = Program::new(
         r#"
-        class Main {
+        class App {
             async int work(Channel<int> ready, Channel<int> blocked, Channel<int> done) {
                 try { final sent = await ready.send(1) return await blocked.receive() }
                 finally { final sent = await done.send(7) }
             }
-            main() {
+            start() {
                 final ready = Channel<int>(1) final blocked = Channel<int>(1) final done = Channel<int>(1)
                 final task = this.work(ready, blocked, done) final started = await ready.receive()
                 final cancelled = task.cancel()
@@ -119,7 +119,7 @@ fn native_frame_cancellation_runs_yielding_finally_before_completion() {
     );
     assert!(program
         .llvm
-        .contains("define internal i1 @__ube_poll_Main_work"));
+        .contains("define internal i1 @__ube_poll_App_work"));
     expect(&program, "task was cancelled\n7\n");
 }
 
@@ -127,15 +127,15 @@ fn native_frame_cancellation_runs_yielding_finally_before_completion() {
 fn blocking_calls_keep_the_legacy_backend() {
     let program = Program::new(
         r#"
-        class Main {
+        class App {
             async int work(Channel<int> inbox) { final value = await inbox.receive() print(value) return value + 1 }
-            main() { final inbox = Channel<int>(1) final task = this.work(inbox) final sent = await inbox.send(41) print(await task) }
+            start() { final inbox = Channel<int>(1) final task = this.work(inbox) final sent = await inbox.send(41) print(await task) }
         }
     "#,
     );
     assert!(!program
         .llvm
-        .contains("define internal i1 @__ube_poll_Main_work"));
+        .contains("define internal i1 @__ube_poll_App_work"));
     expect(&program, "41\n42\n");
 }
 
@@ -163,13 +163,13 @@ fn threads(pid: u32) -> usize {
 fn thousands_of_suspended_methods_use_bounded_worker_threads() {
     let program = Program::new(
         r#"
-        class Main {
+        class App {
             async int work(Channel<int> ready, Channel<int> gate) {
                 final sent = await ready.send(1)
                 final value = await gate.receive()
                 return value + 1
             }
-            main() {
+            start() {
                 final ready = Channel<int>(2048) final gate = Channel<int>(2048)
                 final warm = this.work(ready, gate) final started = await ready.receive()
                 final sent = await gate.send(1) final warmed = await warm
@@ -191,7 +191,7 @@ fn thousands_of_suspended_methods_use_bounded_worker_threads() {
     );
     assert!(program
         .llvm
-        .contains("define internal i1 @__ube_poll_Main_work"));
+        .contains("define internal i1 @__ube_poll_App_work"));
     let mut child = Running(
         Command::new(&program.executable)
             .env("TOKIO_WORKER_THREADS", "1")
@@ -235,15 +235,15 @@ fn suspended_references_remain_rooted_and_are_released_on_completion() {
     let program = Program::new(
         r#"
         class Payload(int value) {}
-        class Main(var Payload? current = null) {
-            Main setup() { return Main(Payload(7)) }
+        class App(var Payload? current = null) {
+            App setup() { return App(Payload(7)) }
             async int work(Channel<int> ready, Channel<int> gate) {
                 final saved = this._current
                 final sent = await ready.send(1)
                 final released = await gate.receive()
                 if (saved != null) { return 1 } return 0
             }
-            main() {
+            start() {
                 final holder = this.setup()
                 final ready = Channel<int>(1) final gate = Channel<int>(1)
                 final task = holder.work(ready, gate) final started = await ready.receive()
@@ -258,7 +258,7 @@ fn suspended_references_remain_rooted_and_are_released_on_completion() {
     );
     assert!(program
         .llvm
-        .contains("define internal i1 @__ube_poll_Main_work"));
+        .contains("define internal i1 @__ube_poll_App_work"));
     expect(&program, "true\n1\ntrue\n");
 }
 
@@ -266,14 +266,14 @@ fn suspended_references_remain_rooted_and_are_released_on_completion() {
 fn instruction_budget_allows_another_task_to_win_on_one_worker() {
     let program = Program::new(
         r#"
-        class Main {
+        class App {
             async int spin(Channel<int> ready, Channel<int> gate) {
                 final sent = await ready.send(1) final started = await gate.receive()
                 var index = 0 for (index < 100000) { index = index + 1 }
                 return index
             }
             async int quick(Channel<int> gate) { final started = await gate.receive() return 7 }
-            main() {
+            start() {
                 final ready = Channel<int>(1) final slowGate = Channel<int>(1) final fastGate = Channel<int>(1)
                 final slow = this.spin(ready, slowGate) final started = await ready.receive()
                 final quick = this.quick(fastGate) final winner = Task.race([slow, quick])
@@ -286,7 +286,7 @@ fn instruction_budget_allows_another_task_to_win_on_one_worker() {
     );
     assert!(program
         .llvm
-        .contains("define internal i1 @__ube_poll_Main_spin"));
+        .contains("define internal i1 @__ube_poll_App_spin"));
     expect(&program, "7\ntask was cancelled\n");
 }
 
@@ -294,12 +294,12 @@ fn instruction_budget_allows_another_task_to_win_on_one_worker() {
 fn nullable_results_and_closed_channel_handlers_resume_correctly() {
     let program = Program::new(
         r#"
-        class Main {
+        class App {
             async int? work(Channel<int?> inbox) { return await inbox.receive() }
             async int closed(Channel<int> inbox) {
                 try { return await inbox.receive() } catch (Error error) { return -1 }
             }
-            main() {
+            start() {
                 final inbox = Channel<int?>(1)
                 final one = this.work(inbox) final sent = await inbox.send(null) print(await one)
                 final two = this.work(inbox) final zero = await inbox.send(0) print(await two)
@@ -310,10 +310,10 @@ fn nullable_results_and_closed_channel_handlers_resume_correctly() {
     );
     assert!(program
         .llvm
-        .contains("define internal i1 @__ube_poll_Main_work"));
+        .contains("define internal i1 @__ube_poll_App_work"));
     assert!(program
         .llvm
-        .contains("define internal i1 @__ube_poll_Main_closed"));
+        .contains("define internal i1 @__ube_poll_App_closed"));
     expect(&program, "null\n0\n-1\n");
 }
 
@@ -321,12 +321,12 @@ fn nullable_results_and_closed_channel_handlers_resume_correctly() {
 fn logging_context_survives_suspension_without_leaking_to_main() {
     let program = Program::new(
         r#"
-        class Main {
+        class App {
             async string? work(Channel<int> ready, Channel<int> gate) {
                 Log.put('trace', 'child') final sent = await ready.send(1)
                 final released = await gate.receive() return Log.get('trace')
             }
-            main() {
+            start() {
                 Log.put('trace', 'parent')
                 final ready = Channel<int>(1) final gate = Channel<int>(1)
                 final task = this.work(ready, gate) final started = await ready.receive()
@@ -338,7 +338,7 @@ fn logging_context_survives_suspension_without_leaking_to_main() {
     );
     assert!(program
         .llvm
-        .contains("define internal i1 @__ube_poll_Main_work"));
+        .contains("define internal i1 @__ube_poll_App_work"));
     expect(&program, "child\nparent-changed\n");
 }
 
@@ -346,8 +346,8 @@ fn logging_context_survives_suspension_without_leaking_to_main() {
 fn async_expression_uses_the_same_resumable_frame_for_captures() {
     let program = Program::new(
         r#"
-        class Main {
-            main() {
+        class App {
+            start() {
                 final inbox = Channel<int>(1)
                 final task = async (await inbox.receive())
                 final sent = await inbox.send(42)
@@ -365,12 +365,12 @@ fn async_expression_uses_the_same_resumable_frame_for_captures() {
 #[test]
 fn async_trace_links_nested_submissions_awaits_and_legacy_callbacks() {
     let program = Program::new(r#"
-    class Main {
+    class App {
         async leaf(Channel<int> input) { final result=await input.receive() }
         async middle(Channel<int> input) { await this.leaf(input) }
         async legacyLeaf() { final exists=File.exists('/tmp') throw 'legacy failure' }
         async legacyMiddle() { await this.legacyLeaf() }
-        main() {
+        start() {
             final input=Channel<int>(1)
             final task=this.middle(input)
             input.close()
@@ -379,26 +379,26 @@ fn async_trace_links_nested_submissions_awaits_and_legacy_callbacks() {
             try { await this.legacyMiddle() } catch(Error error) { print(error.stacktrace()) }
         }
     }"#);
-    assert!(program.llvm.contains("define internal i1 @__ube_poll_Main_leaf"));
-    assert!(!program.llvm.contains("define internal i1 @__ube_poll_Main_legacyLeaf"));
+    assert!(program.llvm.contains("define internal i1 @__ube_poll_App_leaf"));
+    assert!(!program.llvm.contains("define internal i1 @__ube_poll_App_legacyLeaf"));
     let output=program.run();
     assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
     let text=String::from_utf8_lossy(&output.stdout);
     let (first,second)=text.split_once("NEXT\n").unwrap();
-    for (trace,leaf,parent) in [(first,"Main.leaf","Main.middle"),(second,"Main.legacyLeaf","Main.legacyMiddle")] {
-        assert!(trace.contains(leaf) && trace.contains(parent) && trace.contains("Main.main"), "{trace}");
+    for (trace,leaf,parent) in [(first,"App.leaf","App.middle"),(second,"App.legacyLeaf","App.legacyMiddle")] {
+        assert!(trace.contains(leaf) && trace.contains(parent) && trace.contains("App.start"), "{trace}");
         assert!(trace.contains("--- spawned at ---"), "{trace}");
         assert!(trace.matches("--- awaited at ---").count()>=2, "{trace}");
     }
-    assert!(!second.contains("Main.middle"), "{second}");
-    assert!(!second.contains("Main.leaf"), "{second}");
+    assert!(!second.contains("App.middle"), "{second}");
+    assert!(!second.contains("App.leaf"), "{second}");
 }
 
 #[test]
 fn async_trace_repeated_awaits_keep_separate_locations_and_rethrow_identity() {
-    let program=Program::new(r#"class Main {
+    let program=Program::new(r#"class App {
         async leaf() { throw 'shared failure' }
-        main() {
+        start() {
             final task=this.leaf()
             try { await task } catch(Error error) { print(error.stacktrace()) }
             print('NEXT')
@@ -413,9 +413,9 @@ fn async_trace_repeated_awaits_keep_separate_locations_and_rethrow_identity() {
     assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
     let text=String::from_utf8_lossy(&output.stdout);
     let (first,second)=text.split_once("NEXT\n").unwrap();
-    assert!(first.contains("Main.main (7:"), "{first}");
-    assert!(second.contains("Main.main (9:"), "{second}");
-    assert!(!second.contains("Main.main (7:"), "{second}");
+    assert!(first.contains("App.start (7:"), "{first}");
+    assert!(second.contains("App.start (9:"), "{second}");
+    assert!(!second.contains("App.start (7:"), "{second}");
     assert_eq!(first.matches("--- awaited at ---").count(),1,"{first}");
     assert_eq!(second.matches("--- awaited at ---").count(),1,"{second}");
     assert!(second.ends_with("true\n"),"{second}");
@@ -424,7 +424,7 @@ fn async_trace_repeated_awaits_keep_separate_locations_and_rethrow_identity() {
 #[test]
 fn unhandled_async_chain_reports_leaf_submission_and_each_awaiter_in_order() {
     let program = Program::new(r#"
-    class Main {
+    class App {
         finished() { return }
         async leaf(Channel<int> started, Channel<int> blocked) {
             await started.send(1)
@@ -433,7 +433,7 @@ fn unhandled_async_chain_reports_leaf_submission_and_each_awaiter_in_order() {
         async relay(Channel<int> started, Channel<int> blocked) {
             await this.leaf(started, blocked)
         }
-        main() {
+        start() {
             this.finished()
             final started=Channel<int>(1)
             final blocked=Channel<int>(1)
@@ -443,7 +443,7 @@ fn unhandled_async_chain_reports_leaf_submission_and_each_awaiter_in_order() {
             await task
         }
     }"#);
-    assert!(program.llvm.contains("define internal i1 @__ube_poll_Main_leaf"));
+    assert!(program.llvm.contains("define internal i1 @__ube_poll_App_leaf"));
     let output = program.run();
     assert_eq!(output.status.code(), Some(1), "{output:?}");
     let stderr = String::from_utf8_lossy(&output.stderr);
@@ -453,14 +453,14 @@ fn unhandled_async_chain_reports_leaf_submission_and_each_awaiter_in_order() {
     let origin = sections[0];
     let submitted: Vec<_> = origin.split("--- spawned at ---").collect();
     assert_eq!(submitted.len(), 3, "{stderr}");
-    assert!(submitted[0].contains("at Main.leaf ("), "{stderr}");
-    assert!(submitted[1].contains("at Main.relay ("), "{stderr}");
-    assert!(submitted[2].contains("at Main.main ("), "{stderr}");
-    assert!(sections[1].contains("at Main.relay ("), "{stderr}");
-    assert!(sections[2].contains("at Main.main ("), "{stderr}");
-    assert!(!sections[2].contains("at Main.relay"), "{stderr}");
-    assert!(!stderr.contains("Main.finished"), "{stderr}");
-    for line in stderr.lines().filter(|line| line.trim_start().starts_with("at Main.")) {
+    assert!(submitted[0].contains("at App.leaf ("), "{stderr}");
+    assert!(submitted[1].contains("at App.relay ("), "{stderr}");
+    assert!(submitted[2].contains("at App.start ("), "{stderr}");
+    assert!(sections[1].contains("at App.relay ("), "{stderr}");
+    assert!(sections[2].contains("at App.start ("), "{stderr}");
+    assert!(!sections[2].contains("at App.relay"), "{stderr}");
+    assert!(!stderr.contains("App.finished"), "{stderr}");
+    for line in stderr.lines().filter(|line| line.trim_start().starts_with("at App.")) {
         let location = line.split_once('(').unwrap().1.trim_end_matches(')');
         let (line, column) = location.split_once(':').unwrap();
         assert!(line.parse::<usize>().unwrap() > 0);

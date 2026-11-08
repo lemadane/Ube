@@ -41,11 +41,11 @@ fn api_rejects_invalid_calls() {
         "Metrics.unknown()",
     ] {
         assert!(
-            !diagnostics(&format!("class Main {{ main() {{ {statement} }} }}")).is_empty(),
+            !diagnostics(&format!("class App {{ start() {{ {statement} }} }}")).is_empty(),
             "accepted {statement}"
         );
     }
-    assert!(diagnostics("class Main { main() { Metrics.increment('count') Metrics.add('count', 2) Metrics.gauge('size', 12) Metrics.record('seconds', 0.25) Health.ready(true) Observability.start(9090) Observability.stop() } }").is_empty());
+    assert!(diagnostics("class App { start() { Metrics.increment('count') Metrics.add('count', 2) Metrics.gauge('size', 12) Metrics.record('seconds', 0.25) Health.ready(true) Observability.start(9090) Observability.stop() } }").is_empty());
 }
 struct Running(Child);
 impl Drop for Running {
@@ -75,7 +75,7 @@ fn native_listener_metrics_health_restart_and_cleanup() {
     let port = reservation.local_addr().unwrap().port();
     let temp = tempfile::tempdir().unwrap();
     let source = format!(
-        r#"class Main {{ main() {{
+        r#"class App {{ start() {{
         Metrics.increment('orders_created_total')
         Metrics.add('orders_created_total', 2)
         Metrics.gauge('orders_pending', 12)
@@ -102,7 +102,7 @@ fn native_listener_metrics_health_restart_and_cleanup() {
         final fourth = Console.readLine()
     }} }}"#
     );
-    let entry = support::write_source(&temp.path().join("Main.ube"), &source);
+    let entry = support::write_source(&temp.path().join("App.ube"), &source);
     fs::write(temp.path().join(".gitignore"), ".build/\n").unwrap();
     let executable = temp.path().join("program");
     let output = Command::new(env!("CARGO_BIN_EXE_ube-compiler"))

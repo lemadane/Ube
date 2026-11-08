@@ -1,8 +1,8 @@
 import Address
 import Profile
 
-class Main {
-    main() {
+class App {
+    start() {
         final args = Console.args()
         if (args.len() != 2) {
             Console.printLine('Usage: <database-path> <write|read|delete>')

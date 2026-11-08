@@ -5,8 +5,8 @@ Ube handles the session cookie automatically for HTTP/1.1, HTTP/2, and HTTP/3, i
 HTTPS. No session middleware or explicit response-cookie calls are required.
 
 ```ube
-class Application {
-    main() {
+class App {
+    start() {
         final server = Server()
         server.get('/') { request ->
             final theme = request.session().get('theme') ?? 'light'
@@ -71,7 +71,7 @@ configurable lifetimes are not implemented yet.
 
 ## Try it
 
-Run [the session example](../examples/sessions/Application.ube), then use a cookie jar:
+Run [the session example](../examples/sessions/App.ube), then use a cookie jar:
 
 ```sh
 curl -c /tmp/ube-cookies.txt -b /tmp/ube-cookies.txt -X POST http://127.0.0.1:8080/theme

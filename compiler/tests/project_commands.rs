@@ -73,7 +73,7 @@ fn new_init_manifest_build_run_and_clean_work_without_explicit_entry() {
     let dir = tempfile::tempdir().unwrap();
     success(cli(dir.path(), &["new", "hello-world"]));
     let root = dir.path().join("hello-world");
-    assert!(root.join("src/Main.ube").is_file());
+    assert!(root.join("src/App.ube").is_file());
     assert_eq!(
         fs::read_to_string(root.join(".gitignore")).unwrap(),
         ".build/\n"
@@ -83,7 +83,7 @@ fn new_init_manifest_build_run_and_clean_work_without_explicit_entry() {
     success(cli(&root, &["build"]));
     assert!(root.join(".build/hello-world").is_file());
     assert!(root.join(".build/hello-world.ll").is_file());
-    assert!(!root.join("src/Main.ll").exists());
+    assert!(!root.join("src/App.ll").exists());
     assert!(success(cli(&root, &["run"])).contains("Hello from Ube!"));
     fs::create_dir_all(root.join("src/nested")).unwrap();
     success(cli(&root.join("src/nested"), &["check"]));
@@ -92,7 +92,7 @@ fn new_init_manifest_build_run_and_clean_work_without_explicit_entry() {
     success(cli(&root, &["clean"]));
     assert!(!root.join(".build/hello-world").exists());
     assert!(!root.join(".build/hello-world.ll").exists());
-    assert!(root.join("src/Main.ube").is_file());
+    assert!(root.join("src/App.ube").is_file());
     assert_eq!(fs::read(root.join("ube.lock")).unwrap(), lock);
     assert!(root.join(".build/.deps").exists());
     success(cli(&root, &["clean"]));
@@ -103,7 +103,7 @@ fn new_init_manifest_build_run_and_clean_work_without_explicit_entry() {
 fn init_preserves_existing_source_and_checks_manifest_entry_names() {
     let dir = tempfile::tempdir().unwrap();
     fs::create_dir(dir.path().join("src")).unwrap();
-    let source = "class Custom { main() {} }";
+    let source = "class Custom { start() {} }";
     fs::write(dir.path().join("src/Custom.ube"), source).unwrap();
     fs::write(
         dir.path().join(".gitignore"),
@@ -115,14 +115,14 @@ fn init_preserves_existing_source_and_checks_manifest_entry_names() {
         fs::read_to_string(dir.path().join(".gitignore")).unwrap(),
         "# Local rules\n.build/\nprivate.env"
     );
-    assert!(!dir.path().join("src/Main.ube").exists());
+    assert!(!dir.path().join("src/App.ube").exists());
     assert_eq!(
         fs::read_to_string(dir.path().join("src/Custom.ube")).unwrap(),
         source
     );
     let manifest = fs::read_to_string(dir.path().join("ube.toml"))
         .unwrap()
-        .replace("src/Main.ube", "src/Custom.ube");
+        .replace("src/App.ube", "src/Custom.ube");
     fs::write(dir.path().join("ube.toml"), manifest).unwrap();
     success(cli(dir.path(), &["check"]));
     fs::rename(
@@ -149,8 +149,8 @@ fn local_dependencies_are_imported_locked_checked_and_removed() {
     success(cli(dir.path(), &["new", "app"]));
     let app = dir.path().join("app");
     fs::write(
-        app.join("src/Main.ube"),
-        "import greet.Greeting\nclass Main { main() { log(Greeting().value()) } }",
+        app.join("src/App.ube"),
+        "import greet.Greeting\nclass App { start() { log(Greeting().value()) } }",
     )
     .unwrap();
     failure(cli(&app, &["add", "greet"]), "no package registry");
@@ -212,8 +212,8 @@ fn transitive_dependencies_resolve_in_their_own_package_context() {
     let app = dir.path().join("app");
     success(cli(&app, &["add", "greet", "--path", "../a"]));
     fs::write(
-        app.join("src/Main.ube"),
-        "import greet.Greeting\nclass Main { main() { log(Greeting().value()) } }",
+        app.join("src/App.ube"),
+        "import greet.Greeting\nclass App { start() { log(Greeting().value()) } }",
     )
     .unwrap();
     assert!(success(cli(&app, &["run"])).contains("17"));
@@ -239,8 +239,8 @@ fn git_dependencies_pin_commits_until_explicit_update() {
     let app = dir.path().join("app");
     success(cli(&app, &["add", "greet", "--git", lib.to_str().unwrap()]));
     fs::write(
-        app.join("src/Main.ube"),
-        "import greet.Greeting\nclass Main { main() { log(Greeting().value()) } }",
+        app.join("src/App.ube"),
+        "import greet.Greeting\nclass App { start() { log(Greeting().value()) } }",
     )
     .unwrap();
     assert!(fs::read_to_string(app.join("ube.lock"))
@@ -299,7 +299,7 @@ fn failed_adds_cycles_and_invalid_manifests_preserve_the_project() {
     failure(cli(&app, &["build"]), "Invalid package name");
     fs::write(
         app.join("ube.toml"),
-        "[package]\nname = 'fine'\nversion = '1'\n[build]\nentry = '../Main.ube'\n",
+        "[package]\nname = 'fine'\nversion = '1'\n[build]\nentry = '../App.ube'\n",
     )
     .unwrap();
     failure(cli(&app, &["build"]), "relative .ube path");
@@ -403,7 +403,7 @@ fn build_requires_valid_gitignore_for_manifest_and_explicit_sources() {
             },
         );
         failure(
-            cli(&root.join("src"), &["build", "Main.ube"]),
+            cli(&root.join("src"), &["build", "App.ube"]),
             if rules.contains('!') {
                 "! exceptions"
             } else {
@@ -433,13 +433,13 @@ fn build_requires_valid_gitignore_for_manifest_and_explicit_sources() {
 
     let standalone = dir.path().join("standalone");
     fs::create_dir(&standalone).unwrap();
-    fs::write(standalone.join("Main.ube"), "class Main { main() {} }").unwrap();
+    fs::write(standalone.join("App.ube"), "class App { start() {} }").unwrap();
     failure(
-        cli(&standalone, &["build", "Main.ube"]),
+        cli(&standalone, &["build", "App.ube"]),
         "Build requires .gitignore",
     );
     fs::write(standalone.join(".gitignore"), ".build/\n").unwrap();
-    success(cli(&standalone, &["build", "Main.ube"]));
+    success(cli(&standalone, &["build", "App.ube"]));
 }
 
 fn read_manifest_data(path: &Path) -> serde_json::Value {
@@ -470,7 +470,7 @@ fn manifest_formats_support_scaffolding_mixed_dependencies_and_builds() {
             &library,
             &["init", "--format", dependency_format, "--name", "greetings"],
         ));
-        fs::remove_file(library.join("src/Main.ube")).unwrap();
+        fs::remove_file(library.join("src/App.ube")).unwrap();
         fs::write(
             library.join("src/Greeting.ube"),
             "class Greeting { int value() { return 42 } }",
@@ -490,8 +490,8 @@ fn manifest_formats_support_scaffolding_mixed_dependencies_and_builds() {
             .join(format!(".build/.deps/greet/ube.{dependency_format}"))
             .is_file());
         fs::write(
-            app.join("src/Main.ube"),
-            "import greet.Greeting\nclass Main { main() { print(Greeting().value()) } }",
+            app.join("src/App.ube"),
+            "import greet.Greeting\nclass App { start() { print(Greeting().value()) } }",
         )
         .unwrap();
         success(cli(&app.join("src"), &["check"]));
@@ -523,7 +523,7 @@ fn conflicting_or_invalid_manifests_fail_without_modification() {
         fs::write(app.join(extra), "{}").unwrap();
         for args in [
             &["check"][..],
-            &["check", "src/Main.ube"],
+            &["check", "src/App.ube"],
             &["build"],
             &["test"],
             &["install"],
@@ -582,8 +582,8 @@ fn git_snapshots_preserve_yaml_dependency_and_json_project_manifests() {
         ],
     ));
     fs::write(
-        app.join("src/Main.ube"),
-        "import greet.Greeting\nclass Main { main() { print(Greeting().value()) } }",
+        app.join("src/App.ube"),
+        "import greet.Greeting\nclass App { start() { print(Greeting().value()) } }",
     )
     .unwrap();
     success(cli(&app, &["check"]));

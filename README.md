@@ -6,7 +6,7 @@
 [![Compiler Status](https://img.shields.io/badge/compiler-Rust%20%2B%20LLVM-orange.svg)](ARCHITECTURE.md)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
-**Ube** (name taken from the delicious Pilippine purple yam root crop) is a NO INHERITANCE, NO INTERFACE, pure object-oriented composition programming language designed for native performance, low memory footprint, and high safety. Positioned between GO and JAVA, **Ube** combines native single-binary deployment and direct native code generation via LLVM like RUST.
+**Ube** (name taken from the delicious Pilippine purple yam root crop) is a NO INHERITANCE, NO INTERFACE, class-based composition programming language designed for native performance, low memory footprint, and high safety. Positioned between GO and JAVA, **Ube** combines native single-binary deployment and direct native code generation via LLVM like RUST.
 
 ---
 
@@ -24,7 +24,7 @@ ube test
 ube clean
 ```
 
-`ube new` creates `ube.toml` by default, `src/Main.ube` containing `class Main`, a `tests/`
+`ube new` creates `ube.toml` by default, `src/App.ube` containing `class App`, a `tests/`
 directory, a README, and a `.gitignore`. `ube init` preserves existing source
 files, creates or updates `.gitignore` with `.build/` while preserving
 existing rules, and refuses to overwrite an existing manifest. If your sources already
@@ -50,7 +50,7 @@ version = "0.1.0"
 edition = "2026"
 
 [build]
-entry = "src/Main.ube"
+entry = "src/App.ube"
 
 [dependencies]
 # Local path, relative to this manifest:
@@ -61,13 +61,13 @@ greetings = { path = "../greetings" }
 
 With no source argument, `ube check`, `ube emit-ir`, `ube emit-llvm`, `ube build`,
 and `ube run` find the nearest supported manifest in the current directory or its parents.
-The default entry is `src/Main.ube`. Before compilation, `ube build` verifies
+The default entry is `src/App.ube`. Before compilation, `ube build` verifies
 that `.gitignore` protects `.build/` and fails on missing or conflicting rules.
 This also applies to explicit source builds;
 standalone files use their containing directory. `ube build` writes the executable and LLVM
 IR to `.build/<package-name>` and `.build/<package-name>.ll`; `--release` and
 `-o <output>` are supported. Explicit file commands such as
-`ube build src/Main.ube -o app` continue to work. `ube test` defaults to the
+`ube build src/App.ube -o app` continue to work. `ube test` defaults to the
 project's `tests/` directory, including when invoked from a subdirectory.
 
 ```sh
@@ -88,10 +88,10 @@ Dependencies are Ube projects with `ube.toml` and `.ube` source files under
 `src/`. Import a dependency's types using its alias:
 
 ```ube
-// src/Main.ube; greetings/src/Greeting.ube declares class Greeting.
+// src/App.ube; greetings/src/Greeting.ube declares class Greeting.
 import greetings.Greeting
-class Main {
-    main() {
+class App {
+    start() {
         log(Greeting().message())
     }
 }
@@ -146,7 +146,7 @@ The first implementation would focus on compiler enforcement:
    could depend on domain, while domain could not depend on infrastructure.
 3. Optionally restrict direct use of built-ins such as SQL, HTTP, filesystem,
    and environment access in business layers.
-4. Explicitly identify composition files, such as `Main.ube`, where concrete
+4. Explicitly identify composition files, such as `App.ube`, where concrete
    implementations are constructed and connected to business abstractions.
    Exceptions would apply only to those declared files.
 5. During `ube check`, `ube build`, and `ube test`, inspect resolved dependencies
@@ -273,7 +273,7 @@ Each `.ube` file may declare **one top-level class or one top-level trait**.
 A class and a trait must live in separate files, too. Imports do not count as
 declarations; an import-only file is allowed. The filename before `.ube` must
 match its class or trait name character for character, including capitalization:
-`class Main` belongs in `Main.ube`, never `main.ube`.
+`class App` belongs in `App.ube`, never `main.ube`.
 
 Use explicit imports to load other files relative to the importing file:
 
@@ -305,10 +305,11 @@ put each class or trait in its own file and import its dependencies.
 
 ## Language Core Principles & Policies
 
-### 1. Pure Object-Oriented (No `static`, No Free Functions)
-- **No Static Methods, Fields, or Classes**: Every executable function in Ube must be an instance method belonging to a class object.
- - **Application Entry Point**: The application entry point is an instance method (`main()`) on a class such as `Main` or `Application`. The compiler automatically generates the native C-ABI wrapper.
-- **Shared Instances via Constructor Injection**: Create an object explicitly in `Application.main()` and pass it to dependent classes. This shares the instance but does not enforce singleton uniqueness; there is no singleton marker or runtime registry.
+### 1. Class-Based Programming (No Free Functions)
+- **Instance and Static Members**: Fields and methods belong to instances by default. An explicit `static` modifier makes a member belong to the class. Use `static.name` inside the owning class and `ClassName.name` outside it; static methods have no `this`.
+- **Static Fields**: Declare `static var int total = 0` for mutable state or `static final int limit = 100` for an immutable binding. Static fields use direct reads and assignments; instance fields retain their accessor rules. See [static members](docs/static-members.md) for initialization, visibility, and concurrency rules.
+- **Application Entry Point**: The application entry point is an instance or static method (`start()`) on a class, conventionally `App` in `App.ube`. `App.start()` takes precedence over other classes' `start()` methods. `main()` is an ordinary method. The compiler automatically generates the native C-ABI wrapper.
+- **Shared Instances via Constructor Injection**: Create an object explicitly in `App.start()` and pass it to dependent classes. This shares the instance but does not enforce singleton uniqueness; there is no singleton marker or runtime registry.
 
 ### 2. Zero Inheritance & Maximum Performance
 - **No `extends` or Abstract Classes**: Ube has **no inheritance**.
@@ -328,11 +329,11 @@ put each class or trait in its own file and import its dependencies.
 
 ### 5. No `void` Keyword & Implicit Void Return Types
 - **No `void` Keyword**: The `void` keyword does not exist in Ube.
-- **Implicit Void Return Type**: Methods declared without a return type automatically return void (`main() { ... }` or `birthday() { ... }`).
+- **Implicit Void Return Type**: Methods declared without a return type automatically return void (`start() { ... }` or `birthday() { ... }`).
 - **Explicit Return Types**: Methods returning values specify the return type before the method name (`int getAge() { return this._age }`).
 
 ### 6. Explicit `this.` Qualification
-- All instance field and method accesses inside a class **must** be explicitly prefixed with `this.`. Unqualified access produces a compiler error.
+- Instance field and method accesses inside a class **must** be explicitly prefixed with `this.`. Static members of that class require `static.`. Unqualified access produces a compiler error.
 
 ### 7. Naming-Based Access Control
 - Public fields use accessor calls: `user.name()` and `user.age()` read values; `user.age(value)` writes a `var` field. Immutable fields have no setter. Direct access such as `user.age` or `user.age = value` is rejected.
@@ -348,9 +349,9 @@ put each class or trait in its own file and import its dependencies.
 - `print(value)` is shorthand for `Console.printLine(value)`. Use `log(...)` for diagnostics.
 
 ```ube
-class Application {
-    main() {
-        log('Application started')
+class App {
+    start() {
+        log('App started')
         Log.info('Ready')
         Log.warn('Retrying connection')
         Log.setLevel('debug')
@@ -392,7 +393,7 @@ parent, or sibling do not affect the other contexts. Worker contexts are restore
 when tasks finish, including errors and cancellation. Clear context in `finally`
 at request or operation boundaries so it does not carry into the next operation
 on the same execution thread. The logging threshold remains process-wide.
-See the [runnable context example](examples/log_context/Application.ube).
+See the [runnable context example](examples/log_context/App.ube).
 
 ### 9. Truthy & Falsy Conditions
 - Conditions in `if (condition)` and `for (condition)` accept truthy and falsy values:
@@ -469,10 +470,10 @@ See the [runnable context example](examples/log_context/Application.ube).
 - **Lambda and route syntax**: Inline handler arguments are supported, for example `server.get('/', request -> Response.ok('hello'))`. The original trailing-lambda form remains supported.
 - **Built-in naming**: Built-in classes require their canonical capitalized names, such as `Server`, `Request`, `Response`, `Json`, and `SQLite`. Lowercase class aliases are not supported. Instance variables such as `server` and `request` may still be lowercase.
 - **Express / Ktor Ergonomics**: Fluent routing with `server.get()`, `server.post()`, `server.put()`, `server.delete()`, `server.use()` (middleware), `server.static()`, `server.websocket()`, and `server.start(8080)`.
-- **OAuth 2.0 & JWT**: `OAuth2.create(...)` supports external authorization-code providers with session-bound state, S256 PKCE, and refresh tokens. `Jwt.sign(...)` and `Jwt.verify(...)` support HS256/RS256 with explicit issuer, audience, and expiration validation. See [authentication setup and API](docs/authentication.md), [the OAuth example](examples/oauth2/Application.ube), and [the JWT example](examples/jwt/Application.ube).
-- **Sessions**: `request.session()` provides `get(key)`, `set(key, value)`, `remove(key)`, `regenerate()`, and `destroy()`. Values are strings, missing values return `null`, and cookies are managed automatically for HTTP/1.1, HTTP/2, and HTTP/3. Storage is in memory per server with a fixed 30-minute lifetime. See [session setup and API](docs/sessions.md) and [the runnable example](examples/sessions/Application.ube).
-- **HTTP/3 Support**: Configure `server.tls(certPath, keyPath)` and `server.enableHttp3(udpPort)` before `start(tcpPort)`. QUIC shares routes and sessions with TCP, supports concurrent streams, and is advertised with `Alt-Svc`. `server.http3Port()` reports the bound UDP port. See [HTTP/3 setup](docs/http3.md) and [the runnable example](examples/http3/Application.ube).
-- **HTTP/2 Support**: Call `server.enableHttp2()` before `start()`. With `server.tls(certPath, keyPath)`, TLS ALPN negotiates HTTP/2 or HTTP/1.1. Without TLS, cleartext HTTP/2 prior knowledge (h2c) and HTTP/1.1 share the same port. HTTP/1.1 upgrade to h2c is not supported. See [HTTP/2 setup](docs/http2.md) and [the runnable example](examples/http2/Application.ube).
+- **OAuth 2.0 & JWT**: `OAuth2.create(...)` supports external authorization-code providers with session-bound state, S256 PKCE, and refresh tokens. `Jwt.sign(...)` and `Jwt.verify(...)` support HS256/RS256 with explicit issuer, audience, and expiration validation. See [authentication setup and API](docs/authentication.md), [the OAuth example](examples/oauth2/App.ube), and [the JWT example](examples/jwt/App.ube).
+- **Sessions**: `request.session()` provides `get(key)`, `set(key, value)`, `remove(key)`, `regenerate()`, and `destroy()`. Values are strings, missing values return `null`, and cookies are managed automatically for HTTP/1.1, HTTP/2, and HTTP/3. Storage is in memory per server with a fixed 30-minute lifetime. See [session setup and API](docs/sessions.md) and [the runnable example](examples/sessions/App.ube).
+- **HTTP/3 Support**: Configure `server.tls(certPath, keyPath)` and `server.enableHttp3(udpPort)` before `start(tcpPort)`. QUIC shares routes and sessions with TCP, supports concurrent streams, and is advertised with `Alt-Svc`. `server.http3Port()` reports the bound UDP port. See [HTTP/3 setup](docs/http3.md) and [the runnable example](examples/http3/App.ube).
+- **HTTP/2 Support**: Call `server.enableHttp2()` before `start()`. With `server.tls(certPath, keyPath)`, TLS ALPN negotiates HTTP/2 or HTTP/1.1. Without TLS, cleartext HTTP/2 prior knowledge (h2c) and HTTP/1.1 share the same port. HTTP/1.1 upgrade to h2c is not supported. See [HTTP/2 setup](docs/http2.md) and [the runnable example](examples/http2/App.ube).
 - **Request & Response Ergonomics**: `request.pathLong('id')`, `request.query('search')`, `request.hasBearerToken()`, `request.cookie('session')`, `request.protocol()`, `request.isHttp3()`, `Response.ok('hello')`, `Response.json(data)`.
 - **Current runtime status**: `server.start(port)` blocks the calling thread and serves loopback HTTP/1.1, optional TLS/HTTP/2, and configured HTTP/3 with exact method/path route matching. Query parameters, request headers, redirects, protocol reporting, and sessions work across transports. `request.body()` reads bounded UTF-8 request payloads (1 MiB maximum) across HTTP/1.x, HTTP/2, and HTTP/3; see [request bodies and limits](docs/request-bodies.md). Middleware, static-file serving, WebSockets, and several advanced `Request` accessors remain unimplemented.
 
@@ -485,7 +486,7 @@ see [memory behavior](docs/memory.md) and [stabilization status](docs/stabilizat
 
 - **Automatic serialization**: Objects, lists, and maps provide `.toJson()` and `.toXml()` without custom serializer methods.
 - **XML defaults and customization**: Class names become object roots, fields become child elements, lists use `<item>` children, maps use keyed `<entry>` elements, and nulls use `xsi:nil="true"`. `XmlOptions` customizes roots, attributes, field names, list item names, and namespaces.
-- **Document parsing**: `Json.toObject(text)` and `Xml.toObject(text)` return real document handles for traversal. Application classes are constructed explicitly; automatic typed reconstruction and schema-based strict/partial mapping are not implemented.
+- **Document parsing**: `Json.toObject(text)` and `Xml.toObject(text)` return real document handles for traversal. App classes are constructed explicitly; automatic typed reconstruction and schema-based strict/partial mapping are not implemented.
 - **XML document building**: `Xml.create('root')`, `document.root().element('name').text('Alice')`, and `document.toXml()` build and serialize explicit XML structures.
 - **Catchable format errors**: Parsing failures raise `JsonParseError` or `XmlParseError`; unsupported values, invalid customization, and traversal errors raise `JsonError` or `XmlError`.
 
@@ -532,15 +533,15 @@ To include a backtick in a one-line string, write it between single quotes. Doub
 - **Typed bindings and results**: `SQLParams.create()` holds bound scalar values; `db.query(sql, params)` provides checked typed getters and explicit NULL handling. Values are never concatenated into SQL.
 - **Transactions**: `db.begin()` reserves a connection. Use `tx.commit()` and `tx.close()` in `finally`; savepoints and rollback are supported. Failures during execution invalidate and attempt to roll back the transaction.
 - **Builder/ORM foundation**: The ORM shares this execution API, dialect helpers, parameters, results, and transaction context. Live-schema validation, standalone query-builder APIs, migration diffs, streaming, and async SQL APIs are future work.
-- See [the complete SQL API and limitations](docs/sql.md) and [the runnable example](examples/sql/Application.ube). The existing [SQLite-specific API](docs/sqlite.md) remains available.
+- See [the complete SQL API and limitations](docs/sql.md) and [the runnable example](examples/sql/App.ube). The existing [SQLite-specific API](docs/sqlite.md) remains available.
 
 ### 25. Typed ORM (`Orm`, `OrmModel<User>`, `OrmQuery<User>`, `OrmRows<User>`)
 - **Ordinary classes**: `Orm.model(db, User, 'users')` maps scalar constructor fields to columns, with an application-assigned `int` or `long` primary key named `id`.
 - **Explicit CRUD**: `users.create(user)`, `users.save(user)`, `users.get(id)`, `users.find(id)`, and `users.delete(id)` operate on typed objects. `migrate()` creates a missing table without altering existing schemas.
 - **Fluent typed queries**: `users.query().where('active', '=', true).orderBy('id', 'asc').limit(20)` binds values and preserves the result model type. Literal column names and predicate types are checked during compilation.
-- **Related-table joins**: `query.join(orders, 'o', 'id', 'userId')` and `leftJoin(...)` preserve typed base-model results, support related-column filters, and return a new query. See [the join example](examples/orm-joins/Application.ube).
+- **Related-table joins**: `query.join(orders, 'o', 'id', 'userId')` and `leftJoin(...)` preserve typed base-model results, support related-column filters, and return a new query. See [the join example](examples/orm-joins/App.ube).
 - **Shared SQL transactions**: `users.using(tx)` pins ORM operations to a `SQLTransaction`, including raw SQL and savepoints. Changes are persisted explicitly with `save()`.
-- See [the ORM API and limitations](docs/orm.md) and [the runnable example](examples/orm/Application.ube).
+- See [the ORM API and limitations](docs/orm.md) and [the runnable example](examples/orm/App.ube).
 
 ---
 
@@ -620,13 +621,13 @@ class Invoice(long id, decimal total) {
     }
 }
 
-class Application {
+class App {
     render(Printable item) {
         log(item.getHeader())
         item.printDetails()
     }
 
-    main() {
+    start() {
         final user = User(1000L, 'Lem')
         final invoice = Invoice(5001L, 199.99)
 
@@ -642,8 +643,8 @@ class Application {
 In Ube, the exclamation symbol `!` is not a valid operator. Logical negation and type checks use the `not` keyword:
 
 ```java
-class Application {
-    main() {
+class App {
+    start() {
         final bool isConnected = false
         final string input = '' // Empty string (falsy)
         final Object data = 42
@@ -700,8 +701,8 @@ class DataExporter(Logger logger) {
     }
 }
 
-class Application {
-    main() {
+class App {
+    start() {
         // Instantiate reusable components
         final logger = Logger('APP')
         final v8Engine = Engine(450)
@@ -716,7 +717,7 @@ class Application {
 }
 ```
 
-### 5. Application-Scoped Sharing via Constructor Injection
+### 5. App-Scoped Sharing via Constructor Injection
 
 Create a shared instance explicitly at startup and pass it into dependent services. Constructor injection also supports separate instances; it does not make a class a singleton or prevent additional construction:
 
@@ -739,8 +740,8 @@ class OrderService(DatabaseConnection db) {
     }
 }
 
-class Application {
-    main() {
+class App {
+    start() {
         // One shared instance for these services; additional instances are still allowed
         final sharedDatabase = DatabaseConnection('postgres://localhost:5432/main')
 
@@ -796,8 +797,8 @@ class LogLevel {
     }
 }
 
-class Application {
-    main() {
+class App {
+    start() {
         // 1. Simple Unit Enum Usage
         final dir = Direction.North
         final dirName = switch (dir) {
@@ -831,8 +832,8 @@ class Application {
 In Ube, `switch` is a first-class expression and statement supporting 6 core pattern-matching use cases (no fall-through, no `break` required inside cases):
 
 ```java
-class Application {
-    main() {
+class App {
+    start() {
         // Case 1: Constant Value Matching
         final statusCode = 200
         final statusText = switch (statusCode) {
@@ -896,8 +897,8 @@ class Application {
 Ube uses `for` as its **sole loop keyword** (no `while` or `do-while`).
 
 ```java
-class Application {
-    main() {
+class App {
+    start() {
         // Case 1: Infinite Loop (Replaces while(true))
         var counter = 0
         for {
@@ -970,7 +971,7 @@ class Application {
 | The body ran but every iteration executed `continue` | No |
 | A `return` or unhandled error exits the loop | No; it follows the normal return/error path |
 
-Each example below can be placed inside `Application.main()`.
+Each example below can be placed inside `App.start()`.
 
 **1. Empty collection: fallback runs**
 
@@ -1103,8 +1104,8 @@ A nonempty search with no match still entered its body. Use a flag and a separat
 In Ube, conditions in `if (condition)` statements evaluate **truthiness and falsiness** without requiring explicit boolean comparisons:
 
 ```java
-class Application {
-    main() {
+class App {
+    start() {
         final User? optionalUser = User(1000, 'Lem', 35)
         final int attempts = 3
         final string input = '' // Empty string (falsy)
@@ -1128,8 +1129,8 @@ class Application {
 Ube uses `not`, `and`, and `or` for boolean logic. Precedence is `not`, then `and`, then `or`; parentheses make grouping explicit.
 
 ```ube
-class Application {
-    main() {
+class App {
+    start() {
         final bool isReady = true
         final bool isConnected = false
 
@@ -1152,7 +1153,7 @@ class Application {
 
 For Ube task ownership, cancellation, safe sharing, and settled-result examples,
 see [Concurrency in Ube](docs/concurrency.md). Async task bodies and the program's
-main scope cancel and join unfinished child tasks before completing. No new
+application scope cancel and join unfinished child tasks before completing. No new
 syntax is required. `Task.allSettled` now returns `TaskOutcomes`, with explicit
 success/error status and checked scalar accessors instead of replacing failures
 with zero. Built-in list/map operations and generated scalar field accesses are
@@ -1202,8 +1203,8 @@ Cancellation is delivered once per worker callback, either at a cancellation pol
 ### 12. Built-in Collections (`List<T>`, `Map<K, V>`, Indexing & Bounds Protection)
 
 ```java
-class Application {
-    main() {
+class App {
+    start() {
         // 1. List literal, indexing, and methods
         final numbers = [10, 20, 30]
         numbers.add(40)
@@ -1230,8 +1231,8 @@ Throw a string for a `GenericError`, or throw an object that provides `string me
 ```ube
 class RequestError(string message, int code) {}
 
-class Application {
-    main() {
+class App {
+    start() {
         try {
             throw RequestError('Invalid user request', 400)
         } catch (RequestError err) if (err.code() == 400) {
@@ -1255,8 +1256,8 @@ Failures propagate through method calls and `await`; async errors retain their o
 File and directory failures are catchable, including `FileNotFoundError`, `PermissionError`, and a fallback `FileError`. Empty file content and stream EOF remain successful results. Invalid or closed streams raise errors. Server startup failures, including invalid ports and bind failures, raise catchable `GenericError` values.
 
 ```ube
-class Application {
-    main() {
+class App {
+    start() {
         final file = File.open('data.csv')
         try {
             log(file.read())
@@ -1274,8 +1275,8 @@ class Application {
 ### 14. Unified `DateTime` (`Instant` + Timezone) & `Duration` Standard Library
 
 ```java
-class Application {
-    main() {
+class App {
+    start() {
         // 1. Instant + Timezone Creation
         final manila = DateTime.of(2026, 8, 31, 17, 0, 'Asia/Manila')
         final tokyo = manila.in('Asia/Tokyo')
@@ -1300,8 +1301,8 @@ class Application {
 ### 15. Financial Standard Library (`Money`, `Currency`, `Exchange`, `Percent`, `Rate`)
 
 ```java
-class Application {
-    main() {
+class App {
+    start() {
         // 1. Immutable Financial Money Creation
         final price = Money.php(1250.75)
         final dollar = Money.usd(100.00)
@@ -1341,8 +1342,8 @@ and audit notes](docs/financial.md).
 ### 16. Native Filesystem & `finally` Cleanup
 
 ```java
-class Application {
-    main() {
+class App {
+    start() {
         // 1. One-shot static conveniences
         File.write('logs/app.txt', 'Server initialized\n')
         final content = File.read('logs/app.txt')
@@ -1365,8 +1366,8 @@ class Application {
 ### 17. High-Performance Native Web Server (`HTTP/1.1`, `HTTP/2`, `HTTP/3 QUIC`)
 
 ```java
-class Application {
-    main() {
+class App {
+    start() {
         final server = Server()
 
         server.get('/', request -> Response.ok('Hello from Ube!'))
@@ -1386,11 +1387,11 @@ class KitchenOrderScan(string restaurantID, string orderType) {}
 ```
 
 ```ube
-// Main.ube
+// App.ube
 import KitchenOrderScan
 
-class Main {
-    main() {
+class App {
+    start() {
         final json = Json.toObject('{"restaurantID":"0603","orderType":"DineIn"}')
         final scan = KitchenOrderScan(json.getString('restaurantID'), json.getString('orderType'))
         Console.printLine(scan.toJson())
@@ -1426,13 +1427,13 @@ cargo test -p ube-compiler --test xml_e2e
 
 ### 19. Zero Initialization & Explicit Construction
 
-A typed variable declared without an initializer receives a zero value. This does not evaluate constructor defaults or run user code. Explicit constructor calls still evaluate defaults. The runtime initializes the entry-point `Application` object using the same zero-initialization path, so its constructor defaults are also ignored at startup. Put configuration and resource creation explicitly inside `main()`.
+A typed variable declared without an initializer receives a zero value. This does not evaluate constructor defaults or run user code. Explicit constructor calls still evaluate defaults. The runtime initializes the entry-point `App` object using the same zero-initialization path, so its constructor defaults are also ignored at startup. Put configuration and resource creation explicitly inside `start()`.
 
 ```ube
 class User(string name = 'Guest', var int age = 18) {}
 
-class Application {
-    main() {
+class App {
+    start() {
         User zero
         log(zero.name()) // Empty string
         log(zero.age())  // 0
@@ -1499,17 +1500,17 @@ Ube new my_app
 cd my_app
 
 # 2. Fast syntax and static type check
-Ube check src/main.ube
+Ube check src/App.ube
 
 # 3. Fast compile & execute immediately (1-step execution)
-Ube run src/main.ube
+Ube run src/App.ube
 
 # 4. Build standalone native release executable (with -O3 & LTO optimization)
-Ube build --release src/main.ube -o my_app
+Ube build --release src/App.ube -o my_app
 ./my_app
 
 # 5. (Optional) Inspect generated textual LLVM IR for compiler debugging
-Ube emit-llvm src/main.ube -o main.ll
+Ube emit-llvm src/App.ube -o App.ll
 ```
 
 ---
@@ -1533,8 +1534,8 @@ Results provide typed getters and column metadata; failures raise `SQLiteError`.
 This complete example saves, reads, updates, and deletes one record:
 
 ```ube
-class Application {
-    main() {
+class App {
+    start() {
         // Store records in a local file that persists between runs.
         final db = SQLite.open('items.db')
         try {
@@ -1593,7 +1594,7 @@ class Application {
 ```
 
 See the [complete SQLite API reference](docs/sqlite.md) and
-[runnable example](examples/sqlite/Application.ube).
+[runnable example](examples/sqlite/App.ube).
 
 ---
 
@@ -1615,12 +1616,12 @@ See [Observability](docs/observability.md) for the API, validation rules, suppor
 
 ## Command-line arguments
 
-Keep `main()` parameterless and read application arguments through `Console.args()`:
+Keep `start()` parameterless and read application arguments through `Console.args()`:
 
 ```ube
-// Main.ube
-class Main {
-    main() {
+// App.ube
+class App {
+    start() {
         final args = Console.args()
         for (arg in args) {
             Console.printLine(arg)
@@ -1630,9 +1631,9 @@ class Main {
 ```
 
 ```bash
-ube run Main.ube -- hello 'two words' --verbose
+ube run App.ube -- hello 'two words' --verbose
 # Or run a built executable:
-./Main hello 'two words' --verbose
+./App hello 'two words' --verbose
 ```
 
 `Console.args()` returns a read-only `ConsoleArgs` collection, excluding the executable name. Use `args.len()`, `args.get(0)`, or `args[0]`; elements are strings. Empty arguments, whitespace, Unicode, and argument order are preserved. Invalid indexes raise catchable errors. With no arguments, the collection is empty. The CLI forwards everything after `--` unchanged as application arguments; with a project manifest, `ube run -- hello` works too. Native argument bytes that are not valid UTF-8 become Unicode replacement characters. The API exposes arguments only; it does not parse flags or read environment variables.
@@ -1664,9 +1665,9 @@ Read the [KeyValueStore reference](docs/key-value-store.md), [JSON serialization
 Ube has one built-in `Cache` API for local memory, durable disk-backed storage, and clients of a shared server. Keys and values are strings; missing or expired entries return `null`.
 
 ```ube
-// Main.ube
-class Main {
-    main() {
+// App.ube
+class App {
+    start() {
         final cache = Cache.memory(67108864)
         try {
             cache.set('greeting', 'hello', 60000)
@@ -1709,8 +1710,8 @@ ube cache --bind 127.0.0.1:6380 --memory 67108864 \
 In another terminal, enter the same directory and supply/export the same token. The two applications below communicate through that cache:
 
 ```bash
-ube run writer/Main.ube
-ube run reader/Main.ube
+ube run writer/App.ube
+ube run reader/App.ube
 ```
 
 On a fresh cache, the writer prints `1`; the reader prints `hello from another process` and `1`. The greeting expires after 60 seconds. Restarting either application leaves the server running. Restarting the persistent server retains the visit counter and any greeting whose TTL has not elapsed and which has not been evicted.
@@ -1721,13 +1722,13 @@ The default cache listener is localhost port 6380. `--metrics 9090` exposes `/he
 
 [The runnable example guide](examples/cache/README.md) includes source-checkout build instructions, exact commands, and expected outputs for:
 
-- [Memory operations and LRU eviction](examples/cache/memory/Main.ube)
-- [Persistence across application restarts](examples/cache/persistent/Main.ube)
-- [Expiration during downtime](examples/cache/ttl/Main.ube)
-- [Concurrent atomic counters](examples/cache/counter/Main.ube)
-- [Separate writer](examples/cache/writer/Main.ube) and [reader](examples/cache/reader/Main.ube) applications
-- [Embedded sharing with health and metrics](examples/cache/server/Main.ube)
-- [Cache-aside source fallback and error handling](examples/cache/cache-aside/Main.ube)
+- [Memory operations and LRU eviction](examples/cache/memory/App.ube)
+- [Persistence across application restarts](examples/cache/persistent/App.ube)
+- [Expiration during downtime](examples/cache/ttl/App.ube)
+- [Concurrent atomic counters](examples/cache/counter/App.ube)
+- [Separate writer](examples/cache/writer/App.ube) and [reader](examples/cache/reader/App.ube) applications
+- [Embedded sharing with health and metrics](examples/cache/server/App.ube)
+- [Cache-aside source fallback and error handling](examples/cache/cache-aside/App.ube)
 
 All cache calls are synchronous and can raise catchable errors. The byte limit accounts for entries, not total process RSS; entries can be evicted even with TTL zero. Persistent data should live outside `.build` when it must survive `ube clean`. The shared protocol authenticates requests but has no built-in TLS; use an encrypted tunnel or TLS proxy across untrusted networks. It is Ube-specific, not Memcached wire-compatible.
 

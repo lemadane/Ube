@@ -30,7 +30,7 @@ Methods with ordinary method calls, trait dispatch, object construction, nested
 async submissions, or unapproved runtime calls retain the blocking-pool backend.
 This avoids running hidden blocking IO on scheduler workers. Interprocedural
 blocking analysis, wider lowering coverage, and full async IO APIs remain work
-for later stages. Synchronous main code still blocks while awaiting.
+for later stages. Synchronous entry-point code still blocks while awaiting.
 
 Validation includes 2,048 suspended methods on one Tokio worker with two total
 OS threads (main plus worker), multi-await loops, cancellation with awaited
@@ -43,11 +43,11 @@ checks do not establish parity with Rust or Java virtual threads.
 
 Each executing async method or `async expr` owns the tasks it starts. Tasks
 started by synchronous helpers belong to that same parent task. Tasks started
-from synchronous main code belong to the program's root task scope. These are
+from synchronous entry-point code belong to the program's root task scope. These are
 task scopes, not a new scope at every brace or synchronous method call.
 
 When a task body returns or throws, its unfinished children are cancelled and
-joined before its result becomes available. Main performs the same cleanup
+joined before its result becomes available. App performs the same cleanup
 before reporting an unhandled error or shutting down runtime resources. Await
 work you want to complete; leaving it unawaited is not a way to launch detached
 background work. A completed, unobserved child failure propagates at scope exit;

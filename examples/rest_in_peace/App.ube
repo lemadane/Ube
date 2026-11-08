@@ -1,5 +1,5 @@
-class Application {
-    main() {
+class App {
+    start() {
         final server = Server()
         server.get('/health', request -> Response.ok('ready'))
         server.post('/echo', request -> Response.json(request.body()))

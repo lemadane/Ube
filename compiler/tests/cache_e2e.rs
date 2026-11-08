@@ -18,7 +18,7 @@ struct Program {
 impl Program {
     fn new(source: &str) -> Self {
         let temp = tempfile::tempdir().unwrap();
-        let entry = support::write_source(&temp.path().join("Main.ube"), source);
+        let entry = support::write_source(&temp.path().join("App.ube"), source);
         fs::write(temp.path().join(".gitignore"), ".build/\n").unwrap();
         let executable = temp.path().join("program");
         let result = Command::new(env!("CARGO_BIN_EXE_ube-compiler"))
@@ -128,7 +128,7 @@ fn standalone(address: &str, db: &Path, metrics: u16) -> Command {
         .env("CACHE_TEST_TOKEN", TOKEN);
     command
 }
-const CLIENT: &str = r#"class Main { main() {
+const CLIENT: &str = r#"class App { start() {
     final args = Console.args()
     final cache = Cache.connect(args[0], Env.require('CACHE_TEST_TOKEN'))
     if (args[1] == 'seed') {
@@ -247,7 +247,7 @@ fn standalone_shares_atomic_values_and_recovers_after_sigkill() {
 #[test]
 fn embedded_listener_shares_values_and_runtime_cleanup_releases_disk_lock() {
     let server = Program::new(
-        r#"class Main { main() {
+        r#"class App { start() {
         final args = Console.args()
         final cache = Cache.open(args[0], 4096)
         cache.listen(args[1], Env.require('CACHE_TEST_TOKEN'))
@@ -289,7 +289,7 @@ fn embedded_listener_shares_values_and_runtime_cleanup_releases_disk_lock() {
 #[test]
 fn native_memory_cache_eviction_errors_and_buffered_persistence() {
     let program = Program::new(
-        r#"class Main { main() {
+        r#"class App { start() {
         final cache = Cache.memory(132)
         Console.printLine(cache.add('a','1',0))
         Console.printLine(cache.add('a','9',0))
@@ -331,7 +331,7 @@ fn cache_signatures_reject_invalid_calls() {
         "Cache.memory(1024).get(1)",
         "Cache.memory(1024).unknown()",
     ] {
-        let source = format!("class Main {{ main() {{ {statement} }} }}");
+        let source = format!("class App {{ start() {{ {statement} }} }}");
         let mut parser = Parser::new(Lexer::new(&source));
         let program = parser.parse_program();
         let mut checker = TypeChecker::new();

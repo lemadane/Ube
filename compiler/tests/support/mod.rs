@@ -29,7 +29,7 @@ pub fn write_source(path: &Path, source: &str) -> PathBuf {
             Item::Class(c)
                 if c.methods
                     .iter()
-                    .any(|m| m.name == "main" || m.name.starts_with("test")) =>
+                    .any(|m| m.name == "start" || m.name.starts_with("test")) =>
             {
                 Some(c.name.as_str())
             }

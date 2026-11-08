@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 fn result(instruction: &IrInstruction) -> Vec<(Register, Type)> {
     use IrInstruction::*;
     match instruction {
-        Cast { dest, ty, .. } | Load { dest, ty, .. } => vec![(*dest, ty.clone())],
+        LoadStatic { dest, ty, .. } | Cast { dest, ty, .. } | Load { dest, ty, .. } => vec![(*dest, ty.clone())],
         GetField { dest, field_ty, .. } => vec![(*dest, field_ty.clone())],
         Binary {
             dest, result_ty, ..
@@ -33,7 +33,7 @@ fn result(instruction: &IrInstruction) -> Vec<(Register, Type)> {
 fn inputs(instruction: &IrInstruction) -> Vec<IrOperand> {
     use IrInstruction::*;
     match instruction {
-        Cast { value, .. } | Store { val: value, .. } => vec![value.clone()],
+        StoreStatic { value, .. } | Cast { value, .. } | Store { val: value, .. } => vec![value.clone()],
         GetField {
             ptr, class_name, ..
         } => vec![IrOperand::Register(

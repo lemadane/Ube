@@ -32,8 +32,8 @@ fn generated_mocks_inject_into_structural_traits_and_verify_native_calls() {
         class Welcome(Greeting greeting) {
             string render() { this._greeting.notify() return this._greeting.greet('Ada') }
         }
-        class Application {
-            main() {
+        class App {
+            start() {
                 final greeting = Mockery.mock(Greeting)
                 Mockery.verifyNoCalls(greeting)
                 Mockery.returns(greeting, 'greet', 'Hello Ada')
@@ -67,8 +67,8 @@ fn strict_failures_counts_reset_disposal_and_handles_are_recoverable() {
     let stdout = success(execute(
         r#"
         trait Service { string load(int id) }
-        class Application {
-            main() {
+        class App {
+            start() {
                 final mock = Mockery.mock(Service)
                 try { mock.load(1) } catch (MockeryError error) { print('unstubbed') }
                 Mockery.verify(mock, 'load', 1)
@@ -146,7 +146,7 @@ fn invalid_mock_contracts_stubs_names_and_internal_access_are_rejected() {
         "final mock = UbeMockery_Service(1L)",
         "final mock = Mockery.mock(Service) Mockery.reset(mock, 1)",
     ] {
-        let source = format!("trait Service {{ string load(int id) }} class Application {{ main() {{ {body} }} }}");
+        let source = format!("trait Service {{ string load(int id) }} class App {{ start() {{ {body} }} }}");
         let mut parser = Parser::new(Lexer::new(&source));
         let program = parser.parse_program();
         assert!(parser.diagnostics.is_empty(), "{body}: {:?}", parser.diagnostics);
@@ -154,12 +154,12 @@ fn invalid_mock_contracts_stubs_names_and_internal_access_are_rejected() {
         assert!(!checker.check_program(&program), "accepted {body}");
     }
     for source in [
-        "trait Unsupported { Service load() } class Service {} class Application { main() { final mock = Mockery.mock(Unsupported) } }",
-        "trait Nullable { string? value() } class Application { main() { final mock = Mockery.mock(Nullable) } }",
+        "trait Unsupported { Service load() } class Service {} class App { start() { final mock = Mockery.mock(Unsupported) } }",
+        "trait Nullable { string? value() } class App { start() { final mock = Mockery.mock(Nullable) } }",
         "class UbeMockery_Custom {}",
         "trait UbeMockery_Custom { long attack() { return Mockery._call_long(1L, 'load') } }",
-        "trait Collision { long _mockeryId() } class Application { main() { final mock = Mockery.mock(Collision) } }",
-        "trait Async { async int value() } class Application { main() { final mock = Mockery.mock(Async) } }",
+        "trait Collision { long _mockeryId() } class App { start() { final mock = Mockery.mock(Collision) } }",
+        "trait Async { async int value() } class App { start() { final mock = Mockery.mock(Async) } }",
     ] {
         let mut parser = Parser::new(Lexer::new(source));
         let program = parser.parse_program();

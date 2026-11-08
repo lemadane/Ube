@@ -28,8 +28,8 @@ mod tests {
     fn application_main(ir: &IrProgram) -> &IrFunction {
         ir.functions
             .iter()
-            .find(|function| function.class_name == "Application" && function.name == "main")
-            .expect("Application.main should be generated")
+            .find(|function| function.class_name == "App" && function.name == "start")
+            .expect("App.start should be generated")
     }
 
     #[test]
@@ -40,8 +40,8 @@ mod tests {
                     return value + 1
                 }
             }
-            class Application {
-                main() {
+            class App {
+                start() {
                     final worker = Worker()
                     final task = worker.compute(41)
                     final results = await Task.all([task, worker.compute(42)])
@@ -77,8 +77,8 @@ mod tests {
                 }
             }
 
-            class Application {
-                void main() {
+            class App {
+                void start() {
                     final user = User(1000, 'Lem', 35)
                     user.birthday()
                 }
@@ -102,8 +102,8 @@ mod tests {
     fn iterable_for_loop_loads_values_and_increments_index() {
         let ir = build_ir(
             r#"
-            class Application {
-                void main() {
+            class App {
+                void start() {
                     for (index, item in [10, 20]) {
                         Console.printLine(index)
                         Console.printLine(item)
@@ -148,8 +148,8 @@ mod tests {
     fn static_calls_and_if_expression_keep_their_types() {
         let ir = build_ir(
             r#"
-            class Application {
-                void main() {
+            class App {
+                void start() {
                     final root = Math.sqrt(4)
                     final value = if (1) {
                         final branchValue = 'left'
@@ -217,8 +217,8 @@ mod tests {
     fn date_and_duration_units_are_converted_to_seconds() {
         let ir = build_ir(
             r#"
-            class Application {
-                void main() {
+            class App {
+                void start() {
                     DateTime.now().addDays(2)
                     DateTime.now().diffDays(DateTime.now())
                     Duration.days(3)
@@ -256,8 +256,8 @@ mod tests {
         let ir = build_ir(
             r#"
         
-        class Application {
-            void main() {
+        class App {
+            void start() {
                 try {
                     final value = [1][-1]
                 }

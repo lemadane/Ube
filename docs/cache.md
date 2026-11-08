@@ -5,7 +5,7 @@ Ube provides one string key/value API for embedded memory caches, persistent emb
 ## Guides and runnable examples
 
 - [Runnable project and expected output](../examples/cache/README.md)
-- [Application recipes](cache-recipes.md): cache-aside fallback and concurrent counters
+- [App recipes](cache-recipes.md): cache-aside fallback and concurrent counters
 - [Deployment and recovery](cache-deployment.md): CLI options, shared hosting, disk lifecycle, backups, and troubleshooting
 - [TCP protocol](cache-protocol.md): framing, authentication, request/response fields, and limits
 - [Metrics and health](observability.md)
@@ -28,8 +28,8 @@ For records that must remain until explicitly changed or deleted, use [KeyValueS
 ## Embedded
 
 ```ube
-class Main {
-    main() {
+class App {
+    start() {
         final cache = Cache.memory(67108864)
         cache.set('user:42', '{"name":"Alice"}', 60000)
         final user = cache.get('user:42') // string?, null on a miss
@@ -71,8 +71,8 @@ The default token variable is `UBE_CACHE_TOKEN`; `--token-env NAME` selects anot
 Applications connect through the same API:
 
 ```ube
-class Main {
-    main() {
+class App {
+    start() {
         final cache = Cache.connect('127.0.0.1:6380', Env.require('UBE_CACHE_TOKEN'))
         cache.set('shared:greeting', 'hello', 60000)
         Console.printLine(cache.get('shared:greeting') ?? 'missing')
@@ -118,13 +118,13 @@ Metrics aggregate locally owned caches in that process, never remote server cont
 
 | Source | Demonstrates |
 | --- | --- |
-| [Memory](../examples/cache/memory/Main.ube) | Add, get, increment, delete, and deterministic LRU eviction |
-| [Persistence](../examples/cache/persistent/Main.ube) | Separate write/read/delete application invocations |
-| [Expiration](../examples/cache/ttl/Main.ube) | Absolute TTL across application downtime |
-| [Concurrent counter](../examples/cache/counter/Main.ube) | Two async tasks using atomic increments |
-| [Writer](../examples/cache/writer/Main.ube) / [Reader](../examples/cache/reader/Main.ube) | Sharing through an independent server |
-| [Embedded server](../examples/cache/server/Main.ube) | TCP sharing, health, metrics, and explicit shutdown |
-| [Cache-aside](../examples/cache/cache-aside/Main.ube) | Source fallback and handling cache errors |
+| [Memory](../examples/cache/memory/App.ube) | Add, get, increment, delete, and deterministic LRU eviction |
+| [Persistence](../examples/cache/persistent/App.ube) | Separate write/read/delete application invocations |
+| [Expiration](../examples/cache/ttl/App.ube) | Absolute TTL across application downtime |
+| [Concurrent counter](../examples/cache/counter/App.ube) | Two async tasks using atomic increments |
+| [Writer](../examples/cache/writer/App.ube) / [Reader](../examples/cache/reader/App.ube) | Sharing through an independent server |
+| [Embedded server](../examples/cache/server/App.ube) | TCP sharing, health, metrics, and explicit shutdown |
+| [Cache-aside](../examples/cache/cache-aside/App.ube) | Source fallback and handling cache errors |
 
 Follow the [example README](../examples/cache/README.md) for setup, complete commands, expected outputs, and restart demonstrations.
 

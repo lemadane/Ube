@@ -19,8 +19,8 @@ fn test_ube_end_to_end_pipeline() {
             }
         }
 
-        class Application {
-            main() {
+        class App {
+            start() {
                 final user = User(1000, 'Lem', 35)
                 user.birthday()
 
@@ -116,8 +116,8 @@ fn test_e2e_person_birthday() {
             }
         }
 
-        class Application {
-            main() {
+        class App {
+            start() {
                 final person = Person('Lem', 35)
                 Console.printLine(person.name())
                 Console.printLine(person.age())
@@ -159,8 +159,8 @@ fn test_e2e_person_birthday() {
 #[test]
 fn test_lambda_captures_outer_variables() {
     let source_code = r#"
-        class Application {
-            main() {
+        class App {
+            start() {
                 final res = 'Hello from my Ube server!'
                 final server = Server()
                 server.get('/', request -> Response.ok(res))
@@ -211,7 +211,7 @@ fn test_e2e_trait_polymorphism() {
                 item.printDetails()
             }
 
-            main() {
+            start() {
                 final user = User(1000L, 'Lem')
                 final invoice = Invoice(5001L, 199.99)
 
@@ -281,8 +281,8 @@ fn test_e2e_control_flow_and_dynamic_alloc() {
             long h
         ) {}
 
-        class Application {
-            main() {
+        class App {
+            start() {
                 final obj = LargeObject(1L, 2L, 3L, 4L, 5L, 6L, 7L, 8L)
                 final cond = true
 
@@ -321,8 +321,8 @@ fn test_e2e_control_flow_and_dynamic_alloc() {
 #[test]
 fn test_e2e_nested_cfg_and_logical_ops() {
     let source_code = r#"
-        class Application {
-            main() {
+        class App {
+            start() {
                 final a = true
                 final b = false
                 final res = not (a and b)
@@ -371,8 +371,8 @@ fn test_e2e_default_constructor_args() {
             var int age = 0
         ) {}
 
-        class Application {
-            main() {
+        class App {
+            start() {
                 final user = User('Lem')
             }
         }
@@ -400,8 +400,8 @@ fn test_e2e_definitely_returns_if_branches() {
             }
         }
 
-        class Application {
-            main() {
+        class App {
+            start() {
                 final calc = Calculator()
                 Console.printLine(calc.compute(true))
             }
@@ -436,8 +436,8 @@ fn test_e2e_go_style_zero_values() {
             var int age = 18
         ) {}
 
-        class Application {
-            main() {
+        class App {
+            start() {
                 User user
                 final u1 = User()
                 final u2 = User(1000L)
@@ -482,8 +482,8 @@ fn test_e2e_go_zero_value_user() {
             var int age = 18
         ) {}
 
-        class Application {
-            main() {
+        class App {
+            start() {
                 User user
 
                 Console.printLine(user.id())
@@ -521,8 +521,8 @@ fn test_e2e_unified_zero_value_instantiation() {
             var int balance = 100
         ) {}
 
-        class Application {
-            main() {
+        class App {
+            start() {
                 Account a1
                 final a2 = Account()
                 final a3 = Account(1000L)
@@ -561,8 +561,8 @@ fn test_type_checker_constructor_argument_types() {
     let source_code = r#"
         class User(long id, string name) {}
 
-        class Application {
-            main() {
+        class App {
+            start() {
                 final invalid = User('Lem', 1000L)
             }
         }
@@ -582,8 +582,8 @@ fn test_type_checker_constructor_argument_types() {
 #[test]
 fn test_type_checker_variable_decl_type_enforcement() {
     let source_code = r#"
-        class Application {
-            main() {
+        class App {
+            start() {
                 int age = 'hello'
             }
         }
@@ -602,8 +602,8 @@ fn test_type_checker_variable_decl_type_enforcement() {
 #[test]
 fn test_type_checker_if_condition_bool_enforcement() {
     let source_code = r#"
-        class Application {
-            main() {
+        class App {
+            start() {
                 if (123) {
                     Console.printLine('Hello')
                 }
@@ -624,8 +624,8 @@ fn test_type_checker_if_condition_bool_enforcement() {
 #[test]
 fn test_e2e_unary_not_lowering() {
     let source_code = r#"
-        class Application {
-            main() {
+        class App {
+            start() {
                 final a = false
                 final b = not a
                 Console.printLine(b)
@@ -684,8 +684,8 @@ fn test_e2e_trait_return_type_preservation() {
 #[test]
 fn test_e2e_decimal_modulus_lowering() {
     let source_code = r#"
-        class Application {
-            main() {
+        class App {
+            start() {
                 final a = 10.5 % 3.2
                 Console.printLine(a)
             }
@@ -712,8 +712,8 @@ fn test_e2e_decimal_modulus_lowering() {
 #[test]
 fn test_e2e_int_and_long_keep_distinct_storage_types() {
     let source_code = r#"
-        class Application {
-            main() {
+        class App {
+            start() {
                 int small = 10
                 long big = 10L
 
@@ -810,8 +810,8 @@ fn test_e2e_reject_wrong_method_argument_type() {
             }
         }
 
-        class Application {
-            main() {
+        class App {
+            start() {
                 final greeter = Greeter()
 
                 greeter.greet('wrong')
@@ -846,10 +846,10 @@ fn test_e2e_reject_wrong_method_argument_type() {
 #[test]
 fn test_e2e_application_startup_uses_zero_initialization() {
     let source_code = r#"
-        class Application(
+        class App(
             var int port = 8080
         ) {
-            main() {
+            start() {
                 Console.printLine(this.port())
             }
         }
@@ -888,7 +888,7 @@ fn test_e2e_application_startup_uses_zero_initialization() {
     assert!(
         llvm_ir.contains("store i32 0") && !llvm_ir.contains("store i32 8080")
             && llvm_ir.contains("@__ube.internal_zero(i8* null)"),
-        "Application startup did not use zero initialization:\n{}",
+        "App startup did not use zero initialization:\n{}",
         llvm_ir
     );
 }
@@ -900,8 +900,8 @@ fn test_e2e_abstract_trait_nonvoid_method_never_returns_void() {
             string title()
         }
 
-        class Application {
-            main() {}
+        class App {
+            start() {}
         }
     "#;
 
@@ -950,8 +950,8 @@ fn test_e2e_abstract_trait_nonvoid_method_never_returns_void() {
 #[test]
 fn test_e2e_reject_invalid_binary_operand_types() {
     let source_code = r#"
-        class Application {
-            main() {
+        class App {
+            start() {
                 final bad = 10 and 20
             }
         }
@@ -984,8 +984,8 @@ fn test_e2e_reject_invalid_binary_operand_types() {
 #[test]
 fn test_e2e_string_interpolation_is_not_literal_text() {
     let source_code = r#"
-        class Application {
-            main() {
+        class App {
+            start() {
                 final name = 'Lem'
 
                 Console.printLine('Hello ${name}')
@@ -1028,8 +1028,8 @@ fn test_e2e_string_interpolation_is_not_literal_text() {
 #[test]
 fn test_e2e_unsupported_binary_never_panics_backend() {
     let source_code = r#"
-        class Application {
-            main() {
+        class App {
+            start() {
                 final range = 1 .. 10
             }
         }
@@ -1109,8 +1109,8 @@ fn test_e2e_trait_declared_return_types_preserved_across_all_types() {
             }
         }
 
-        class Application {
-            main() {
+        class App {
+            start() {
                 final s = Service(42, 1000L, 3.14, true, 'OK')
                 Console.printLine(s.count())
                 Console.printLine(s.timestamp())
@@ -1181,8 +1181,8 @@ fn test_e2e_trait_declared_return_types_preserved_across_all_types() {
 #[test]
 fn test_e2e_range_expression_emits_graceful_diagnostic() {
     let source_code = r#"
-        class Application {
-            main() {
+        class App {
+            start() {
                 final numbers = 1 .. 10
             }
         }
@@ -1207,8 +1207,8 @@ fn test_e2e_range_expression_emits_graceful_diagnostic() {
 #[test]
 fn test_e2e_bare_unsupported_function_call_emits_diagnostic() {
     let source_code = r#"
-        class Application {
-            main() {
+        class App {
+            start() {
                 doSomething()
             }
         }
@@ -1233,8 +1233,8 @@ fn test_e2e_bare_unsupported_function_call_emits_diagnostic() {
 #[test]
 fn test_e2e_unsupported_member_access_emits_diagnostic() {
     let source_code = r#"
-        class Application {
-            main() {
+        class App {
+            start() {
                 final x = 42
                 Console.printLine(x.invalid_member)
             }
@@ -1260,8 +1260,8 @@ fn test_e2e_unsupported_member_access_emits_diagnostic() {
 #[test]
 fn test_e2e_invalid_assignment_target_emits_diagnostic() {
     let source_code = r#"
-        class Application {
-            main() {
+        class App {
+            start() {
                 (10 + 20) = 100
             }
         }
@@ -1288,8 +1288,8 @@ fn test_e2e_optional_chaining_emits_diagnostic_until_supported() {
     let source_code = r#"
         class User(var string name) {}
 
-        class Application {
-            main() {
+        class App {
+            start() {
                 final u = User('Alice')
                 Console.printLine(u?.name)
             }
@@ -1315,8 +1315,8 @@ fn test_e2e_optional_chaining_emits_diagnostic_until_supported() {
 #[test]
 fn test_e2e_break_and_continue_outside_loop_emits_diagnostic() {
     let break_source = r#"
-        class Application {
-            main() {
+        class App {
+            start() {
                 break
             }
         }
@@ -1334,8 +1334,8 @@ fn test_e2e_break_and_continue_outside_loop_emits_diagnostic() {
     );
 
     let continue_source = r#"
-        class Application {
-            main() {
+        class App {
+            start() {
                 continue
             }
         }
@@ -1356,8 +1356,8 @@ fn test_e2e_break_and_continue_outside_loop_emits_diagnostic() {
 #[test]
 fn test_e2e_invalid_unary_operands_emit_diagnostic() {
     let not_int_source = r#"
-        class Application {
-            main() {
+        class App {
+            start() {
                 final x = not 123
             }
         }
@@ -1375,8 +1375,8 @@ fn test_e2e_invalid_unary_operands_emit_diagnostic() {
     );
 
     let neg_bool_source = r#"
-        class Application {
-            main() {
+        class App {
+            start() {
                 final y = -true
             }
         }
@@ -1398,8 +1398,8 @@ fn test_e2e_invalid_unary_operands_emit_diagnostic() {
 fn test_e2e_try_check_no_error_flow() {
     let source_code = r#"
         
-        class Application {
-            main() {
+        class App {
+            start() {
                 try {
                     Console.printLine('Step 1')
         
@@ -1460,8 +1460,8 @@ fn test_e2e_try_raise_check_error_flow() {
             }
         }
         
-        class Application {
-            main() {
+        class App {
+            start() {
                 try {
                     Console.printLine('Before throw')
                     throw(CustomError('Something went wrong'))
@@ -1516,8 +1516,8 @@ fn test_e2e_try_raise_check_error_flow() {
 #[test]
 fn test_e2e_throw_outside_try_is_valid() {
     let source_code = r#"
-        class Application {
-            main() {
+        class App {
+            start() {
                 throw('Error outside try')
             }
         }
@@ -1541,7 +1541,7 @@ fn test_e2e_try_raise_string_interpolation_flow() {
     let source_code = r#"
         
         class App {
-            main() {
+            start() {
                 try {
                     throw('an error occurred')
         
@@ -1592,8 +1592,8 @@ fn test_e2e_try_raise_string_interpolation_flow() {
 fn test_e2e_raise_primitive_emits_diagnostic() {
     let source_code = r#"
         
-        class Application {
-            main() {
+        class App {
+            start() {
                 try {
                     throw(123)
         
@@ -1637,8 +1637,8 @@ fn test_e2e_raise_custom_class_error_trait() {
             }
         }
         
-        class Application {
-            main() {
+        class App {
+            start() {
                 try {
                     throw(
                       CustomError(
@@ -1685,8 +1685,8 @@ fn test_e2e_raise_custom_class_error_trait() {
 #[test]
 fn test_e2e_list_literal_indexing_and_methods() {
     let source_code = r#"
-        class Application {
-            main() {
+        class App {
+            start() {
                 final numbers = [10, 20, 30]
                 numbers.add(40)
                 Console.printLine(numbers[0])
@@ -1716,8 +1716,8 @@ fn test_e2e_list_literal_indexing_and_methods() {
 #[test]
 fn test_e2e_map_literal_indexing_and_len() {
     let source_code = r#"
-        class Application {
-            main() {
+        class App {
+            start() {
                 final scores = [1000L: 95, 1001L: 88]
                 Console.printLine(scores[1000L])
                 Console.printLine(scores.len())
@@ -1747,8 +1747,8 @@ fn test_e2e_map_literal_indexing_and_len() {
 fn test_e2e_list_index_out_of_bounds_raises_error() {
     let source_code = r#"
         
-        class Application {
-            main() {
+        class App {
+            start() {
                 try {
                     final list = [1, 2]
                     Console.printLine(list[10])
@@ -1782,12 +1782,12 @@ fn test_e2e_list_index_out_of_bounds_raises_error() {
 #[test]
 fn test_e2e_async_spawn_and_await() {
     let source_code = r#"
-        class Application {
+        class App {
             async fetchScore(int id) {
                 return 95
             }
 
-            main() {
+            start() {
                 final task = this.fetchScore(1000)
                 final score = await task
                 Console.printLine(score)
@@ -1817,12 +1817,12 @@ fn test_e2e_async_spawn_and_await() {
 fn test_e2e_async_task_raise_rethrown_on_await() {
     let source_code = r#"
         
-        class Application {
+        class App {
             async riskyTask() {
                 throw('async task error')
             }
         
-            main() {
+            start() {
                 try {
                     final task = this.riskyTask()
                     await task
@@ -1856,8 +1856,8 @@ fn test_e2e_async_task_raise_rethrown_on_await() {
 #[test]
 fn test_e2e_channel_send_and_receive() {
     let source_code = r#"
-        class Application {
-            main() {
+        class App {
+            start() {
                 final ch = Channel()
                 await ch.send(100)
                 final val = await ch.receive()
@@ -1887,8 +1887,8 @@ fn test_e2e_channel_send_and_receive() {
 #[test]
 fn test_e2e_async_expression_spawn() {
     let source_code = r#"
-        class Application {
-            main() {
+        class App {
+            start() {
                 final task = async (10 + 20)
                 final val = await task
                 Console.printLine(val)
@@ -1926,8 +1926,8 @@ fn test_e2e_async_expression_spawn() {
 #[test]
 fn test_e2e_typed_closable_channel() {
     let source = r#"
-        class Application {
-            main() {
+        class App {
+            start() {
                 Channel<string> messages = Channel<string>(2)
                 final receivedTask = messages.receive()
                 final sentTask = messages.send('hello')
@@ -1961,12 +1961,12 @@ fn test_e2e_typed_closable_channel() {
 fn test_async_task_errors_route_to_try_catch() {
     let source = r#"
         
-        class Application {
+        class App {
             async fail() {
                 throw('task failed')
             }
         
-            main() {
+            start() {
                 try {
                     final result = await this.fail()
                     Console.printLine(result)
@@ -2000,12 +2000,12 @@ fn test_async_task_errors_route_to_try_catch() {
 #[test]
 fn test_e2e_multiple_async_tasks_concurrent_await() {
     let source_code = r#"
-        class Application {
+        class App {
             async compute(int val) {
                 return val * 2
             }
 
-            main() {
+            start() {
                 final t1 = this.compute(10)
                 final t2 = this.compute(20)
                 final r1 = await t1
@@ -2037,7 +2037,7 @@ fn test_e2e_multiple_async_tasks_concurrent_await() {
 fn test_e2e_try_check_inside_async_method_body() {
     let source_code = r#"
         
-        class Application {
+        class App {
             async safeTask() {
                 var res = 0
                 try {
@@ -2050,7 +2050,7 @@ fn test_e2e_try_check_inside_async_method_body() {
                 return res
             }
         
-            main() {
+            start() {
                 final task = this.safeTask()
                 final res = await task
                 Console.printLine(res)
@@ -2079,8 +2079,8 @@ fn test_e2e_try_check_inside_async_method_body() {
 #[test]
 fn test_e2e_task_all_combinator_success() {
     let source_code = r#"
-        class Application {
-            main() {
+        class App {
+            start() {
                 final tasks = [async 10, async 20]
                 final results = await Task.all(tasks)
                 Console.printLine(results.len())
@@ -2110,12 +2110,12 @@ fn test_e2e_task_all_combinator_success() {
 fn test_e2e_task_all_combinator_fail_fast() {
     let source_code = r#"
         
-        class Application {
+        class App {
             async failingTask() {
                 throw('task 2 failed')
             }
         
-            main() {
+            start() {
                 try {
                     final tasks = [async 10, this.failingTask()]
                     await Task.all(tasks)
@@ -2149,8 +2149,8 @@ fn test_e2e_task_all_combinator_fail_fast() {
 #[test]
 fn test_e2e_task_any_and_race_combinators() {
     let source_code = r#"
-        class Application {
-            main() {
+        class App {
+            start() {
                 final t1 = async 100
                 final t2 = async 200
                 final winner = await Task.race([t1, t2])
@@ -2180,8 +2180,8 @@ fn test_e2e_task_any_and_race_combinators() {
 #[test]
 fn test_e2e_task_all_settled_combinator() {
     let source_code = r#"
-        class Application {
-            main() {
+        class App {
+            start() {
                 final tasks = [async 10, async 20]
                 final settled = await Task.allSettled(tasks)
                 Console.printLine(settled.len())
@@ -2211,8 +2211,8 @@ fn test_e2e_task_all_settled_combinator() {
 fn test_e2e_task_timeout_wraps_any_task() {
     let source_code = r#"
         
-        class Application {
-            main() {
+        class App {
+            start() {
                 Channel<int> inbox = Channel<int>(1)
                 try {
                     final quick = await (async 500).timeout(2000)
@@ -2243,8 +2243,8 @@ fn test_e2e_task_timeout_wraps_any_task() {
 #[test]
 fn test_removed_concurrency_forms_are_rejected() {
     let removed_task_async = r#"
-        class Application {
-            main() {
+        class App {
+            start() {
                 final task = Task.async(10 + 20)
                 Console.printLine(await task)
             }
@@ -2260,8 +2260,8 @@ fn test_removed_concurrency_forms_are_rejected() {
         .any(|diagnostic| diagnostic.message.contains("Task.async(...) was removed")), "{:?}", checker.diagnostics);
 
     let task_arithmetic = r#"
-        class Application {
-            main() {
+        class App {
+            start() {
                 final task = async 40 + 2
             }
         }
@@ -2276,8 +2276,8 @@ fn test_removed_concurrency_forms_are_rejected() {
         .any(|diagnostic| diagnostic.message.contains("`async (a + b)`")));
 
     let removed_await_and_cancel = r#"
-        class Application {
-            main() {
+        class App {
+            start() {
                 final value = awaitAndCancel(async 1, 100)
             }
         }
@@ -2291,7 +2291,7 @@ fn test_removed_concurrency_forms_are_rejected() {
 #[test]
 fn test_unguarded_await_failure_stops_or_propagates() {
     let source = r#"
-        class Application {
+        class App {
             async fail() {
                 throw('boom')
             }
@@ -2301,7 +2301,7 @@ fn test_unguarded_await_failure_stops_or_propagates() {
                 return value
             }
 
-            main() {
+            start() {
                 final value = await this.relay()
                 Console.printLine(value)
             }
@@ -2323,8 +2323,8 @@ fn test_unguarded_await_failure_stops_or_propagates() {
 #[test]
 fn test_e2e_datetime_factories_and_getters() {
     let source_code = r#"
-        class Application {
-            main() {
+        class App {
+            start() {
                 final dt = DateTime.of(2026, 8, 31, 14, 30)
                 Console.printLine(dt.year())
                 Console.printLine(dt.month())
@@ -2356,8 +2356,8 @@ fn test_e2e_datetime_factories_and_getters() {
 #[test]
 fn test_e2e_datetime_arithmetic_and_diff() {
     let source_code = r#"
-        class Application {
-            main() {
+        class App {
+            start() {
                 final start = DateTime.of(2026, 8, 31, 12, 0)
                 final later = start.addHours(2)
                 Console.printLine(later.hour())
@@ -2388,8 +2388,8 @@ fn test_e2e_datetime_arithmetic_and_diff() {
 #[test]
 fn test_e2e_datetime_formatting_and_parsing() {
     let source_code = r#"
-        class Application {
-            main() {
+        class App {
+            start() {
                 final dt = DateTime.parse('2026-08-31T14:30:00+08:00')
                 final formatted = dt.format('yyyy-MM-dd HH:mm:ss')
                 Console.printLine(formatted)
@@ -2418,8 +2418,8 @@ fn test_e2e_datetime_formatting_and_parsing() {
 #[test]
 fn test_e2e_duration_and_addition() {
     let source_code = r#"
-        class Application {
-            main() {
+        class App {
+            start() {
                 final start = DateTime.of(2026, 8, 31, 10, 0)
                 final dur = Duration.hours(3)
                 final end = start.addDuration(dur)
@@ -2449,8 +2449,8 @@ fn test_e2e_duration_and_addition() {
 #[test]
 fn test_e2e_datetime_instant_timezone_invariance() {
     let source_code = r#"
-        class Application {
-            main() {
+        class App {
+            start() {
                 final manila = DateTime.of(2026, 8, 31, 17, 0, 'Asia/Manila')
                 final tokyo = manila.in('Asia/Tokyo')
                 Console.printLine(manila.timestamp() == tokyo.timestamp())
@@ -2481,8 +2481,8 @@ fn test_e2e_datetime_instant_timezone_invariance() {
 #[test]
 fn test_e2e_datetime_unix_timestamp_factories() {
     let source_code = r#"
-        class Application {
-            main() {
+        class App {
+            start() {
                 final dt = DateTime.fromUnix(1788159600)
                 final sec = dt.unix()
                 final ms = dt.unixMillis()
@@ -2513,8 +2513,8 @@ fn test_e2e_datetime_unix_timestamp_factories() {
 #[test]
 fn test_e2e_financial_money_factories_and_getters() {
     let source_code = r#"
-        class Application {
-            main() {
+        class App {
+            start() {
                 final balance = Money.php(1250.75)
                 Console.printLine(balance.amount())
                 final curr = balance.currency()
@@ -2544,8 +2544,8 @@ fn test_e2e_financial_money_factories_and_getters() {
 #[test]
 fn test_e2e_financial_money_addition() {
     let source_code = r#"
-        class Application {
-            main() {
+        class App {
+            start() {
                 final subtotal = Money.php(1000)
                 final shipping = Money.php(100)
                 final total = subtotal.add(shipping)
@@ -2575,8 +2575,8 @@ fn test_e2e_financial_money_addition() {
 #[test]
 fn test_e2e_financial_exchange_conversion() {
     let source_code = r#"
-        class Application {
-            main() {
+        class App {
+            start() {
                 final dollar = Money.usd(100)
                 final rate = 58.50
                 final converted = Exchange.convert(dollar, Currency.PHP, rate)
@@ -2608,8 +2608,8 @@ fn test_e2e_financial_exchange_conversion() {
 #[test]
 fn test_e2e_financial_percent_and_rate_multiplication() {
     let source_code = r#"
-        class Application {
-            main() {
+        class App {
+            start() {
                 final price = Money.php(1000)
                 final vat = Percent(12)
                 final tax = price.multiply(vat)
@@ -2639,8 +2639,8 @@ fn test_e2e_financial_percent_and_rate_multiplication() {
 #[test]
 fn test_e2e_geo_point_and_distance_getters() {
     let source_code = r#"
-        class Application {
-            main() {
+        class App {
+            start() {
                 final p = GeoPoint(14.5995, 120.9842)
                 Console.printLine(p.latitude())
                 Console.printLine(p.longitude())
@@ -2672,8 +2672,8 @@ fn test_e2e_geo_point_and_distance_getters() {
 #[test]
 fn test_e2e_geo_distance_and_bearing() {
     let source_code = r#"
-        class Application {
-            main() {
+        class App {
+            start() {
                 final home = GeoPoint(14.58, 121.12)
                 final provider = GeoPoint(14.60, 121.10)
                 final dist = home.distanceTo(provider)
@@ -2705,8 +2705,8 @@ fn test_e2e_geo_distance_and_bearing() {
 #[test]
 fn test_e2e_geo_bounds_contains() {
     let source_code = r#"
-        class Application {
-            main() {
+        class App {
+            start() {
                 final sw = GeoPoint(14.0, 120.0)
                 final ne = GeoPoint(15.0, 121.0)
                 final bounds = GeoBounds(sw, ne)
@@ -2738,8 +2738,8 @@ fn test_e2e_geo_bounds_contains() {
 fn test_e2e_geolocation_current_and_error() {
     let source_code = r#"
         
-        class Application {
-            main() {
+        class App {
+            start() {
                 try {
                     final pos = Geolocation.current()
                     Console.printLine(pos.latitude())
@@ -2773,8 +2773,8 @@ fn test_e2e_geolocation_current_and_error() {
 #[test]
 fn test_e2e_math_constants_roots_powers() {
     let source_code = r#"
-        class Application {
-            main() {
+        class App {
+            start() {
                 final pi = Math.PI
                 Console.printLine(pi)
                 final sq = Math.sqrt(144)
@@ -2806,8 +2806,8 @@ fn test_e2e_math_constants_roots_powers() {
 #[test]
 fn test_e2e_math_rounding_clamp_sign() {
     let source_code = r#"
-        class Application {
-            main() {
+        class App {
+            start() {
                 Console.printLine(Math.round(12.56))
                 Console.printLine(Math.clamp(150, 0, 100))
                 Console.printLine(Math.sign(-42))
@@ -2836,8 +2836,8 @@ fn test_e2e_math_rounding_clamp_sign() {
 #[test]
 fn test_e2e_math_integer_gcd_lcm_even_odd() {
     let source_code = r#"
-        class Application {
-            main() {
+        class App {
+            start() {
                 Console.printLine(Math.gcd(48, 18))
                 Console.printLine(Math.lcm(12, 18))
                 Console.printLine(Math.isEven(10))
@@ -2867,8 +2867,8 @@ fn test_e2e_math_integer_gcd_lcm_even_odd() {
 #[test]
 fn test_e2e_random_securerandom_statistics() {
     let source_code = r#"
-        class Application {
-            main() {
+        class App {
+            start() {
                 final rInt = Random.int(1, 100)
                 Console.printLine(rInt > 0)
                 final secBytes = SecureRandom.bytes(16)
@@ -2900,8 +2900,8 @@ fn test_e2e_random_securerandom_statistics() {
 #[test]
 fn test_e2e_probability_combinatorics() {
     let source_code = r#"
-        class Application {
-            main() {
+        class App {
+            start() {
                 final nCr = Probability.combinations(5, 2)
                 final nPr = Probability.permutations(5, 2)
                 final fact = Probability.factorial(5)
@@ -2933,8 +2933,8 @@ fn test_e2e_probability_combinatorics() {
 #[test]
 fn test_e2e_probability_distributions() {
     let source_code = r#"
-        class Application {
-            main() {
+        class App {
+            start() {
                 final pdf = Probability.normal(0, 0, 1)
                 Console.printLine(pdf)
             }
@@ -2962,8 +2962,8 @@ fn test_e2e_probability_distributions() {
 #[test]
 fn test_e2e_statistics_descriptive_and_correlation() {
     let source_code = r#"
-        class Application {
-            main() {
+        class App {
+            start() {
                 final data = [10.0, 20.0, 30.0, 40.0, 50.0]
                 Console.printLine(Statistics.mean(data))
                 Console.printLine(Statistics.median(data))
@@ -2996,8 +2996,8 @@ fn test_e2e_statistics_descriptive_and_correlation() {
 #[test]
 fn test_e2e_file_write_read_exists_delete() {
     let source_code = r#"
-        class Application {
-            main() {
+        class App {
+            start() {
                 final path = 'test_file_rw.txt'
                 File.write(path, 'Hello Ube File API')
                 Console.printLine(File.exists(path))
@@ -3031,8 +3031,8 @@ fn test_e2e_file_write_read_exists_delete() {
 fn test_e2e_file_open_object_read_after_close() {
     let source_code = r#"
         
-        class Application {
-            main() {
+        class App {
+            start() {
                 final path = 'test_obj_file.txt'
                 File.write(
                   path,
@@ -3074,8 +3074,8 @@ fn test_e2e_file_open_object_read_after_close() {
 #[test]
 fn test_e2e_file_info_metadata() {
     let source_code = r#"
-        class Application {
-            main() {
+        class App {
+            start() {
                 final path = 'test_info.txt'
                 File.write(path, 'Metadata test')
                 final info = File.info(path)
@@ -3107,8 +3107,8 @@ fn test_e2e_file_info_metadata() {
 #[test]
 fn test_e2e_directory_and_path_operations() {
     let source_code = r#"
-        class Application {
-            main() {
+        class App {
+            start() {
                 final p = Path.join('/home/user', 'config.json')
                 Console.printLine(Path.filename(p))
                 Console.printLine(Path.extension(p))
@@ -3143,8 +3143,8 @@ fn test_e2e_directory_and_path_operations() {
 fn test_e2e_file_error_handling_try_check() {
     let source_code = r#"
         
-        class Application {
-            main() {
+        class App {
+            start() {
                 try {
                     final content = File.read('non_existent_file_999.txt')
                     Console.printLine(content)
@@ -3180,8 +3180,8 @@ fn test_e2e_file_error_handling_try_check() {
 #[test]
 fn test_server_route_registration_and_response_factories_typecheck() {
     let source_code = r#"
-        class Application {
-            main() {
+        class App {
+            start() {
                 final server = Server()
                 server.get('/users') { request ->
                     return Response.ok('User list')
@@ -3215,8 +3215,8 @@ fn test_server_route_registration_and_response_factories_typecheck() {
 #[test]
 fn test_server_request_path_query_headers_typecheck() {
     let source_code = r#"
-        class Application {
-            main() {
+        class App {
+            start() {
                 final server = Server()
                 server.get('/users/{id}') { request ->
                     final id = request.pathLong('id')
@@ -3252,8 +3252,8 @@ fn test_server_request_path_query_headers_typecheck() {
 fn test_server_middleware_and_try_syntax_typecheck() {
     let source_code = r#"
         
-        class Application {
-            main() {
+        class App {
+            start() {
                 final server = Server()
                 server.use('/api') { request ->
                     if (not request.hasBearerToken()) {
@@ -3297,8 +3297,8 @@ fn test_server_middleware_and_try_syntax_typecheck() {
 #[test]
 fn test_server_websocket_and_tls_syntax_typecheck() {
     let source_code = r#"
-        class Application {
-            main() {
+        class App {
+            start() {
                 final server = Server()
                 server.tls('cert.pem', 'key.pem')
                 server.websocket('/chat') { socket ->
@@ -3333,8 +3333,8 @@ fn test_server_websocket_and_tls_syntax_typecheck() {
 #[test]
 fn test_server_http_protocol_versions_syntax_typecheck() {
     let source_code = r#"
-        class Application {
-            main() {
+        class App {
+            start() {
                 final server = Server()
                 server.enableHttp2()
                 server.enableHttp3(443)
@@ -3368,8 +3368,8 @@ fn test_server_http_protocol_versions_syntax_typecheck() {
 #[test]
 fn test_e2e_json_to_object_getters_to_json() {
     let source_code = r#"
-        class Application {
-            main() {
+        class App {
+            start() {
                 final text = '{"name": "Lem", "age": 40}'
                 final json = Json.toObject(text)
                 Console.printLine(json.getString('name'))
@@ -3402,8 +3402,8 @@ fn test_e2e_json_to_object_getters_to_json() {
 fn test_e2e_json_to_object_error_handling() {
     let source_code = r#"
         
-        class Application {
-            main() {
+        class App {
+            start() {
                 try {
                     final data = Json.toObject('{invalid_json}')
         
@@ -3438,8 +3438,8 @@ fn test_e2e_json_to_object_error_handling() {
 #[test]
 fn test_e2e_xml_create_element_text_tostring() {
     let source_code = r#"
-        class Application {
-            main() {
+        class App {
+            start() {
                 final doc = Xml.create('user')
                 doc.root().element('name').text('Lem')
                 doc.root().element('age').text('40')
@@ -3469,8 +3469,8 @@ fn test_e2e_xml_create_element_text_tostring() {
 #[test]
 fn test_e2e_xml_parse_child_navigation() {
     let source_code = r#"
-        class Application {
-            main() {
+        class App {
+            start() {
                 final text = '<user><name>Lem</name><age>40</age></user>'
                 final doc = Xml.parse(text)
                 final root = doc.root()
@@ -3500,8 +3500,8 @@ fn test_e2e_xml_parse_child_navigation() {
 #[test]
 fn test_e2e_pure_ube_json_and_xml_record_mapping() {
     let source_code = r#"
-        class Application {
-            main() {
+        class App {
+            start() {
                 final jsonText = '{"restaurantID": "0603", "orderType": "DineIn"}'
                 final json = Json.toObject(jsonText)
                 Console.printLine(json.getString('restaurantID'))
@@ -3534,8 +3534,8 @@ fn test_e2e_pure_ube_json_and_xml_record_mapping() {
 #[test]
 fn test_e2e_pure_ube_partial_parse_and_strict_modes() {
     let source_code = r#"
-        class Application {
-            main() {
+        class App {
+            start() {
                 final partialJson = Json.partialParse('{"name": "Lem", "extra": 123}', JsonObject)
                 Console.printLine(partialJson.getString('name'))
                 final partialXml = Xml.partialParse('<user><name>Lem</name><extra>123</extra></user>', XmlDocument)
@@ -3567,8 +3567,8 @@ fn test_e2e_nullable_declaration_and_null_assignment_valid() {
     let source_code = r#"
         class User(string name = 'Guest')
 
-        class Application {
-            main() {
+        class App {
+            start() {
                 User? u1
                 User? u2 = null
             }
@@ -3598,8 +3598,8 @@ fn test_e2e_non_nullable_declaration_default_constructor_valid() {
     let source_code = r#"
         class User(string name = 'Guest')
 
-        class Application {
-            main() {
+        class App {
+            start() {
                 User u1
                 User u2 = User()
             }
@@ -3629,8 +3629,8 @@ fn test_e2e_non_nullable_declaration_null_assignment_invalid() {
     let source_code = r#"
         class User(string name = 'Guest')
 
-        class Application {
-            main() {
+        class App {
+            start() {
                 User u = null
             }
         }
@@ -3653,7 +3653,7 @@ fn test_e2e_non_nullable_declaration_null_assignment_invalid() {
 fn test_e2e_return_inside_try_is_valid() {
     let source_code = r#"
         
-        class Application {
+        class App {
             int getValue() {
                 try {
                     return 42
@@ -3665,7 +3665,7 @@ fn test_e2e_return_inside_try_is_valid() {
                 return 0
             }
         
-            main() {
+            start() {
                 this.getValue()
             }
         }
@@ -3685,8 +3685,8 @@ fn test_e2e_return_inside_try_is_valid() {
 fn test_e2e_break_inside_try_cleans_up_loop_exit() {
     let source_code = r#"
         
-        class Application {
-            main() {
+        class App {
+            start() {
                 for (x in [1]) {
                     try {
                         Console.printLine('Before break')
@@ -3733,8 +3733,8 @@ fn test_e2e_break_inside_try_cleans_up_loop_exit() {
 #[test]
 fn test_e2e_for_else_empty_collection_executes_else() {
     let source_code = r#"
-        class Application {
-            main() {
+        class App {
+            start() {
                 final emptyItems = []
                 for (item in emptyItems) {
                     Console.printLine('Loop body executed')
@@ -3775,8 +3775,8 @@ fn test_e2e_for_else_empty_collection_executes_else() {
 #[test]
 fn test_e2e_for_else_non_empty_collection_skips_else() {
     let source_code = r#"
-        class Application {
-            main() {
+        class App {
+            start() {
                 final items = [10, 20, 30]
                 for (item in items) {
                     Console.printLine('Loop body item ${item}')
@@ -3817,8 +3817,8 @@ fn test_e2e_for_else_non_empty_collection_skips_else() {
 #[test]
 fn test_e2e_if_expression_with_braces_and_yield() {
     let source_code = r#"
-        class Application {
-            main() {
+        class App {
+            start() {
                 final score = 85
                 final status = if (score >= 50) {
                     yield 'Passed'
@@ -3860,8 +3860,8 @@ fn test_e2e_if_expression_with_braces_and_yield() {
 #[test]
 fn test_e2e_for_expression_comprehension_with_braces_and_yield() {
     let source_code = r#"
-        class Application {
-            main() {
+        class App {
+            start() {
                 final numbers = [1, 2, 3]
                 final doubled = for (x in numbers) {
                     yield x * 2
@@ -3901,8 +3901,8 @@ fn test_e2e_for_expression_comprehension_with_braces_and_yield() {
 #[test]
 fn test_e2e_full_expression_and_lambda_string_interpolation() {
     let source_code = r#"
-        class Application {
-            main() {
+        class App {
+            start() {
                 final a = 10
                 final b = 20
 

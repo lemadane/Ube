@@ -3,8 +3,8 @@
 Ube provides one optional observability facility with three static APIs. It runs a separate HTTP listener **inside the application process**, on IPv4 localhost. It starts only when requested and uses one dedicated thread, independent of application request handlers and task workers.
 
 ```ube
-class Main {
-    main() {
+class App {
+    start() {
         Observability.start(9090)
         Health.ready(true)
 
@@ -18,7 +18,7 @@ class Main {
 }
 ```
 
-`start(port)` binds `127.0.0.1:port`. Ports must be 1–65535. Bind failures, invalid ports, and starting an already running listener raise catchable errors. `Observability.stop()` stops and joins the listener; repeated stops are safe. It can then be restarted. Stopping the listener preserves measurements and readiness. Runtime cleanup stops it automatically and clears measurements. The listener does not keep a finished main method alive.
+`start(port)` binds `127.0.0.1:port`. Ports must be 1–65535. Bind failures, invalid ports, and starting an already running listener raise catchable errors. `Observability.stop()` stops and joins the listener; repeated stops are safe. It can then be restarted. Stopping the listener preserves measurements and readiness. Runtime cleanup stops it automatically and clears measurements. The listener does not keep a finished start method alive.
 
 | Endpoint | Response |
 | --- | --- |
@@ -73,7 +73,7 @@ Counters have process lifetime and do not restore from disk. Expiration/eviction
 
 Remote client processes do not export their server's cache contents through these gauges; scrape the owning server. No keys, values, tokens, or database paths become metric labels. Accounted bytes are not resident process memory; use the separate resident-memory measurement where supported.
 
-For the [embedded server example](../examples/cache/server/Main.ube) or a standalone cache started with `--metrics 9090`:
+For the [embedded server example](../examples/cache/server/App.ube) or a standalone cache started with `--metrics 9090`:
 
 ```bash
 curl -fsS http://127.0.0.1:9090/health/live

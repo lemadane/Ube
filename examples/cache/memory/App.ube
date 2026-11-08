@@ -1,5 +1,5 @@
-class Main {
-    main() {
+class App {
+    start() {
         // Each one-byte key/value pair accounts for 66 bytes.
         final cache = Cache.memory(132)
         try {

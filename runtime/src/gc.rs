@@ -21,6 +21,8 @@ struct Heap {
     frames: HashMap<std::thread::ThreadId, Vec<HashMap<usize, u64>>>,
     external: HashMap<usize, u64>,
     since_collection: usize,
+    static_slots: HashMap<String, (crate::concurrency::AbiValue, Option<u64>, bool)>,
+    pending_statics: HashSet<String>,
 }
 fn heap() -> &'static Mutex<Heap> {
     static HEAP: OnceLock<Mutex<Heap>> = OnceLock::new();
@@ -229,6 +231,8 @@ pub(crate) fn cleanup() {
     state.roots.clear();
     state.frames.clear();
     state.external.clear();
+    state.static_slots.clear();
+    state.pending_statics.clear();
 }
 
 pub(crate) fn is_managed(pointer: *mut c_void) -> bool {
@@ -443,4 +447,47 @@ pub extern "C" fn ube_shared_store(payload: *mut u8, presence: *mut u8, bytes: u
         std::ptr::copy_nonoverlapping((&value as *const i64).cast(), payload, bytes);
         if !presence.is_null() { *presence = u8::from(meta != 0); }
     }
+}
+
+/// Static slot publication and reader rooting use the same lock as collection.
+/// Individual accesses are serialized; compound read/modify/write is not atomic.
+#[no_mangle]
+pub extern "C" fn ube_static_store(
+    key: *const std::ffi::c_char, payload: i64, meta: u64, pointer: bool,
+) {
+    let key = unsafe { std::ffi::CStr::from_ptr(key) }.to_string_lossy().into_owned();
+    let mut state = heap().lock().unwrap();
+    state.pending_statics.remove(&key);
+    let root = if pointer && state.objects.contains_key(&(payload as usize)) {
+        Some(add_root(&mut state, payload as usize))
+    } else { None };
+    let value = crate::concurrency::AbiValue { payload, meta };
+    if let Some((_, Some(previous), _)) = state.static_slots.insert(key, (value, root, pointer)) {
+        state.roots.remove(&previous);
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn ube_static_load(key: *const std::ffi::c_char, frame_key: usize) -> crate::concurrency::AbiValue {
+    let key = unsafe { std::ffi::CStr::from_ptr(key) }.to_string_lossy();
+    let mut state = heap().lock().unwrap();
+    if state.pending_statics.contains(key.as_ref()) {
+        let message = format!("Static field '{}' was read before its initializer completed", key);
+        drop(state);
+        let error = crate::exceptions::generic(message);
+        crate::exceptions::set_pending(error);
+        return crate::concurrency::AbiValue::default();
+    }
+    let (value, _, pointer) = state.static_slots.get(key.as_ref()).copied()
+        .unwrap_or((crate::concurrency::AbiValue { payload: 0, meta: 0 }, None, false));
+    if pointer { frame_pin(&mut state, frame_key, value.payload as *mut c_void); }
+    value
+}
+
+/// Mark explicit initializers before evaluating any of them. This rejects
+/// forward/cyclic reads instead of exposing null as a non-nullable reference.
+#[no_mangle]
+pub extern "C" fn ube_static_pending(key: *const std::ffi::c_char) {
+    let key = unsafe { std::ffi::CStr::from_ptr(key) }.to_string_lossy().into_owned();
+    heap().lock().unwrap().pending_statics.insert(key);
 }

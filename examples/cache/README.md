@@ -1,6 +1,6 @@
 # Runnable cache examples
 
-These examples cover the cache API in [the reference](../../docs/cache.md) and [deployment guide](../../docs/cache-deployment.md). Every source is named `Main.ube` and declares `class Main`. The shared manifest defaults to the memory example. No external packages are required.
+These examples cover the cache API in [the reference](../../docs/cache.md) and [deployment guide](../../docs/cache-deployment.md). Every source is named `App.ube` and declares `class App`. The shared manifest defaults to the memory example. No external packages are required.
 
 ## Setup
 
@@ -17,10 +17,10 @@ If a matching version is already installed, use `UBE_BIN=ube` instead. Commands 
 
 ## Memory cache and eviction
 
-Source: [memory/Main.ube](memory/Main.ube).
+Source: [memory/App.ube](memory/App.ube).
 
 ```bash
-"$UBE_BIN" run memory/Main.ube
+"$UBE_BIN" run memory/App.ube
 ```
 
 Expected output:
@@ -39,13 +39,13 @@ The second `add` leaves the existing value unchanged. Reading `a` makes it more 
 
 ## Persistence across application restarts
 
-Source: [persistent/Main.ube](persistent/Main.ube).
+Source: [persistent/App.ube](persistent/App.ube).
 
 ```bash
-"$UBE_BIN" run persistent/Main.ube -- data/persistent.db set
-"$UBE_BIN" run persistent/Main.ube -- data/persistent.db get
-"$UBE_BIN" run persistent/Main.ube -- data/persistent.db delete
-"$UBE_BIN" run persistent/Main.ube -- data/persistent.db get
+"$UBE_BIN" run persistent/App.ube -- data/persistent.db set
+"$UBE_BIN" run persistent/App.ube -- data/persistent.db get
+"$UBE_BIN" run persistent/App.ube -- data/persistent.db delete
+"$UBE_BIN" run persistent/App.ube -- data/persistent.db get
 ```
 
 Each command starts a separate application process. Expected output, in order:
@@ -61,10 +61,10 @@ Use a fresh database or run `set` first to reproduce these results. The example 
 
 ## Expiration while the application is stopped
 
-Source: [ttl/Main.ube](ttl/Main.ube). Compile once so compilation time does not consume the two-second TTL:
+Source: [ttl/App.ube](ttl/App.ube). Compile once so compilation time does not consume the two-second TTL:
 
 ```bash
-"$UBE_BIN" build ttl/Main.ube -o .build/cache-ttl
+"$UBE_BIN" build ttl/App.ube -o .build/cache-ttl
 .build/cache-ttl data/ttl.db set
 .build/cache-ttl data/ttl.db get
 sleep 3
@@ -83,10 +83,10 @@ The immediate `get` must execute within two seconds. A paused or heavily loaded 
 
 ## Atomic increments from concurrent tasks
 
-Source: [counter/Main.ube](counter/Main.ube).
+Source: [counter/App.ube](counter/App.ube).
 
 ```bash
-"$UBE_BIN" run counter/Main.ube
+"$UBE_BIN" run counter/App.ube
 ```
 
 Expected output:
@@ -99,7 +99,7 @@ Two async methods each increment the same key 100 times. Both start before eithe
 
 ## Standalone server and two application processes
 
-Sources: [writer/Main.ube](writer/Main.ube) and [reader/Main.ube](reader/Main.ube).
+Sources: [writer/App.ube](writer/App.ube) and [reader/App.ube](reader/App.ube).
 
 In terminal A, run the setup above, then enter a shared token without placing it in shell history:
 
@@ -114,8 +114,8 @@ export UBE_CACHE_TOKEN
 The server remains in the foreground. In terminal B, enter `examples/cache`, set `UBE_BIN` as above, and enter/export the **same token** with the same prompt commands. Then run:
 
 ```bash
-"$UBE_BIN" run writer/Main.ube
-"$UBE_BIN" run reader/Main.ube
+"$UBE_BIN" run writer/App.ube
+"$UBE_BIN" run reader/App.ube
 ```
 
 On a fresh database, the writer prints `1`; the reader prints:
@@ -133,12 +133,12 @@ The clients default to `127.0.0.1:6380`. To use another numeric IP/port, set `UB
 
 ## Embedded server inside an application
 
-Source: [server/Main.ube](server/Main.ube). Stop the standalone server first because this example uses the same cache and metrics ports.
+Source: [server/App.ube](server/App.ube). Stop the standalone server first because this example uses the same cache and metrics ports.
 
 With the token exported, run:
 
 ```bash
-"$UBE_BIN" run server/Main.ube -- data/embedded.db
+"$UBE_BIN" run server/App.ube -- data/embedded.db
 ```
 
 It prints:
@@ -163,10 +163,10 @@ Health and readiness return `{"status":"UP"}`. Metrics include cache hit/miss co
 
 ## Cache-aside application pattern
 
-Source: [cache-aside/Main.ube](cache-aside/Main.ube).
+Source: [cache-aside/App.ube](cache-aside/App.ube).
 
 ```bash
-"$UBE_BIN" run cache-aside/Main.ube
+"$UBE_BIN" run cache-aside/App.ube
 ```
 
 Expected output:

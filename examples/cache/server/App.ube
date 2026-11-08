@@ -1,5 +1,5 @@
-class Main {
-    main() {
+class App {
+    start() {
         final args = Console.args()
         if (args.len() != 1) {
             Console.printLine('Usage: server <database-path>')

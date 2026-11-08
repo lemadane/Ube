@@ -173,13 +173,13 @@ pub fn manifest(root: &Path) -> Result<Manifest> {
         }
     }
     let entry = match document.get("build") {
-        None => "src/Main.ube",
+        None => "src/App.ube",
         Some(build) => match build
             .as_table_like()
             .ok_or("[build] must be a table")?
             .get("entry")
         {
-            None => "src/Main.ube",
+            None => "src/App.ube",
             Some(entry) => entry.as_str().ok_or("[build].entry must be a string")?,
         },
     };
@@ -262,21 +262,21 @@ pub fn init_with_format(root: &Path, name: Option<&str>, format: &str) -> Result
             "A Ube manifest already exists; initialization does not overwrite projects".into(),
         );
     }
-    let entry = root.join("src/Main.ube");
-    // Existing source trees are preserved, including an existing Main.ube.
+    let entry = root.join("src/App.ube");
+    // Existing source trees are preserved, including an existing App.ube.
     let has_sources = root.join("src").exists();
     fs::create_dir_all(root).map_err(|e| e.to_string())?;
     let mut doc = DocumentMut::new();
     doc["package"]["name"] = value(&name);
     doc["package"]["version"] = value("0.1.0");
     doc["package"]["edition"] = value("2026");
-    doc["build"]["entry"] = value("src/Main.ube");
+    doc["build"]["entry"] = value("src/App.ube");
     doc["dependencies"] = Item::Table(Table::new());
     if !has_sources {
         fs::create_dir_all(root.join("src")).map_err(|e| e.to_string())?;
         fs::write(
             &entry,
-            "class Main {\n    main() {\n        log('Hello from Ube!')\n    }\n}\n",
+            "class App {\n    start() {\n        log('Hello from Ube!')\n    }\n}\n",
         )
         .map_err(|e| e.to_string())?;
     }

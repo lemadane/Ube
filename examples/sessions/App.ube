@@ -1,5 +1,5 @@
-class Application {
-    main() {
+class App {
+    start() {
         final server = Server()
         server.enableHttp2()
         // Enable HTTPS when serving authenticated sessions:

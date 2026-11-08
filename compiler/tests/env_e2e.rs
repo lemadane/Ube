@@ -83,7 +83,7 @@ impl Fixture {
         output
     }
     fn source(&self, text: &str) {
-        fs::write(self.root.join("src/Main.ube"), text).unwrap();
+        fs::write(self.root.join("src/App.ube"), text).unwrap();
     }
     fn key(&self) -> PathBuf {
         self.keys.join("current.key")
@@ -149,7 +149,7 @@ fn encrypts_added_values_and_decrypts_only_on_runtime_access() {
             0o600
         );
     }
-    fixture.source("class Main { main() { print(Env.require('UBE_SECRET_TEST_PASSWORD')) print(Env.has('UBE_SECRET_EMPTY')) print(Env.require('UBE_SECRET_EMPTY')) print(Env.has('UBE_SECRET_MISSING')) try { Env.require('UBE_SECRET_MISSING') } catch (Error error) { print('missing') } } }");
+    fixture.source("class App { start() { print(Env.require('UBE_SECRET_TEST_PASSWORD')) print(Env.has('UBE_SECRET_EMPTY')) print(Env.require('UBE_SECRET_EMPTY')) print(Env.has('UBE_SECRET_MISSING')) try { Env.require('UBE_SECRET_MISSING') } catch (Error error) { print('missing') } } }");
     assert!(success(fixture.cli(&["run"]))
         .contains("sentinel-secret-π-73482\ntrue\n\nfalse\nmissing\n"));
     success(fixture.cli(&["build"]));
@@ -192,7 +192,7 @@ fn updates_rotate_the_key_and_preserve_other_values() {
     assert_eq!(fs::read(fixture.root.join(".build/.conf")).unwrap(), after);
     fs::write(fixture.key(), latest).unwrap();
     assert_eq!(fs::read_dir(&fixture.keys).unwrap().count(), 1);
-    fixture.source("class Main { main() { print(Env.require('UBE_SECRET_TEST_PASSWORD')) print(Env.has('UBE_SECRET_EMPTY')) } }");
+    fixture.source("class App { start() { print(Env.require('UBE_SECRET_TEST_PASSWORD')) print(Env.has('UBE_SECRET_EMPTY')) } }");
     assert!(success(fixture.cli(&["run"])).contains("replacement:with spaces:and colons\ntrue\n"));
     assert!(!fixture.root.join(".build/env.lock").exists());
 }
@@ -201,7 +201,7 @@ fn updates_rotate_the_key_and_preserve_other_values() {
 fn tampering_wrong_keys_missing_keys_and_permissions_fail_closed() {
     let fixture = Fixture::new();
     populate(&fixture);
-    fixture.source("class Main { main() { try { Env.require('UBE_SECRET_TEST_PASSWORD') print('wrong') } catch (Error error) { print('blocked') } } }");
+    fixture.source("class App { start() { try { Env.require('UBE_SECRET_TEST_PASSWORD') print('wrong') } catch (Error error) { print('blocked') } } }");
     let key = fixture.key();
     let original = fs::read(&key).unwrap();
     let vault = fixture.root.join(".build/.conf");
@@ -243,7 +243,7 @@ fn tampering_wrong_keys_missing_keys_and_permissions_fail_closed() {
     assert_eq!(fs::read(&vault).unwrap(), original_vault);
     success(fixture.cli(&["build"]));
     assert!(success(fixture.cli(&["run"])).contains("blocked"));
-    fixture.source("class Main { main() { print('no secret access') } }");
+    fixture.source("class App { start() { print('no secret access') } }");
     assert!(success(fixture.cli(&["run"])).contains("no secret access"));
 }
 
@@ -251,7 +251,7 @@ fn tampering_wrong_keys_missing_keys_and_permissions_fail_closed() {
 fn process_environment_overrides_vault_and_explicit_paths_work() {
     let fixture = Fixture::new();
     populate(&fixture);
-    fixture.source("class Main { main() { print(Env.require('UBE_SECRET_TEST_PASSWORD')) } }");
+    fixture.source("class App { start() { print(Env.require('UBE_SECRET_TEST_PASSWORD')) } }");
     let out = fixture
         .command(env!("CARGO_BIN_EXE_ube-compiler"), &fixture.root)
         .env("UBE_SECRET_TEST_PASSWORD", "override-value")
@@ -262,7 +262,7 @@ fn process_environment_overrides_vault_and_explicit_paths_work() {
     let out = fixture
         .command(env!("CARGO_BIN_EXE_ube-compiler"), fixture._temp.path())
         .arg("run")
-        .arg(fixture.root.join("src/Main.ube"))
+        .arg(fixture.root.join("src/App.ube"))
         .output()
         .unwrap();
     assert!(success(out).contains("sentinel-secret-π-73482"));
@@ -352,7 +352,7 @@ fn external_keys_must_be_private_and_outside_the_project() {
         .find_map(|line| line.strip_prefix("Encryption key: "))
         .unwrap();
     fs::write(&outside, latest).unwrap(); // The user supplies the newly printed key.
-    fixture.source("class Main { main() { print(Env.require('PASSWORD')) } }");
+    fixture.source("class App { start() { print(Env.require('PASSWORD')) } }");
     let out = fixture
         .command(env!("CARGO_BIN_EXE_ube-compiler"), &fixture.root)
         .env("UBE_ENV_KEY_FILE", outside)
@@ -367,11 +367,11 @@ fn env_api_is_typed_and_works_in_native_tests_and_async_tasks() {
     let fixture = Fixture::new();
     populate(&fixture);
     for source in [
-        "class Main { main() { Env() } }",
-        "class Main { main() { Env.get(1) } }",
-        "class Main { main() { Env.require(null) } }",
-        "class Main { main() { Env.unknown('X') } }",
-        "class Main { main() { env.require('X') } }",
+        "class App { start() { Env() } }",
+        "class App { start() { Env.get(1) } }",
+        "class App { start() { Env.require(null) } }",
+        "class App { start() { Env.unknown('X') } }",
+        "class App { start() { env.require('X') } }",
     ] {
         fixture.source(source);
         assert!(
@@ -379,7 +379,7 @@ fn env_api_is_typed_and_works_in_native_tests_and_async_tasks() {
             "accepted {source}"
         );
     }
-    fixture.source("class Main { main() { string? value = Env.get('UBE_SECRET_TEST_PASSWORD') if (value) { print(value) } } }");
+    fixture.source("class App { start() { string? value = Env.get('UBE_SECRET_TEST_PASSWORD') if (value) { print(value) } } }");
     assert!(success(fixture.cli(&["run"])).contains("sentinel-secret-π-73482"));
     fs::write(fixture.root.join("tests/EnvTests.ube"), "class EnvTests { testVault() { Testicle.isTrue(Env.has('UBE_SECRET_TEST_PASSWORD')) Testicle.isFalse(Env.has('UBE_SECRET_MISSING')) } async testAsync() { final task = async (Env.has('UBE_SECRET_TEST_PASSWORD')) Testicle.isTrue(await task) } }").unwrap();
     assert!(success(fixture.cli(&["test"])).contains("Tests: 2 passed"));
@@ -397,7 +397,7 @@ fn comma_separated_batch_with_spaces_is_saved_atomically() {
         "okta_secret:",
         "secrete_value",
     ]));
-    fixture.source("class Main { main() { print(Env.require('DB_PASSWORD')) print(Env.require('okta_username')) print(Env.require('okta_secret')) print(Env.has('UBE_SECRET_EMPTY')) } }");
+    fixture.source("class App { start() { print(Env.require('DB_PASSWORD')) print(Env.require('okta_username')) print(Env.require('okta_secret')) print(Env.has('UBE_SECRET_EMPTY')) } }");
     assert!(success(fixture.cli(&["run"]))
         .contains("your-password\nusername_value\nsecrete_value\ntrue\n"));
     let vault = fixture.root.join(".build/.conf");
@@ -495,7 +495,7 @@ fn key_argument_updates_without_key_file_and_rotates_after_success() {
         assert_eq!(fs::read(fixture.root.join(".build/.conf")).unwrap(), after);
     }
     fs::write(fixture.key(), latest).unwrap();
-    fixture.source("class Main { main() { print(Env.require('ADDED')) print(Env.require('SECOND')) print(Env.has('UBE_SECRET_EMPTY')) } }");
+    fixture.source("class App { start() { print(Env.require('ADDED')) print(Env.require('SECOND')) print(Env.has('UBE_SECRET_EMPTY')) } }");
     assert!(success(fixture.cli(&["run"])).contains("new-value\nsecond-value\ntrue\n"));
 }
 
@@ -542,7 +542,7 @@ fn new_and_init_keep_encrypted_values_and_keys_out_of_git_staging() {
         populate(&fixture);
         let key = fs::read_to_string(fixture.key()).unwrap();
         fixture.source(
-            "class Main { main() { final password = Env.require('UBE_SECRET_TEST_PASSWORD') } }",
+            "class App { start() { final password = Env.require('UBE_SECRET_TEST_PASSWORD') } }",
         );
         success(fixture.cli(&["build"]));
         git(&fixture.root, &["add", "--all"]);
@@ -845,7 +845,7 @@ fn complete_environment_lifecycle_end_to_end() {
             .unwrap()
             .write_all(latest_key.as_bytes())
             .unwrap();
-        fixture.source("class Main { main() { print(Env.require('DB_PASSWORD')) print(Env.require('okta_username')) print(Env.require('okta_secret')) print(Env.require('ENDPOINT')) } }");
+        fixture.source("class App { start() { print(Env.require('DB_PASSWORD')) print(Env.require('okta_username')) print(Env.require('okta_secret')) print(Env.require('ENDPOINT')) } }");
         let expected =
             "updated-db\nfixture-user\nfixture-secret\nhttps://fixture.invalid:8443/api\n";
         success(fixture.cli(&["build"]));
@@ -871,7 +871,7 @@ fn complete_environment_lifecycle_end_to_end() {
         );
         fs::write(fixture.key(), &latest_key).unwrap();
         for artifact in [
-            fixture.root.join("src/Main.ube"),
+            fixture.root.join("src/App.ube"),
             fixture.root.join(".build/app.ll"),
             binary.clone(),
         ] {
@@ -954,7 +954,7 @@ fn json_import_consumes_input_and_supports_key_rotation_and_native_execution() {
     success(fixture.cli(&["env", "--key", &old, "file.json"]));
     assert!(!input.exists());
     assert_ne!(fs::read_to_string(fixture.key()).unwrap(), old);
-    fixture.source("class Main { main() { print(Env.require('DB_PASSWORD')) print(Env.has('okta_username')) print(Env.require('ADDED')) print(Env.has('EMPTY')) } }");
+    fixture.source("class App { start() { print(Env.require('DB_PASSWORD')) print(Env.has('okta_username')) print(Env.require('ADDED')) print(Env.has('EMPTY')) } }");
     assert!(success(fixture.cli(&["run"]))
         .contains("updated-json-secret\nfalse\nanother-value\nfalse\n"));
     success(fixture.cli(&["build"]));
@@ -1037,7 +1037,7 @@ fn failed_json_consumption_still_prints_the_key_for_the_saved_configuration() {
         .expect("A saved configuration must never lose its key on cleanup failure");
     assert!(fixture.root.join("file.json").is_file());
     fs::write(fixture.key(), key).unwrap();
-    fixture.source("class Main { main() { print(Env.require('ADDED')) } }");
+    fixture.source("class App { start() { print(Env.require('ADDED')) } }");
     assert!(success(fixture.cli(&["run"])).contains("recoverable-value"));
 }
 
@@ -1072,7 +1072,7 @@ fn json_replaces_all_values_without_old_key_while_add_preserves_entries() {
         fs::set_permissions(fixture.key(), fs::Permissions::from_mode(0o600)).unwrap();
     }
     success(fixture.cli(&["env", "--key", latest, "--add", "ADDED:kept-too"]));
-    fixture.source("class Main { main() { print(Env.has('UBE_SECRET_TEST_PASSWORD')) print(Env.has('UBE_SECRET_EMPTY')) print(Env.require('ONLY_NEW')) print(Env.require('ADDED')) } }");
+    fixture.source("class App { start() { print(Env.has('UBE_SECRET_TEST_PASSWORD')) print(Env.has('UBE_SECRET_EMPTY')) print(Env.require('ONLY_NEW')) print(Env.require('ADDED')) } }");
     assert!(success(fixture.cli(&["run"])).contains("false\nfalse\nnew-value\nkept-too\n"));
 }
 
@@ -1111,7 +1111,7 @@ fn closed_stdout_preserves_json_and_allows_reimport() {
     // from the unpublished key generated by the failed command.
     success(fixture.cli(&["env", "file.json"]));
     assert!(!input.exists());
-    fixture.source("class Main { main() { print(Env.require('ADDED')) } }");
+    fixture.source("class App { start() { print(Env.require('ADDED')) } }");
     assert!(success(fixture.cli(&["run"])).contains("recover-after-output-failure"));
 }
 
@@ -1120,8 +1120,8 @@ fn selected_project_without_vault_never_loads_callers_secrets() {
     let a = Fixture::new();
     let b = Fixture::new();
     populate(&b);
-    a.source("class Main { main() { print(Env.has('UBE_SECRET_TEST_PASSWORD')) } }");
-    let source = a.root.join("src/Main.ube");
+    a.source("class App { start() { print(Env.has('UBE_SECRET_TEST_PASSWORD')) } }");
+    let source = a.root.join("src/App.ube");
     let output = b
         .command(env!("CARGO_BIN_EXE_ube-compiler"), &b.root)
         .args(["run", source.to_str().unwrap()])
@@ -1147,7 +1147,7 @@ fn selected_project_without_vault_never_loads_callers_secrets() {
     assert_eq!(success(output).trim(), "true");
 
     // Project selection also applies to standalone source files without a manifest.
-    let standalone = a.root.parent().unwrap().join("Main.ube");
+    let standalone = a.root.parent().unwrap().join("App.ube");
     fs::copy(source, &standalone).unwrap();
     let output = b
         .command(env!("CARGO_BIN_EXE_ube-compiler"), &b.root)
@@ -1173,7 +1173,7 @@ fn yaml_and_json_projects_preserve_secret_lookup_boundaries() {
         };
         fs::write(project.root.join(format!("ube.{format}")), text).unwrap();
         fs::remove_file(project.root.join("ube.toml")).unwrap();
-        project.source("class Main { main() { print(Env.has('UBE_SECRET_TEST_PASSWORD')) } }");
+        project.source("class App { start() { print(Env.has('UBE_SECRET_TEST_PASSWORD')) } }");
         success(project.cli(&["build"]));
         assert_eq!(
             success(
@@ -1185,7 +1185,7 @@ fn yaml_and_json_projects_preserve_secret_lookup_boundaries() {
             .trim(),
             "false"
         );
-        let source = project.root.join("src/Main.ube");
+        let source = project.root.join("src/App.ube");
         let output = caller
             .command(env!("CARGO_BIN_EXE_ube-compiler"), &caller.root)
             .args(["run", source.to_str().unwrap()])

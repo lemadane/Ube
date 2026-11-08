@@ -14,7 +14,7 @@ struct Program {
 impl Program {
     fn new(source: &str) -> Self {
         let temp = tempfile::tempdir().unwrap();
-        let entry = support::write_source(&temp.path().join("Main.ube"), source);
+        let entry = support::write_source(&temp.path().join("App.ube"), source);
         fs::write(temp.path().join(".gitignore"), ".build/\n").unwrap();
         let executable = temp.path().join("program");
         let output = Command::new(env!("CARGO_BIN_EXE_ube-compiler"))
@@ -91,7 +91,7 @@ fn objects_lists_maps_and_nulls_round_trip_through_real_xml() {
         r#"
     class Address(string city) {}
     class Profile(int id,string name,bool active,int? absent,int? zero,Address address,List scores,Map settings) {}
-    class Main {main(){
+    class App {start(){
         final profile=Profile(42,'Alice <&> 世界',false,null,0,Address('東京'),[1,true,null],['theme':'dark','nested':['x':2]])
         Gc.collect()
         final xml=profile.toXml()
@@ -125,7 +125,7 @@ fn options_customize_roots_attributes_namespaces_and_list_items() {
     let program = Program::new(
         r#"
     class Profile(int id,string name,List scores) {}
-    class Main {main(){
+    class App {start(){
         final options=XmlOptions().root('p:person').namespace('p','urn:people').attribute('id').rename('name','p:displayName').listItem('score')
         final value=Profile(42,'Alice & Bob',[95,88]).toXml(options)
         final root=Xml.toObject(value).root()
@@ -149,7 +149,7 @@ fn options_customize_roots_attributes_namespaces_and_list_items() {
 fn document_building_and_parsing_preserve_real_content_and_namespaces() {
     let program = Program::new(
         r#"
-    class Main {main(){
+    class App {start(){
         final doc=Xml.create('p:root')
         doc.root().namespace('p','urn:doc').attribute('id','42')
         doc.root().element('p:name').text('東京 <&>')
@@ -182,7 +182,7 @@ fn malformed_xml_cycles_resources_and_invalid_customization_are_catchable() {
         r#"
     class Node(Node? next) {}
     class Profile(int id,string name) {}
-    class Main {main(){
+    class App {start(){
         try {Xml.toObject('<root>')}catch(XmlParseError e){print('malformed')}
         try {Xml.toObject('<!DOCTYPE root [<!ENTITY x "boom">]><root>&x;</root>')}catch(XmlParseError e){print('dtd rejected')}
         try {Xml.toObject('<p:root/>')}catch(XmlParseError e){print('unbound prefix')}
@@ -229,7 +229,7 @@ fn xml_signatures_receivers_and_reserved_methods_are_checked() {
         "Xml.toObject('<r/>').root().text(1)",
         "Xml.to('text',Profile)",
     ] {
-        let source = format!("class Profile(int id) {{}} class Main {{main(){{{statement}}}}}");
+        let source = format!("class Profile(int id) {{}} class App {{start(){{{statement}}}}}");
         let mut parser = Parser::new(Lexer::new(&source));
         let program = parser.parse_program();
         let mut checker = TypeChecker::new();
@@ -257,11 +257,11 @@ fn xml_encoding_and_document_handles_work_across_async_calls() {
     let program = Program::new(
         r#"
     class Profile(int id) {}
-    class Main {
+    class App {
         async string encode() { return Profile(7).toXml() }
         async XmlDocument document() { return Xml.toObject('<ready>ok</ready>') }
         async fail() { Xml.toObject('<broken>') }
-        main() {
+        start() {
             print(await this.encode())
             final document=await this.document()
             print(document.root().text())
@@ -285,8 +285,8 @@ fn shipped_xml_project_runs_and_builds_with_the_documented_output() {
     for (path, contents) in [
         ("ube.toml", include_str!("../../examples/xml/ube.toml")),
         (
-            "src/Main.ube",
-            include_str!("../../examples/xml/src/Main.ube"),
+            "src/App.ube",
+            include_str!("../../examples/xml/src/App.ube"),
         ),
         (
             "src/Profile.ube",
@@ -308,7 +308,7 @@ fn shipped_xml_project_runs_and_builds_with_the_documented_output() {
             "90s",
             env!("CARGO_BIN_EXE_ube-compiler"),
             "run",
-            "src/Main.ube",
+            "src/App.ube",
         ])
         .current_dir(project.path())
         .output()
@@ -321,7 +321,7 @@ fn shipped_xml_project_runs_and_builds_with_the_documented_output() {
             "90s",
             env!("CARGO_BIN_EXE_ube-compiler"),
             "build",
-            "src/Main.ube",
+            "src/App.ube",
             "-o",
         ])
         .arg(&executable)
@@ -348,7 +348,7 @@ fn xml_file_round_trip_between_independent_native_processes() {
         r#"
     class Address(string city) {}
     class Profile(long id,string name,Address address,List scores,Map metadata,int? missing) {}
-    class Main {main(){
+    class App {start(){
         final profile=Profile(9007199254740993L,'Alice <&> 世界',Address('東京'),[true,null,3],['space key':'value <&>'],null)
         final options=XmlOptions().root('p:profile').namespace('p','urn:profile').attribute('id').rename('name','p:displayName').listItem('score')
         File.write(Console.args()[0],profile.toXml(options))
@@ -357,7 +357,7 @@ fn xml_file_round_trip_between_independent_native_processes() {
     );
     let reader = Program::new(
         r#"
-    class Main {main(){
+    class App {start(){
         final document=Xml.toObject(File.read(Console.args()[0]))
         final root=document.root()
         print(root.name())
@@ -403,7 +403,7 @@ fn xml_file_round_trip_between_independent_native_processes() {
 fn external_xml_fixtures_enforce_parser_limits_and_recover_after_errors() {
     let reader = Program::new(
         r#"
-    class Main {main(){
+    class App {start(){
         try {
             final document=Xml.toObject(File.read(Console.args()[0]))
             final root=Xml.toObject(document.toXml()).root()
@@ -465,7 +465,7 @@ fn external_xml_fixtures_enforce_parser_limits_and_recover_after_errors() {
 fn namespace_scopes_null_semantics_and_detached_subtrees_round_trip() {
     let program = Program::new(
         r#"
-    class Main {main(){
+    class App {start(){
         final doc=Xml.toObject('<r xmlns="urn:outer" xmlns:p="urn:one" xmlns:n="http://www.w3.org/2001/XMLSchema-instance"><p:a id="1"><p:b xmlns:p="urn:two">inside</p:b><plain xmlns="">outside</plain></p:a><missing n:nil="1"/><empty/><false n:nil="false"/></r>')
         final root=doc.root()
         print(root.namespaceUri())
@@ -497,7 +497,7 @@ fn options_are_root_scoped_reusable_and_reject_ambiguous_attributes() {
     class Child(int id,string name) {}
     class Parent(int id,string name,Child child) {}
     class Nullable(int? id) {}
-    class Main {main(){
+    class App {start(){
         final value=Parent(7,'outer',Child(8,'inner'))
         final options=XmlOptions().root('person').attribute('id').rename('name','label')
         final root=Xml.toObject(value.toXml(options)).root()
@@ -522,7 +522,7 @@ fn options_are_root_scoped_reusable_and_reject_ambiguous_attributes() {
 fn document_edits_preserve_live_handles_and_attribute_whitespace() {
     let program = Program::new(
         r#"
-    class Main {main(){
+    class App {start(){
         final doc=Xml.create('r')
         final root=doc.root()
         final child=root.element('item')
@@ -552,7 +552,7 @@ fn document_edits_preserve_live_handles_and_attribute_whitespace() {
 fn encoding_limits_and_error_recovery_hold_with_optimized_native_code() {
     let program = Program::new(
         r#"
-    class Main {main(){
+    class App {start(){
         var nested=[]
         var depth=0
         for(depth<66){nested=[nested] depth=depth+1}

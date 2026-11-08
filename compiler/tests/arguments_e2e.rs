@@ -6,8 +6,8 @@ use std::{
     process::{Command, Output},
 };
 use ube_compiler::{Lexer, Parser, TypeChecker};
-const SOURCE: &str = r#"class Main {
-    main() {
+const SOURCE: &str = r#"class App {
+    start() {
         final args = Console.args()
         Console.printLine(args.len())
         for (arg in args) { Console.print('<') Console.print(arg) Console.printLine('>') }
@@ -28,7 +28,7 @@ struct Program {
 impl Program {
     fn new() -> Self {
         let temp = tempfile::tempdir().unwrap();
-        let entry = support::write_source(&temp.path().join("Main.ube"), SOURCE);
+        let entry = support::write_source(&temp.path().join("App.ube"), SOURCE);
         fs::write(temp.path().join(".gitignore"), ".build/\n").unwrap();
         let executable = temp.path().join("program");
         let output = Command::new(env!("CARGO_BIN_EXE_ube-compiler"))
@@ -113,7 +113,7 @@ fn native_and_cli_arguments_preserve_values_and_exclude_executable() {
 fn project_run_forwards_arguments_without_source_path() {
     let temp = tempfile::tempdir().unwrap();
     ube_compiler::project::init(temp.path(), Some("args-app")).unwrap();
-    fs::write(temp.path().join("src/Main.ube"), SOURCE).unwrap();
+    fs::write(temp.path().join("src/App.ube"), SOURCE).unwrap();
     let args = ["project", "--release", "two words"];
     let output = Command::new(env!("CARGO_BIN_EXE_ube-compiler"))
         .args(["run", "--"])
@@ -144,7 +144,7 @@ fn argument_api_is_read_only_and_typed() {
         "Console.args()[true]",
         "Console.args().add('bad')",
     ] {
-        let source = format!("class Main {{ main() {{ {statement} }} }}");
+        let source = format!("class App {{ start() {{ {statement} }} }}");
         let mut parser = Parser::new(Lexer::new(&source));
         let program = parser.parse_program();
         let mut checker = TypeChecker::new();

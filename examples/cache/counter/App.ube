@@ -1,4 +1,4 @@
-class Main {
+class App {
     async int incrementMany(Cache cache, int iterations) {
         var index = 0
         for (index < iterations) {
@@ -8,7 +8,7 @@ class Main {
         return iterations
     }
 
-    main() {
+    start() {
         final cache = Cache.memory(4096)
         try {
             cache.set('count', '0', 0)

@@ -17,8 +17,8 @@ The formatter follows the starter program's formatting needs:
 For example:
 
 ```ube
-class Application {
-    main() {
+class App {
+    start() {
         final server = Server()
         server.get(
           '/',

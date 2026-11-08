@@ -10,7 +10,7 @@ fn rejects_multiple_declarations_in_every_combination() {
         "trait First {} class Second {}",
     ] {
         let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("Application.ube");
+        let path = dir.path().join("App.ube");
         fs::write(&path, source).unwrap();
         let output = Command::new(env!("CARGO_BIN_EXE_ube-compiler"))
             .arg("check")
@@ -28,7 +28,7 @@ fn rejects_multiple_declarations_in_every_combination() {
 fn imports_load_once_and_allow_cycles_with_one_declaration_per_file() {
     let dir = tempfile::tempdir().unwrap();
     fs::create_dir(dir.path().join("services")).unwrap();
-    fs::write(dir.path().join("Application.ube"), "import services.Greeting\nimport services.Welcome\nclass Application { main() { final welcome = Welcome() log(welcome.greet()) } }").unwrap();
+    fs::write(dir.path().join("App.ube"), "import services.Greeting\nimport services.Welcome\nclass App { start() { final welcome = Welcome() log(welcome.greet()) } }").unwrap();
     fs::write(
         dir.path().join("services/Greeting.ube"),
         "import Welcome\ntrait Greeting { string greet() }",
@@ -39,7 +39,7 @@ fn imports_load_once_and_allow_cycles_with_one_declaration_per_file() {
         "import Greeting\nclass Welcome { string greet() { return 'hello' } }",
     )
     .unwrap();
-    let loaded = load_program(&dir.path().join("Application.ube")).unwrap();
+    let loaded = load_program(&dir.path().join("App.ube")).unwrap();
     assert_eq!(
         loaded
             .program
@@ -60,8 +60,8 @@ fn imports_load_once_and_allow_cycles_with_one_declaration_per_file() {
 #[test]
 fn validates_imported_files_and_reports_missing_dependencies() {
     let dir = tempfile::tempdir().unwrap();
-    let main = dir.path().join("Application.ube");
-    fs::write(&main, "import Helper\nclass Application {}").unwrap();
+    let main = dir.path().join("App.ube");
+    fs::write(&main, "import Helper\nclass App {}").unwrap();
     assert!(load_program(&main).err().unwrap().contains("Helper.ube"));
     fs::write(
         dir.path().join("Helper.ube"),

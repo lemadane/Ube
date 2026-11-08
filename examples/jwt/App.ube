@@ -1,5 +1,5 @@
-class Application {
-    main() {
+class App {
+    start() {
         // Create a local development secret first: openssl rand -hex 32 > jwt-secret.txt
         final key = File.read('jwt-secret.txt')
         final expires = DateTime.now().timestamp() + 3600L

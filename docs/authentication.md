@@ -43,7 +43,7 @@ configuration. Do not select them from unverified token contents. HS256 requires
 at least 32 bytes of high-entropy secret material and rejects PEM key text;
 RS256 signs with a PEM private key and verifies with a PEM public key. For a
 local HS256 example, generate a secret with `openssl rand -hex 32 > jwt-secret.txt`
-and run [examples/jwt/Application.ube](../examples/jwt/Application.ube). Keep the file private and out of
+and run [examples/jwt/App.ube](../examples/jwt/App.ube). Keep the file private and out of
 version control.
 
 JWTs here are signed, **not encrypted**. Their payload is readable. Verification
@@ -108,7 +108,7 @@ on each transport.
 an empty string when absent and rejecting duplicate headers. `hasBearerToken()`
 checks Bearer header syntax; it does **not** validate a token.
 
-See [examples/oauth2/Application.ube](../examples/oauth2/Application.ube) for a complete callback with
+See [examples/oauth2/App.ube](../examples/oauth2/App.ube) for a complete callback with
 error handling, session rotation, and token cleanup. Replace its placeholder
 provider configuration before running. Store access and refresh tokens on the
 server, not in browser-readable session cookies. The current session store is

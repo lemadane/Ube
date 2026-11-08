@@ -1,5 +1,5 @@
-class Main {
-    main() {
+class App {
+    start() {
         final args = Console.args()
         if (args.len() != 2) {
             Console.printLine('Usage: persistent <database-path> <set|get|delete>')

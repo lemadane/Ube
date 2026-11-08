@@ -1,5 +1,5 @@
-class Application {
-    main() {
+class App {
+    start() {
         final db = SQLite.open(':memory:')
         try {
             db.execute('CREATE TABLE items (id INTEGER, name TEXT)')

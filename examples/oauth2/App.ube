@@ -1,4 +1,4 @@
-class Application {
+class App {
     Response callback(OAuth2 client, Request request) {
         try {
             if (request.query('error') != '') {
@@ -22,7 +22,7 @@ class Application {
         }
     }
 
-    main() {
+    start() {
         // Replace endpoints, client ID, and scopes with your provider's values.
         // An empty secret selects a public PKCE client. Confidential clients
         // can load their secret from a file instead.

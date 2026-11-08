@@ -38,6 +38,7 @@ pub struct IrBuilder {
     yield_target_stack: Vec<(Option<Register>, Option<Register>)>,
     current_block_id: Option<BlockId>,
     current_method_async: bool,
+    current_class_name: String,
     current_method_return_type: Type,
     generated_functions: Vec<IrFunction>,
     generated_classes: Vec<IrClass>,
@@ -69,6 +70,7 @@ impl IrBuilder {
             yield_target_stack: Vec::new(),
             current_block_id: None,
             current_method_async: false,
+            current_class_name: String::new(),
             current_method_return_type: Type::Void,
             generated_functions: Vec::new(),
             generated_classes: Vec::new(),
@@ -262,6 +264,7 @@ impl IrBuilder {
             params: vec![(request, request_ty)],
             return_type,
             is_async: false,
+            is_static: false,
             blocks: std::mem::take(&mut handler_builder.blocks),
         });
         Some((
@@ -316,7 +319,7 @@ impl IrBuilder {
     }
 
     fn emit(&mut self, instr: IrInstruction) {
-        let check = matches!(instr, IrInstruction::JsonEncode { .. } | IrInstruction::XmlEncode { .. } | IrInstruction::CallMethod { .. } | IrInstruction::CallTrait { .. })
+        let check = matches!(instr, IrInstruction::LoadStatic { .. } | IrInstruction::JsonEncode { .. } | IrInstruction::XmlEncode { .. } | IrInstruction::CallMethod { .. } | IrInstruction::CallTrait { .. })
             || matches!(&instr, IrInstruction::CallRuntime { symbol, .. }
                 if symbol.starts_with("ube_kv_") || symbol.starts_with("ube_json") || symbol.starts_with("ube_xml") || symbol == "ube_to_xml" || symbol.starts_with("ube_cache_") || symbol.starts_with("ube_args_") || symbol.starts_with("ube_observability_") || symbol.starts_with("ube_metrics_") || symbol.starts_with("ube_task_outcome") || symbol.starts_with("ube_env_") || symbol.starts_with("ube_rest_") || symbol.starts_with("ube_mockery_") || symbol.starts_with("ube_testicle_") || symbol.starts_with("ube_exchange_") || symbol.starts_with("ube_money_") || symbol.starts_with("ube_orm_") || symbol.starts_with("ube_sql_") || symbol.starts_with("ube_jwt_") || symbol.starts_with("ube_oauth2_") || symbol.starts_with("ube_session_") || matches!(symbol.as_str(), "ube_request_session" | "ube_request_query" | "ube_request_header" | "ube_request_body" | "ube_response_redirect") || symbol.starts_with("ube_console_") || symbol.starts_with("ube_output_") || symbol.starts_with("ube_log_") || symbol.starts_with("ube_sqlite_") || symbol.starts_with("ube_file_") || symbol.starts_with("ube_directory_")
                     || symbol.starts_with("ube_stream_") || symbol.starts_with("ube_server_"));
@@ -654,6 +657,7 @@ impl IrBuilder {
             params,
             return_type: result_ty.clone(),
             is_async: true,
+            is_static: false,
             blocks: std::mem::take(&mut deferred.blocks),
         });
 
@@ -788,7 +792,7 @@ impl IrBuilder {
         let mut normalized = crate::mockery::expand(program);
         for name in ["RestInPeaceError", "MockeryError", "AssertionError", "MoneyError", "CurrencyMismatchError", "SQLError", "SQLiteError", "GenericError", "OutOfBoundsError", "FileError", "FileNotFoundError", "PermissionError", "AlreadyExistsError", "InvalidPathError", "DiskFullError", "LocationPermissionError", "LocationUnavailableError", "JsonError", "JsonParseError", "MissingFieldError", "InvalidTypeError", "XmlError", "XmlParseError"] {
             if !normalized.items.iter().any(|i| matches!(i, Item::Class(c) if c.name == name)) {
-                normalized.items.push(Item::Class(ClassDecl { name: name.into(), primary_params: vec![ConstructorParam {
+                normalized.items.push(Item::Class(ClassDecl { static_fields: vec![], name: name.into(), primary_params: vec![ConstructorParam {
                     name: "message".into(), type_spec: TypeSpec::String, is_var: false,
                     default_value: Some(Expr { kind: ExprKind::StringLiteral(String::new()), span: Default::default() }), span: Default::default()
                 }], cases: vec![], methods: vec![], span: Default::default() }));
@@ -947,6 +951,7 @@ impl IrBuilder {
                 }
                 Item::Trait(tr) => {
                     let dummy_cls = ClassDecl {
+                        static_fields: vec![],
                         name: tr.name.clone(),
                         primary_params: Vec::new(),
                         cases: Vec::new(),
@@ -964,7 +969,10 @@ impl IrBuilder {
 
         ir_functions.append(&mut self.generated_functions);
         ir_classes.append(&mut self.generated_classes);
-        if let Some(entry) = ir_functions.iter().find(|function| function.name.eq_ignore_ascii_case("main")) {
+        if let Some(entry) = ir_functions.iter()
+            .filter(|function| function.name.eq_ignore_ascii_case("start"))
+            .min_by_key(|function| function.class_name != "App")
+            .filter(|function| !function.is_static) {
             let ty = Type::Class { name: entry.class_name.clone() };
             let mut startup = Self::new();
             startup.class_decls = self.class_decls.clone();
@@ -980,8 +988,60 @@ impl IrBuilder {
                 // The dot prevents collisions with source-level class names.
                 class_name: "__ube.internal".into(), name: "zero".into(),
                 receiver: (receiver, Type::Bytes), params: Vec::new(),
-                return_type: ty, is_async: false, blocks: startup.blocks,
+                return_type: ty, is_async: false, is_static: false, blocks: startup.blocks,
             });
+        }
+        if program.items.iter().any(|i| matches!(i, Item::Class(c) if !c.static_fields.is_empty())) {
+            let mut init = self.clone();
+            init.next_reg = 0;
+            init.next_block = 0;
+            init.blocks.clear();
+            init.current_instructions.clear();
+            init.var_pointers.clear();
+            init.exception_handlers.clear();
+            init.cleanups.clear();
+            init.cleanup_pending.clear();
+            init.loop_stack.clear();
+            init.loop_cleanup_depths.clear();
+            init.current_method_return_type = Type::Void;
+            init.current_method_async = false;
+            let receiver = init.fresh_reg();
+            let entry = init.fresh_block();
+            init.current_block_id = Some(entry);
+            for item in &program.items {
+                if let Item::Class(cls) = item {
+                    init.current_class_name = cls.name.clone();
+                    for field in &cls.static_fields {
+                        let ty = init.type_spec_to_type(&field.type_spec);
+                        let value = if field.initializer.is_none() {
+                            init.build_zero_value(&ty, &mut Vec::new())
+                        } else { Self::default_operand_for_type(&ty) };
+                        init.emit(IrInstruction::StoreStatic { key: format!("{}.{}", cls.name, field.name), value, ty });
+                        if field.initializer.is_some() {
+                            init.runtime("ube_static_pending", vec![IrOperand::ConstantString(format!("{}.{}", cls.name, field.name))], Type::Void);
+                        }
+                    }
+                }
+            }
+            for item in &program.items {
+                if let Item::Class(cls) = item {
+                    init.current_class_name = cls.name.clone();
+                    for field in &cls.static_fields {
+                        if let Some(expression) = &field.initializer {
+                            let ty = init.type_spec_to_type(&field.type_spec);
+                            let value = init.build_expr(expression);
+                            let value = init.cast(value, ty.clone());
+                            init.emit(IrInstruction::StoreStatic { key: format!("{}.{}", cls.name, field.name), value, ty });
+                        }
+                    }
+                }
+            }
+            init.emit(IrInstruction::Return { val: None });
+            init.end_block();
+            self.diagnostics.extend(init.diagnostics.iter().skip(self.diagnostics.len()).cloned());
+            ir_functions.extend(init.generated_functions.into_iter().skip(self.generated_functions.len()));
+            ir_classes.extend(init.generated_classes.into_iter().skip(self.generated_classes.len()));
+            ir_functions.push(IrFunction { class_name: "__ube.internal".into(), name: "statics".into(), receiver: (receiver, Type::Bytes), params: vec![], return_type: Type::Void, is_async: false, is_static: true, blocks: init.blocks });
         }
         IrProgram {
             classes: ir_classes,
@@ -1085,6 +1145,7 @@ impl IrBuilder {
             params: Vec::new(),
             return_type: field_ty,
             is_async: false,
+            is_static: false,
             blocks: std::mem::take(&mut self.blocks),
         }
     }
@@ -1107,9 +1168,7 @@ impl IrBuilder {
 
         let entry_block = self.fresh_block();
         let receiver_reg = self.fresh_reg();
-        let this_ty = Type::Class {
-            name: cls.name.clone(),
-        };
+        let this_ty = Type::Class { name: cls.name.clone() };
 
         let mut param_info = Vec::new();
         let mut ir_params = Vec::new();
@@ -1140,11 +1199,13 @@ impl IrBuilder {
             params: ir_params,
             return_type: ret_ty,
             is_async: method.is_async,
+            is_static: method.is_static,
             blocks: std::mem::take(&mut self.blocks),
         }
     }
 
     fn build_method(&mut self, cls: &ClassDecl, method: &MethodDecl) -> IrFunction {
+        self.current_class_name = cls.name.clone();
         self.current_method_async = method.is_async;
         let ret_ty = method.return_type.as_ref().map_or_else(
             || {
@@ -1174,8 +1235,10 @@ impl IrBuilder {
         self.current_block_id = Some(entry_block);
 
         let receiver_reg = self.fresh_reg();
-        let this_ty = Type::Class {
-            name: cls.name.clone(),
+        let this_ty = if method.is_static {
+            Type::Bytes
+        } else {
+            Type::Class { name: cls.name.clone() }
         };
 
         let mut param_info = Vec::new();
@@ -1188,16 +1251,18 @@ impl IrBuilder {
             param_info.push((p.name.clone(), p_reg, p_ty));
         }
 
-        let this_ptr = self.fresh_reg();
-        self.emit(IrInstruction::Alloca {
-            dest: this_ptr,
-            ty: this_ty.clone(),
-        });
-        self.emit(IrInstruction::Store {
-            val: IrOperand::Register(receiver_reg, this_ty.clone()),
-            ptr: this_ptr,
-        });
-        self.insert_var("this".into(), this_ptr, this_ty.clone());
+        if !method.is_static {
+            let this_ptr = self.fresh_reg();
+            self.emit(IrInstruction::Alloca {
+                dest: this_ptr,
+                ty: this_ty.clone(),
+            });
+            self.emit(IrInstruction::Store {
+                val: IrOperand::Register(receiver_reg, this_ty.clone()),
+                ptr: this_ptr,
+            });
+            self.insert_var("this".into(), this_ptr, this_ty.clone());
+        }
 
         for (p_name, p_reg, p_ty) in param_info {
             let ptr_reg = self.fresh_reg();
@@ -1242,6 +1307,7 @@ impl IrBuilder {
             params: ir_params,
             return_type: ret_ty,
             is_async: method.is_async,
+            is_static: method.is_static,
             blocks: std::mem::take(&mut self.blocks),
         }
     }
@@ -1854,6 +1920,28 @@ impl IrBuilder {
                 }
             }
             ExprKind::Call { callee, args } => {
+                if let ExprKind::MemberAccess { object, member, .. } = &callee.kind {
+                    if let Some(class_name) = self.static_class(object) {
+                        if let Some(method) = self.class_decls.get(&class_name).and_then(|c| c.methods.iter().find(|m| m.is_static && m.name == *member)).cloned() {
+                            let args = args.iter().zip(&method.params).map(|(arg, param)| {
+                                let value = self.build_expr(arg);
+                                self.cast(value, self.type_spec_to_type(&param.type_spec))
+                            }).collect();
+                            let result_ty = method.return_type.as_ref().map_or(if method.is_async { Type::Int } else { Type::Void }, |t| self.type_spec_to_type(t));
+                            let dest = self.fresh_reg();
+                            // The native ABI carries an empty context for static calls.
+                            let receiver = IrOperand::NullOf(Type::Bytes);
+                            if method.is_async {
+                                let callback = format!("ube_async_thunk_{}", self.next_async_thunk);
+                                self.next_async_thunk += 1;
+                                self.emit(IrInstruction::SpawnAsyncCall { dest, callback, class_name, method_name: member.clone(), receiver, args, result_ty: result_ty.clone() });
+                                return IrOperand::Register(dest, Type::Task(Box::new(result_ty)));
+                            }
+                            self.emit(IrInstruction::CallMethod { dest: (result_ty != Type::Void).then_some(dest), class_name, method_name: member.clone(), receiver, args, ret_ty: result_ty.clone() });
+                            return if result_ty == Type::Void { IrOperand::Null } else { IrOperand::Register(dest, result_ty) };
+                        }
+                    }
+                }
                 if matches!(&callee.kind, ExprKind::MemberAccess { object, member, .. } if member == "mock" && matches!(&object.kind, ExprKind::Identifier(name) if name == "Mockery" && self.lookup_var(name).is_none())) {
                     if let [Expr { kind: ExprKind::Identifier(contract), .. }] = args.as_slice() {
                         let id = self.runtime("ube_mockery_create", vec![], Type::Long);
@@ -1932,9 +2020,9 @@ impl IrBuilder {
                                 Type::Channel(_) => "Channel".into(),
                                 Type::Nullable(inner) => match *inner {
                                     Type::Class { name } => name,
-                                    _ => "Application".into(),
+                                    _ => "App".into(),
                                 },
-                                _ => "Application".into(),
+                                _ => "App".into(),
                             });
                         if crate::builtins::SQL_CLASSES.contains(&class_name.as_str()) {
                             if let Some(method) = crate::builtins::sql_methods(&class_name).into_iter().find(|m| m.name == member) {
@@ -3407,6 +3495,11 @@ impl IrBuilder {
                 member,
                 is_optional,
             } => {
+                if let Some((key, ty)) = self.static_field(object, member) {
+                    let dest = self.fresh_reg();
+                    self.emit(IrInstruction::LoadStatic { dest, key, ty: ty.clone() });
+                    return IrOperand::Register(dest, ty);
+                }
                 if *is_optional {
                     self.diagnostics.push(Diagnostic::error(
                         "optional member access '?.' is not yet supported by native code generation",
@@ -3492,10 +3585,49 @@ impl IrBuilder {
                     IrOperand::Null
                 }
             }
+            ExprKind::NullCoalescingAssign { target, value } => {
+                let static_target = match &target.kind {
+                    ExprKind::MemberAccess { object, member, .. } => self.static_field(object, member).is_some(),
+                    _ => false,
+                };
+                if !static_target {
+                    self.diagnostics.push(Diagnostic::error("null-coalescing assignment is not yet supported for this target", Some(target.span)));
+                    return IrOperand::Null;
+                }
+                let old = self.build_expr(target);
+                let ty = old.get_type();
+                let result = self.fresh_reg();
+                self.emit(IrInstruction::Alloca { dest: result, ty: ty.clone() });
+                self.emit(IrInstruction::Store { val: old.clone(), ptr: result });
+                let condition = self.fresh_reg();
+                self.emit(IrInstruction::Binary {
+                    dest: condition, op: BinaryOp::Equal, left: old,
+                    right: IrOperand::NullOf(ty.clone()), operand_ty: ty.clone(), result_ty: Type::Bool,
+                });
+                let absent = self.fresh_block();
+                let merge = self.fresh_block();
+                self.emit(IrInstruction::Branch { cond: IrOperand::Register(condition, Type::Bool), then_block: absent, else_block: merge });
+                self.end_block();
+                self.current_block_id = Some(absent);
+                let assigned = self.build_expr(&Expr { kind: ExprKind::Assign { target: target.clone(), value: value.clone() }, span: expr.span });
+                let assigned = self.cast(assigned, ty.clone());
+                self.emit(IrInstruction::Store { val: assigned, ptr: result });
+                self.emit(IrInstruction::Jump { target: merge });
+                self.end_block();
+                self.current_block_id = Some(merge);
+                let dest = self.fresh_reg();
+                self.emit(IrInstruction::Load { dest, ptr: result, ty: ty.clone() });
+                IrOperand::Register(dest, ty)
+            }
             ExprKind::Assign { target, value } => {
                 let val_op = self.build_expr(value);
                 match &target.kind {
                     ExprKind::MemberAccess { object, member, .. } => {
+                        if let Some((key, ty)) = self.static_field(object, member) {
+                            let value = self.cast(val_op.clone(), ty.clone());
+                            self.emit(IrInstruction::StoreStatic { key, value, ty });
+                            return val_op;
+                        }
                         let obj_op = self.build_expr(object);
                         let class_name = match obj_op.get_type() {
                             Type::Class { name } => name,
@@ -3968,3 +4100,19 @@ impl IrBuilder {
 }
 
 include!("orm.rs");
+
+impl IrBuilder {
+    fn static_class(&self, object: &Expr) -> Option<String> {
+        match &object.kind {
+            ExprKind::Identifier(name) if name == "static" => Some(self.current_class_name.clone()),
+            ExprKind::Identifier(name) if self.lookup_var(name).is_none() && self.class_decls.contains_key(name) => Some(name.clone()),
+            _ => None,
+        }
+    }
+
+    fn static_field(&self, object: &Expr, member: &str) -> Option<(String, Type)> {
+        let class = self.static_class(object)?;
+        let field = self.class_decls.get(&class)?.static_fields.iter().find(|f| f.name == member)?;
+        Some((format!("{}.{}", class, member), self.type_spec_to_type(&field.type_spec)))
+    }
+}

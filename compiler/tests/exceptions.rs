@@ -55,20 +55,20 @@ fn rejects(source: &str, expected: &str) {
 #[test]
 fn concrete_catch_preserves_object_fields_and_exact_identity() {
     runs(r#"class A(string message, int code) {} class B(string message) {}
-    class Application { main() { try { throw A('bad', 42) }
+    class App { start() { try { throw A('bad', 42) }
       catch (B err) { Console.printLine('wrong') } catch (A err) { Console.printLine(err.message()) Console.printLine(err.code()) }
       catch (Error err) { Console.printLine('wrong general') } } }"#, "bad\n42\n");
 }
 #[test]
 fn strings_are_boxed_once_and_error_trait_dispatches() {
-    runs(r#"class Application { string message() { Console.printLine('called') return 'boom' }
-    main() { try { throw this.message() } catch (Error err) { Console.printLine(err.message()) } } }"#, "called\nboom\n");
+    runs(r#"class App { string message() { Console.printLine('called') return 'boom' }
+    start() { try { throw this.message() } catch (Error err) { Console.printLine(err.message()) } } }"#, "called\nboom\n");
 }
 #[test]
 fn structural_category_matches_independent_classes() {
     runs(r#"trait Retryable { string message() bool retryable() }
     class A(string message, bool retryable) {} class B(string message) { bool retryable() { return true } }
-    class Application { main() {
+    class App { start() {
       try { throw A('a', false) } catch (Retryable err) { Console.printLine(err.message()) Console.printLine(err.retryable()) }
       try { throw B('b') } catch (Retryable err) { Console.printLine(err.message()) Console.printLine(err.retryable()) }
     } }"#, "a\nfalse\nb\ntrue\n");
@@ -78,59 +78,59 @@ fn independent_traits_match_in_source_order() {
     runs(r#"trait Retryable { string message() bool retryable() }
     trait Security { string message() string securityCode() }
     class Both(string message, bool retryable, string securityCode) {}
-    class Application { main() { try { throw Both('both', true, 'AUTH') }
+    class App { start() { try { throw Both('both', true, 'AUTH') }
       catch (Security err) { Console.printLine(err.securityCode()) }
       catch (Retryable err) { Console.printLine('wrong') } } }"#, "AUTH\n");
 }
 #[test]
 fn unmatched_errors_propagate_through_calls_and_cleanup_only_try() {
     runs(r#"class A(string message) {} class B(string message) {}
-    class Application { fail() { throw A('boom') } relay() { this.fail() }
-    main() { try { try { this.relay() } catch (B err) { Console.printLine('wrong') } finally { Console.printLine('inner') } }
+    class App { fail() { throw A('boom') } relay() { this.fail() }
+    start() { try { try { this.relay() } catch (B err) { Console.printLine('wrong') } finally { Console.printLine('inner') } }
       catch (A err) { Console.printLine(err.message()) } finally { Console.printLine('outer') } } }"#, "inner\nboom\nouter\n");
 }
 #[test]
 fn try_finally_does_not_swallow_errors() {
-    runs(r#"class Application { main() { try { try { throw 'boom' } finally { Console.printLine('cleanup') } }
+    runs(r#"class App { start() { try { try { throw 'boom' } finally { Console.printLine('cleanup') } }
       catch (Error err) { Console.printLine(err.message()) } } }"#, "cleanup\nboom\n");
 }
 #[test]
 fn accidental_conformance_requires_explicit_throw() {
-    runs(r#"class Customer(string message) {} class Application { main() {
+    runs(r#"class Customer(string message) {} class App { start() {
       final customer = Customer('hello') Console.printLine('normal')
       try { throw customer } catch (Customer err) { Console.printLine(err.message()) } } }"#, "normal\nhello\n");
 }
 #[test]
 fn finally_runs_on_normal_completion_and_matching_catch() {
-    runs(r#"class Application { main() {
+    runs(r#"class App { start() {
       try { Console.printLine('normal') } finally { Console.printLine('first') }
       try { throw 'boom' } catch (Error err) { Console.printLine('handled') } finally { Console.printLine('second') }
     } }"#, "normal\nfirst\nhandled\nsecond\n");
 }
 #[test]
 fn nested_finally_runs_once_for_return_and_catch_return() {
-    runs(r#"class Application {
+    runs(r#"class App {
       int value() { try { try { return 42 } finally { Console.printLine('inner') } } finally { Console.printLine('outer') } }
       int handled() { try { throw 'boom' } catch (Error err) { return 7 } finally { Console.printLine('catch cleanup') } }
-      main() { Console.printLine(this.value()) Console.printLine(this.handled()) }
+      start() { Console.printLine(this.value()) Console.printLine(this.handled()) }
     }"#, "inner\nouter\n42\ncatch cleanup\n7\n");
 }
 #[test]
 fn loop_exits_cleanup_only_regions_being_exited() {
-    runs(r#"class Application { main() {
+    runs(r#"class App { start() {
       try { for (x in [1,2]) { try { if (x == 1) { continue } break } finally { Console.printLine(x) } } Console.printLine('done') }
       finally { Console.printLine('outer') }
     } }"#, "1\n2\ndone\nouter\n");
 }
 #[test]
 fn exception_from_handler_runs_finally_before_outer_handler() {
-    runs(r#"class Application { main() { try {
+    runs(r#"class App { start() { try {
       try { throw 'first' } catch (Error err) { throw 'second' } finally { Console.printLine('inner') }
     } catch (Error err) { Console.printLine(err.message()) } } }"#, "inner\nsecond\n");
 }
 #[test]
 fn cleanup_error_replaces_pending_error_and_preserves_it_as_suppressed() {
-    let output = native(r#"class Application { main() { try { throw 'original' } finally { throw 'cleanup' } } }"#);
+    let output = native(r#"class App { start() { try { throw 'original' } finally { throw 'cleanup' } } }"#);
     assert_eq!(output.status.code(), Some(1));
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(stderr.contains("GenericError: cleanup"), "{stderr}");
@@ -138,8 +138,8 @@ fn cleanup_error_replaces_pending_error_and_preserves_it_as_suppressed() {
 }
 #[test]
 fn cleanup_return_overrides_pending_return() {
-    runs(r#"class Application { int value() { try { return 1 } finally { return 2 } }
-      main() { Console.printLine(this.value()) } }"#, "2\n");
+    runs(r#"class App { int value() { try { return 1 } finally { return 2 } }
+      start() { Console.printLine(this.value()) } }"#, "2\n");
 }
 #[test]
 fn composition_and_optional_causes_keep_original_concrete_objects() {
@@ -149,7 +149,7 @@ fn composition_and_optional_causes_keep_original_concrete_objects() {
         string message() { return this._details.message() }
         string code() { return this._details.code() }
       }
-      class Application { main() {
+      class App { start() {
         final root = Root('root')
         try { throw PaymentError(Details('payment', 'PAY'), root) }
         catch (PaymentError err) {
@@ -162,7 +162,7 @@ fn composition_and_optional_causes_keep_original_concrete_objects() {
 fn guarded_catches_narrow_before_condition_and_continue_on_false() {
     runs(r#"trait Retryable { string message() bool retryable() }
       class A(string message, bool retryable) {}
-      class Application { main() { try { throw A('boom', false) }
+      class App { start() { try { throw A('boom', false) }
         catch (Retryable err) if (err.retryable()) { Console.printLine('wrong') }
         catch (A err) { Console.printLine(err.message()) }
       } }"#, "boom\n");
@@ -170,21 +170,21 @@ fn guarded_catches_narrow_before_condition_and_continue_on_false() {
 #[test]
 fn throwing_catch_condition_propagates_after_cleanup() {
     runs(r#"class A(string message) { bool test() { throw 'condition' } }
-      class Application { main() { try { try { throw A('original') }
+      class App { start() { try { try { throw A('original') }
         catch (A err) if (err.test()) { Console.printLine('wrong') } finally { Console.printLine('cleanup') }
       } catch (Error err) { Console.printLine(err.message()) } } }"#, "cleanup\ncondition\n");
 }
 #[test]
 fn async_failures_keep_type_fields_causes_and_finally_order() {
     runs(r#"class DbError(string message, int code) {}
-      class Application { async int fail() { try { throw DbError('db', 99) } finally { Console.printLine('worker cleanup') } }
+      class App { async int fail() { try { throw DbError('db', 99) } finally { Console.printLine('worker cleanup') } }
         async int relay() { return await this.fail() }
-        main() { try { final value = await this.relay() } catch (DbError err) { Console.printLine(err.message()) Console.printLine(err.code()) } finally { Console.printLine('awaiter cleanup') } }
+        start() { try { final value = await this.relay() } catch (DbError err) { Console.printLine(err.message()) Console.printLine(err.code()) } finally { Console.printLine('awaiter cleanup') } }
       }"#, "worker cleanup\ndb\n99\nawaiter cleanup\n");
 }
 #[test]
 fn timeout_and_closed_channel_failures_are_generic_errors() {
-    runs(r#"class Application { main() {
+    runs(r#"class App { start() {
       final ch = Channel<int>(1)
       try { final value = await ch.receive().timeout(5) } catch (GenericError err) { Console.printLine(err.message()) }
       ch.close()
@@ -193,12 +193,12 @@ fn timeout_and_closed_channel_failures_are_generic_errors() {
 }
 #[test]
 fn cancellation_unblocks_await_and_runs_worker_cleanup() {
-    runs(r#"class Application {
+    runs(r#"class App {
       async wait(Channel<int> ready, Channel<int> blocked) {
         try { final sent = await ready.send(1) final value = await blocked.receive() }
         finally { Console.printLine('worker cleanup') }
       }
-      main() { final ready = Channel<int>(1) final blocked = Channel<int>(1)
+      start() { final ready = Channel<int>(1) final blocked = Channel<int>(1)
         final task = this.wait(ready, blocked) final started = await ready.receive()
         final cancelled = task.cancel()
         try { final value = await task } catch (Error err) { Console.printLine(err.message()) }
@@ -208,7 +208,7 @@ fn cancellation_unblocks_await_and_runs_worker_cleanup() {
 
 #[test]
 fn cancellation_allows_async_cleanup_and_preserves_original_failure() {
-    runs(r#"class Application {
+    runs(r#"class App {
       async work(Channel<int> ready, Channel<int> blocked, Channel<int> completed) {
         try {
           final sent = await ready.send(1)
@@ -221,7 +221,7 @@ fn cancellation_allows_async_cleanup_and_preserves_original_failure() {
           Console.printLine('cleanup completed')
         }
       }
-      main() {
+      start() {
         final ready = Channel<int>(1)
         final blocked = Channel<int>(1)
         final completed = Channel<int>(1)
@@ -237,8 +237,8 @@ fn cancellation_allows_async_cleanup_and_preserves_original_failure() {
 
 #[test]
 fn unhandled_sync_and_async_errors_exit_unsuccessfully() {
-    for source in [r#"class Application { main() { throw 'sync' } }"#,
-      r#"class Application { async fail() { throw 'async' } main() { final value = await this.fail() } }"#] {
+    for source in [r#"class App { start() { throw 'sync' } }"#,
+      r#"class App { async fail() { throw 'async' } start() { final value = await this.fail() } }"#] {
         let output = native(source);
         assert_eq!(output.status.code(), Some(1));
         assert!(String::from_utf8_lossy(&output.stderr).contains("unhandled exception GenericError"));
@@ -247,31 +247,31 @@ fn unhandled_sync_and_async_errors_exit_unsuccessfully() {
 #[test]
 fn invalid_throw_operands_are_rejected() {
     for value in ["null", "1", "true", "Potato(1)"] {
-        rejects(&format!("class Potato(int value) {{}} class Application {{ main() {{ throw {value} }} }}"), "throw target must");
+        rejects(&format!("class Potato(int value) {{}} class App {{ start() {{ throw {value} }} }}"), "throw target must");
     }
-    rejects(r#"class Wrong { int message() { return 1 } } class Application { main() { throw Wrong() } }"#, "throw target must");
+    rejects(r#"class Wrong { int message() { return 1 } } class App { start() { throw Wrong() } }"#, "throw target must");
 }
 #[test]
 fn invalid_and_unreachable_catch_types_are_rejected() {
     for ty in ["Missing", "Potato", "NotError"] {
-        rejects(&format!("trait NotError {{ bool retryable() }} class Potato(int value) {{}} class Application {{ main() {{ try {{ Console.printLine(1) }} catch ({ty} err) {{}} }} }}"), "catch type");
+        rejects(&format!("trait NotError {{ bool retryable() }} class Potato(int value) {{}} class App {{ start() {{ try {{ Console.printLine(1) }} catch ({ty} err) {{}} }} }}"), "catch type");
     }
-    rejects(r#"class A(string message) {} class Application { main() { try { throw A('x') } catch (Error err) {} catch (A err) {} } }"#, "Unreachable catch");
+    rejects(r#"class A(string message) {} class App { start() { try { throw A('x') } catch (Error err) {} catch (A err) {} } }"#, "Unreachable catch");
     rejects(r#"trait R { string message() bool retryable() } class A(string message, bool retryable) {}
-      class Application { main() { try { throw A('x', true) } catch (R err) {} catch (A err) {} } }"#, "Unreachable catch");
+      class App { start() { try { throw A('x', true) } catch (R err) {} catch (A err) {} } }"#, "Unreachable catch");
 }
 #[test]
 fn catch_scopes_and_static_types_are_checked() {
-    rejects(r#"class A(string message, int code) {} class Application { main() { try { throw A('x',1) } catch (A err) { Console.printLine(err.missing()) } } }"#, "Member");
-    rejects(r#"class Application { main() { try { throw 'x' } catch (Error err) {} Console.printLine(err) } }"#, "err");
-    rejects(r#"class Application { main() { try { final local = 1 } finally { Console.printLine(local) } } }"#, "local");
-    rejects(r#"class Application { main() { try { throw 'x' } catch (Error err) if (1) {} } }"#, "catch condition");
+    rejects(r#"class A(string message, int code) {} class App { start() { try { throw A('x',1) } catch (A err) { Console.printLine(err.missing()) } } }"#, "Member");
+    rejects(r#"class App { start() { try { throw 'x' } catch (Error err) {} Console.printLine(err) } }"#, "err");
+    rejects(r#"class App { start() { try { final local = 1 } finally { Console.printLine(local) } } }"#, "local");
+    rejects(r#"class App { start() { try { throw 'x' } catch (Error err) if (1) {} } }"#, "catch condition");
 }
 #[test]
 fn incomplete_try_and_legacy_cleanup_syntax_are_rejected() {
-    rejects("class Application { main() { try {} } }", "try requires");
+    rejects("class App { start() { try {} } }", "try requires");
     for code in ["guard {}", "after file.close()", "try {} exit {}", "try {} catch(err) {}"] {
-        assert!(!diagnostics(&format!("class Application {{ main() {{ {code} }} }}")).is_empty(), "accepted {code}");
+        assert!(!diagnostics(&format!("class App {{ start() {{ {code} }} }}")).is_empty(), "accepted {code}");
     }
 }
 
@@ -279,7 +279,7 @@ fn incomplete_try_and_legacy_cleanup_syntax_are_rejected() {
 fn runtime_file_and_directory_failures_are_catchable_and_run_cleanup() {
     let missing = std::env::temp_dir().join(format!("ube-missing-{}", std::process::id())).join("file");
     let path = missing.to_string_lossy();
-    runs(&format!(r#"class Application {{ main() {{
+    runs(&format!(r#"class App {{ start() {{
       try {{ final value = File.read('{path}') Console.printLine('wrong') }}
       catch (FileNotFoundError err) {{ Console.printLine('read') }} finally {{ Console.printLine('cleanup') }}
       try {{ File.write('{path}', 'data') Console.printLine('wrong') }} catch (Error err) {{ Console.printLine('write') }}
@@ -296,7 +296,7 @@ fn runtime_file_and_directory_failures_are_catchable_and_run_cleanup() {
 fn runtime_file_handles_distinguish_empty_content_closed_handles_and_binary_data() {
     let path = std::env::temp_dir().join(format!("ube-file-handles-{}", std::process::id()));
     let path = path.to_string_lossy();
-    runs(&format!(r#"class Application {{ main() {{
+    runs(&format!(r#"class App {{ start() {{
       File.write('{path}', '')
       Console.printLine(File.read('{path}'))
       File.write('{path}', 'hello')
@@ -308,7 +308,7 @@ fn runtime_file_handles_distinguish_empty_content_closed_handles_and_binary_data
     }} }}"#), "\nhello\nclosed\n");
     let binary = std::env::temp_dir().join(format!("ube-binary-{}", std::process::id()));
     fs::write(&binary, b"hello\0world").unwrap();
-    runs(&format!(r#"class Application {{ main() {{
+    runs(&format!(r#"class App {{ start() {{
       try {{ Console.printLine(File.read('{}')) }} catch (Error err) {{ Console.printLine('binary rejected') }}
     }} }}"#, binary.display()), "binary rejected\n");
     fs::remove_file(binary).unwrap();
@@ -318,7 +318,7 @@ fn runtime_file_handles_distinguish_empty_content_closed_handles_and_binary_data
 fn runtime_server_startup_failures_are_catchable() {
     let reserved = std::net::TcpListener::bind(("127.0.0.1", 0)).ok();
     let port = reserved.as_ref().map(|listener| listener.local_addr().unwrap().port()).unwrap_or(8080);
-    runs(&format!(r#"class Application {{ main() {{
+    runs(&format!(r#"class App {{ start() {{
       final app = Server()
       try {{ app.start(-1) Console.printLine('wrong') }} catch (Error err) {{ Console.printLine('invalid port') }}
       try {{ app.start({port}) Console.printLine('wrong') }} catch (Error err) {{ Console.printLine('bind failed') }}
@@ -329,7 +329,7 @@ fn runtime_server_startup_failures_are_catchable() {
 
 #[test]
 fn unhandled_runtime_io_errors_exit_unsuccessfully() {
-    let output = native(r#"class Application { main() { File.read('/ube-nonexistent-directory/file') Console.printLine('wrong') } }"#);
+    let output = native(r#"class App { start() { File.read('/ube-nonexistent-directory/file') Console.printLine('wrong') } }"#);
     assert_eq!(output.status.code(), Some(1));
     assert!(output.stdout.is_empty());
     assert!(String::from_utf8_lossy(&output.stderr).contains("FileNotFoundError"));
@@ -337,9 +337,9 @@ fn unhandled_runtime_io_errors_exit_unsuccessfully() {
 
 #[test]
 fn native_list_indexing_compiles_with_and_without_handlers() {
-    runs(r#"class Application {
+    runs(r#"class App {
       int first() { final values = [42] return values[0] }
-      main() {
+      start() {
         Console.printLine(this.first())
         final values = [10, 20]
         try { Console.printLine(values[0]) Console.printLine(values[1]) }
@@ -351,7 +351,7 @@ fn native_list_indexing_compiles_with_and_without_handlers() {
 
 #[test]
 fn native_list_bounds_errors_are_caught_and_run_cleanup() {
-    runs(r#"class Application { main() {
+    runs(r#"class App { start() {
       final values = [42]
       try { Console.printLine(values[-1]) Console.printLine('unreachable') }
       catch (Error err) { Console.printLine('negative index') }
@@ -365,7 +365,7 @@ fn native_list_bounds_errors_are_caught_and_run_cleanup() {
 
 #[test]
 fn native_bare_return_needs_no_semicolon_and_runs_cleanup() {
-    runs(r#"class Application {
+    runs(r#"class App {
       stop() {
         try {
           Console.printLine('before')
@@ -376,14 +376,14 @@ fn native_bare_return_needs_no_semicolon_and_runs_cleanup() {
       int value() { return (
         42
       ) }
-      main() { this.stop() Console.printLine(this.value()) }
+      start() { this.stop() Console.printLine(this.value()) }
     }"#, "before\ncleanup\n42\n");
 }
 
 #[test]
 fn backing_fields_are_private_to_the_declaring_class() {
     for statement in ["Console.printLine(user._age)", "user._age = 2", "Console.printLine(user._name)", "user._name = 'B'"] {
-        rejects(&format!("class User(string name, var int age) {{}} class Application {{ main() {{ final user = User('A', 1) {statement} }} }}"), "is private to class 'User'");
+        rejects(&format!("class User(string name, var int age) {{}} class App {{ start() {{ final user = User('A', 1) {statement} }} }}"), "is private to class 'User'");
     }
 }
 
@@ -393,7 +393,7 @@ fn public_fields_use_getter_and_setter_calls() {
       birthday() { this._age = this._age + 1 }
       int read() { return this._age }
     }
-    class Application { main() {
+    class App { start() {
       final user = User('A', 1)
       final shared = user
       Console.printLine(user.name())
@@ -416,7 +416,7 @@ fn public_field_access_and_setter_arguments_are_checked() {
         ("User.age(2)", "requires an instance of 'User'"),
         ("User.age()", "requires an instance of 'User'"),
     ] {
-        rejects(&format!("class User(string name, var int age) {{}} class Application {{ main() {{ final user = User('A', 1) {statement} }} }}"), expected);
+        rejects(&format!("class User(string name, var int age) {{}} class App {{ start() {{ final user = User('A', 1) {statement} }} }}"), expected);
     }
 }
 
@@ -426,7 +426,7 @@ fn native_declarations_zero_initialize_without_constructor_defaults() {
       int load() { Console.printLine('default evaluated') return 99 }
     }
     class Record(int count = Defaults().load(), string label = 'configured') {}
-    class Application { main() {
+    class App { start() {
       Record zero
       Console.printLine(zero.count())
       Console.printLine(zero.label())
@@ -443,7 +443,7 @@ fn native_zero_initialization_recurses_without_sharing_or_defaults() {
     runs(r#"class Point(var int x = 42) {}
     class Pair(Point left, Point right) {}
     class Node(int value = 99, Node? next = null) {}
-    class Application { main() {
+    class App { start() {
       Pair pair
       pair.left().x(7)
       Console.printLine(pair.left().x())
@@ -460,7 +460,7 @@ fn native_zero_initialization_recurses_without_sharing_or_defaults() {
 fn native_primitive_declarations_keep_zero_values() {
     runs(r#"class Settings(int count = 7, long id = 9L, decimal ratio = 1.5,
       bool enabled = true, string text = 'configured') {}
-    class Application { main() {
+    class App { start() {
       int count
       long id
       decimal ratio
@@ -475,11 +475,11 @@ fn native_primitive_declarations_keep_zero_values() {
 
 #[test]
 fn unsafe_zero_initialization_requires_nullable_links_or_explicit_initializers() {
-    rejects("class Node(Node next) {} class Application { main() { Node node } }", "recursive non-nullable class");
-    rejects("class A(B b) {} class B(A a) {} class Application { main() { A value } }", "recursive non-nullable class");
-    rejects("class Application { main() { Server app } }", "requires an explicit initializer");
-    rejects("class Application { main() { Channel<int> values } }", "requires an explicit initializer");
-    rejects("trait Named { string name() } class Application { main() { Named value } }", "requires an explicit initializer");
+    rejects("class Node(Node next) {} class App { start() { Node node } }", "recursive non-nullable class");
+    rejects("class A(B b) {} class B(A a) {} class App { start() { A value } }", "recursive non-nullable class");
+    rejects("class App { start() { Server app } }", "requires an explicit initializer");
+    rejects("class App { start() { Channel<int> values } }", "requires an explicit initializer");
+    rejects("trait Named { string name() } class App { start() { Named value } }", "requires an explicit initializer");
 }
 
 #[test]
@@ -488,15 +488,15 @@ fn native_startup_uses_the_same_zero_values_as_local_declarations() {
       int load() { Console.printLine('unexpected default evaluation') return 123 }
     }
     class Child(int count = 77) {}
-    class Application(int count = Defaults().load(), long support = 44L,
+    class App(int count = Defaults().load(), long support = 44L,
       string caption = 'configured', Child child = Child(), Child? absent = Child()) {
-      main() {
+      start() {
         Console.printLine(this.count())
         Console.printLine(this.support())
         Console.printLine(this.caption())
         Console.printLine(this.child().count())
         Console.printLine(this.absent() == null)
-        Application other
+        App other
         Console.printLine(other.child().count())
         final configured = Child()
         Console.printLine(configured.count())
@@ -506,14 +506,14 @@ fn native_startup_uses_the_same_zero_values_as_local_declarations() {
 
 #[test]
 fn unsafe_startup_layouts_are_rejected_before_codegen() {
-    rejects("class Application(Application next) { main() {} }", "recursive non-nullable class");
-    rejects("class Application(Server app = Server()) { main() {} }", "requires an explicit initializer");
+    rejects("class App(App next) { start() {} }", "recursive non-nullable class");
+    rejects("class App(Server app = Server()) { start() {} }", "requires an explicit initializer");
 }
 
 #[test]
 fn removed_boolean_operators_are_rejected_in_expressions() {
     for operator in ["nand", "nor", "xor", "xnor"] {
-        let source = format!("class Application {{ main() {{ Console.printLine(true {operator} false) }} }}");
+        let source = format!("class App {{ start() {{ Console.printLine(true {operator} false) }} }}");
         let mut parser = Parser::new(Lexer::new(&source));
         parser.parse_program();
         assert!(!parser.diagnostics.is_empty(), "Accepted removed operator {operator}");
@@ -522,7 +522,7 @@ fn removed_boolean_operators_are_rejected_in_expressions() {
 
 #[test]
 fn native_boolean_logic_keeps_not_and_or_precedence() {
-    runs(r#"class Application { main() {
+    runs(r#"class App { start() {
       Console.printLine(not true) Console.printLine(not false)
       Console.printLine(true and true) Console.printLine(true and false)
       Console.printLine(false or true) Console.printLine(false or false)
@@ -541,7 +541,7 @@ fn native_boolean_logic_keeps_not_and_or_precedence() {
 #[test]
 fn native_backtick_text_blocks_preserve_json_and_do_not_interpolate() {
     runs(r#"class Consumer { string echo(string value) { return value } }
-    class Application { main() {
+    class App { start() {
       Console.printLine('A')
       Console.printLine('one line')
       Console.printLine(`{"name":"Ube","value":"${notDeclared}","line":"\n"}`)
@@ -556,16 +556,16 @@ fn native_backtick_text_blocks_preserve_json_and_do_not_interpolate() {
 
 #[test]
 fn double_quotes_are_reserved_and_single_quotes_cannot_span_lines() {
-    rejects("class Application { main() { Console.printLine(\"reserved\") } }", "Double quotes are reserved for JSON");
-    rejects("class Application { main() { Console.printLine('first\nsecond') } }", "Unescaped line break");
-    rejects("class Application { main() { Console.printLine(`unfinished) } }", "Unterminated backtick text block");
+    rejects("class App { start() { Console.printLine(\"reserved\") } }", "Double quotes are reserved for JSON");
+    rejects("class App { start() { Console.printLine('first\nsecond') } }", "Unescaped line break");
+    rejects("class App { start() { Console.printLine(`unfinished) } }", "Unterminated backtick text block");
 }
 
 #[test]
 fn nullable_scalars_survive_tasks_channels_and_captures() {
-    runs(r#"class Application {
+    runs(r#"class App {
       async int? score(int? value) { return value }
-      main() {
+      start() {
         final ch = Channel<int?>(2)
         int? missing = await this.score(null)
         int? zero = await this.score(0)
@@ -587,10 +587,10 @@ fn nullable_scalars_survive_tasks_channels_and_captures() {
 
 #[test]
 fn nullable_false_and_decimal_zero_are_present() {
-    runs(r#"class Application {
+    runs(r#"class App {
       async bool? truth(bool? value) { return value }
       async decimal? amount(decimal? value) { return value }
-      main() {
+      start() {
         final ch = Channel<bool?>(2)
         await ch.send(null)
         await ch.send(await this.truth(false))
@@ -614,10 +614,10 @@ fn nullable_false_and_decimal_zero_are_present() {
 #[test]
 fn nullable_fields_calls_and_presence_conditions_work_natively() {
     runs(r#"class User(var int? age) {}
-      class Application {
+      class App {
         int? echo(int? value) { return value }
         async long? wide(long? value) { return value }
-        main() {
+        start() {
           final user = User(null)
           Console.printLine(user.age())
           user.age(0)
@@ -649,10 +649,10 @@ fn nullable_fields_calls_and_presence_conditions_work_natively() {
 
 #[test]
 fn nullable_payloads_do_not_hide_closure_failure_or_repeat_awaits() {
-    runs(r#"class Application {
+    runs(r#"class App {
       async int? absent() { return null }
       async int? fail() { throw 'failed' }
-      main() {
+      start() {
         final ch = Channel<int?>(1)
         await ch.send(null)
         ch.close()
@@ -673,13 +673,13 @@ fn nullable_payloads_do_not_hide_closure_failure_or_repeat_awaits() {
 
 #[test]
 fn untyped_collections_diagnose_nullable_scalar_storage() {
-    rejects("class Application { main() { int? value = null final values = [value] } }", "untyped List storage");
-    rejects("class Application { async int? absent() { return null } main() { final tasks = [this.absent()] } }", "untyped List storage");
+    rejects("class App { start() { int? value = null final values = [value] } }", "untyped List storage");
+    rejects("class App { async int? absent() { return null } start() { final tasks = [this.absent()] } }", "untyped List storage");
 }
 
 #[test]
 fn sqlite_native_queries_and_errors() {
-    runs(r#"class Application { main() {
+    runs(r#"class App { start() {
         final db = SQLite.open(':memory:')
         db.execute('CREATE TABLE items (id INTEGER, name TEXT, price REAL, extra TEXT)')
         Console.printLine(db.execute('INSERT INTO items VALUES (7, \'ube\', 2.5, NULL)'))
@@ -695,18 +695,18 @@ fn sqlite_native_queries_and_errors() {
 
 #[test]
 fn sqlite_example_and_handle_creation_rules() {
-    let output = native(include_str!("../../examples/sqlite/Application.ube"));
+    let output = native(include_str!("../../examples/sqlite/App.ube"));
     assert!(output.status.success());
     assert!(output.stdout.is_empty());
     assert_eq!(String::from_utf8_lossy(&output.stderr), "[INFO] 1\n[INFO] Ube\n");
-    rejects("class Application { main() { SQLite.execute('SELECT 1') } }", "require an instance");
-    rejects("class Application { main() { final db = SQLite() } }", "Use SQLite.open");
-    rejects("class Application { main() { final rows = SQLiteResult() } }", "Use SQLite.open");
+    rejects("class App { start() { SQLite.execute('SELECT 1') } }", "require an instance");
+    rejects("class App { start() { final db = SQLite() } }", "Use SQLite.open");
+    rejects("class App { start() { final rows = SQLiteResult() } }", "Use SQLite.open");
 }
 
 #[test]
 fn sqlite_prepared_bindings_transactions_and_metadata() {
-    runs(r#"class Application { main() {
+    runs(r#"class App { start() {
         final db = SQLite.open(':memory:')
         db.busyTimeout(50)
         db.executeBatch('PRAGMA foreign_keys = ON; CREATE TABLE items (id INTEGER PRIMARY KEY, name TEXT UNIQUE, price REAL, active INTEGER, payload BLOB, extra TEXT);')
@@ -737,7 +737,7 @@ fn sqlite_prepared_bindings_transactions_and_metadata() {
 
 #[test]
 fn sqlite_returning_nulls_errors_and_parameter_validation() {
-    runs(r#"class Application { main() {
+    runs(r#"class App { start() {
         final db = SQLite.open(':memory:')
         db.execute('CREATE TABLE items (id INTEGER PRIMARY KEY, value TEXT NOT NULL UNIQUE)')
         final returning = db.prepare('INSERT INTO items(value) VALUES (?) RETURNING id, value')
@@ -755,17 +755,17 @@ fn sqlite_returning_nulls_errors_and_parameter_validation() {
         final empty = db.query('SELECT id AS number FROM items WHERE 0') Console.printLine(empty.columnName(0)) Console.printLine(empty.next()) empty.close()
         returning.close() db.close()
     } }"#, "true\n1\nfirst\nunique\nindex\nhex\nmultiple\nmultiple query\ntrue\n1\nuse query\nuse execute\ntimeout\nnumber\nfalse\n");
-    rejects("class Application { main() { final db = SQLite.open() } }", "expects 1 arguments");
-    rejects("class Application { main() { final db = SQLite.open(':memory:') db.close(1) } }", "expects 0 arguments");
-    rejects("class Application { main() { final db = SQLite.open(':memory:') final s = db.prepare('SELECT ?') s.bindLong(1, 'bad') } }", "Expected");
-    rejects("class Application { main() { final s = SQLiteStatement() } }", "Use SQLite.open");
+    rejects("class App { start() { final db = SQLite.open() } }", "expects 1 arguments");
+    rejects("class App { start() { final db = SQLite.open(':memory:') db.close(1) } }", "expects 0 arguments");
+    rejects("class App { start() { final db = SQLite.open(':memory:') final s = db.prepare('SELECT ?') s.bindLong(1, 'bad') } }", "Expected");
+    rejects("class App { start() { final s = SQLiteStatement() } }", "Use SQLite.open");
 }
 
 #[test]
 fn sqlite_native_file_backup_restore_and_read_only() {
     let dir = Scratch(std::env::temp_dir().join(format!("ube-sqlite-native-{}", std::process::id())));
     fs::create_dir_all(&dir.0).unwrap();
-    let source = r#"class Application { main() {
+    let source = r#"class App { start() {
         Console.printLine(SQLite.version() != '')
         final db = SQLite.open('$ROOT/source.db')
         Console.printLine(db.readOnly())
@@ -786,13 +786,13 @@ fn sqlite_native_file_backup_restore_and_read_only() {
 
 #[test]
 fn server_builtin_uses_capitalized_name() {
-    runs("class Application { main() { final server = Server() Console.printLine(server.port()) server.stop() } }", "8080\n");
-    rejects("class Application { main() { final app = server() } }", "use Server()");
+    runs("class App { start() { final server = Server() Console.printLine(server.port()) server.stop() } }", "8080\n");
+    rejects("class App { start() { final app = server() } }", "use Server()");
 }
 
 #[test]
 fn lowercase_variables_and_console_output_remain_valid() {
-    runs(r#"class Application { main() {
+    runs(r#"class App { start() {
         final math = 4
         final json = 'data'
         final response = 'ok'
@@ -804,7 +804,7 @@ fn lowercase_variables_and_console_output_remain_valid() {
 
 #[test]
 fn log_shorthand_levels_filtering_and_console_streams() {
-    let output = native(r#"class Application { main() {
+    let output = native(r#"class App { start() {
         log('hello') Log.info('hello')
         Log.debug('hidden') Log.warn('warning') Log.error('failure')
         Log.setLevel('debug') Log.debug(42) Log.info(true)
@@ -823,9 +823,9 @@ fn log_shorthand_levels_filtering_and_console_streams() {
 #[test]
 fn log_nullable_values_interpolation_and_error_messages() {
     let output = native(r#"class Failure(string message) {}
-    class Application(var int calls = 0) {
+    class App(var int calls = 0) {
         int value() { this._calls = this._calls + 1 return this._calls }
-        main() {
+        start() {
             int? number = 0
             bool? flag = false
             decimal? real = 0.0
@@ -845,23 +845,23 @@ fn log_nullable_values_interpolation_and_error_messages() {
 
 #[test]
 fn log_checks_arity_types_and_capitalization() {
-    rejects("class Application { main() { log() } }", "exactly one value");
-    rejects("class Application { main() { Log.info('a', 'b') } }", "exactly one value");
-    rejects("class Application { main() { Log.warn() } }", "exactly one value");
-    rejects("class Application { main() { Log.setLevel(1) } }", "setLevel requires a string");
-    rejects("class Application { main() { Log('wrong case') } }", "Use log(value)");
-    rejects("class Application { main() { log.info('wrong case') } }", "use Log");
-    rejects("class Item {} class Application { main() { log(Item()) } }", "Output requires");
-    rejects("class Application { main() { Console.printLine() } }", "exactly one value");
-    rejects("class Application { main() { Console() } }", "do not create instances");
+    rejects("class App { start() { log() } }", "exactly one value");
+    rejects("class App { start() { Log.info('a', 'b') } }", "exactly one value");
+    rejects("class App { start() { Log.warn() } }", "exactly one value");
+    rejects("class App { start() { Log.setLevel(1) } }", "setLevel requires a string");
+    rejects("class App { start() { Log('wrong case') } }", "Use log(value)");
+    rejects("class App { start() { log.info('wrong case') } }", "use Log");
+    rejects("class Item {} class App { start() { log(Item()) } }", "Output requires");
+    rejects("class App { start() { Console.printLine() } }", "exactly one value");
+    rejects("class App { start() { Console() } }", "do not create instances");
 }
 
 #[test]
 fn log_threshold_is_shared_with_tasks_and_filtering_keeps_argument_evaluation() {
-    let output = native(r#"class Application(var int calls = 0) {
+    let output = native(r#"class App(var int calls = 0) {
         int next() { this._calls = this._calls + 1 return this._calls }
         async worker() { Log.debug('from worker') }
-        main() {
+        start() {
             Log.setLevel('off') log(this.next())
             Console.printLine(this.calls())
             Log.setLevel('debug') await this.worker()
@@ -874,7 +874,7 @@ fn log_threshold_is_shared_with_tasks_and_filtering_keeps_argument_evaluation() 
 
 #[test]
 fn log_context_values_records_and_cleanup() {
-    let output = native(r#"class Application { main() {
+    let output = native(r#"class App { start() {
         Log.clear()
         Console.printLine(Log.get('absent') == null)
         Log.put('user', 'alice') Log.put('requestId', 'req-42')
@@ -897,7 +897,7 @@ fn log_context_values_records_and_cleanup() {
 
 #[test]
 fn log_context_task_snapshots_and_sibling_isolation() {
-    let output = native(r#"class Application {
+    let output = native(r#"class App {
         async string child(string name, Channel<int> ready, Channel<int> release) {
             if (Log.get('request') != 'parent') { throw 'missing inherited context' }
             Log.put('request', name)
@@ -907,7 +907,7 @@ fn log_context_task_snapshots_and_sibling_isolation() {
             return Log.get('request') ?? 'missing'
         }
         async fail() { Log.put('request', 'failed task') throw 'failure' }
-        main() {
+        start() {
             Log.put('request', 'parent')
             final ready = Channel<int>(2) final release = Channel<int>(2)
             final first = this.child('A', ready, release)
@@ -932,19 +932,19 @@ fn log_context_task_snapshots_and_sibling_isolation() {
 
 #[test]
 fn log_context_argument_validation() {
-    rejects("class Application { main() { Log.put('key') } }", "2 arguments");
-    rejects("class Application { main() { Log.put('key', 42) } }", "must be non-null strings");
-    rejects("class Application { main() { Log.put('key', null) } }", "must be non-null strings");
-    rejects("class Application { main() { Log.get(null) } }", "must be non-null strings");
-    rejects("class Application { main() { Log.get('key', 'extra') } }", "1 arguments");
-    rejects("class Application { main() { Log.clear('key') } }", "0 arguments");
-    rejects("class Application { main() { Log.put('key', log('message')) } }", "must be non-null strings");
-    rejects("class Application { main() { string value = Log.get('key') } }", "Mismatched initializer type");
+    rejects("class App { start() { Log.put('key') } }", "2 arguments");
+    rejects("class App { start() { Log.put('key', 42) } }", "must be non-null strings");
+    rejects("class App { start() { Log.put('key', null) } }", "must be non-null strings");
+    rejects("class App { start() { Log.get(null) } }", "must be non-null strings");
+    rejects("class App { start() { Log.get('key', 'extra') } }", "1 arguments");
+    rejects("class App { start() { Log.clear('key') } }", "0 arguments");
+    rejects("class App { start() { Log.put('key', log('message')) } }", "must be non-null strings");
+    rejects("class App { start() { string value = Log.get('key') } }", "Mismatched initializer type");
 }
 
 #[test]
 fn log_context_example_runs() {
-    let output = native(include_str!("../../examples/log_context/Application.ube"));
+    let output = native(include_str!("../../examples/log_context/App.ube"));
     assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
     assert_eq!(String::from_utf8_lossy(&output.stdout), "req-42\n");
     assert_eq!(String::from_utf8_lossy(&output.stderr), "[INFO] {\"requestId\":\"req-42\"} Processing request\n[WARN] {\"requestId\":\"req-42\",\"user\":\"alice\"} Retrying operation\n[INFO] Context cleared\n");
@@ -952,7 +952,7 @@ fn log_context_example_runs() {
 
 #[test]
 fn console_reads_unicode_lines_and_eof() {
-    let source = r#"class Application { main() {
+    let source = r#"class App { start() {
         string? character = Console.read()
         string? line = Console.readLine()
         Console.printLine(character ?? 'EOF')
@@ -965,12 +965,12 @@ fn console_reads_unicode_lines_and_eof() {
     let output = native_with_input(source, "🍠hello\r\n\nlast".as_bytes());
     assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
     assert_eq!(String::from_utf8_lossy(&output.stdout), "🍠\nhello\n\nlast\nEOF\nEOF\n");
-    rejects("class Application { main() { Console.read(1) } }", "no arguments");
-    rejects("class Application { main() { Console.readLine('x') } }", "no arguments");
+    rejects("class App { start() { Console.read(1) } }", "no arguments");
+    rejects("class App { start() { Console.readLine('x') } }", "no arguments");
 }
 #[test]
 fn console_input_failures_can_be_caught() {
-    let output = native_with_input(r#"class Application { main() {
+    let output = native_with_input(r#"class App { start() {
         try { Console.read() } catch (GenericError err) { Console.printLine('caught') }
     } }"#, &[0xff]);
     assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
@@ -979,9 +979,9 @@ fn console_input_failures_can_be_caught() {
 
 #[test]
 fn console_print_methods_and_shorthand() {
-    let output = native(r#"class Application {
+    let output = native(r#"class App {
         int next() { Console.print('evaluated:') return 42 }
-        main() {
+        start() {
             Log.setLevel('off')
             Console.print('hello ')
             Console.printLine('world')
@@ -997,17 +997,17 @@ fn console_print_methods_and_shorthand() {
     assert_eq!(String::from_utf8_lossy(&output.stdout), "hello world\nevaluated:42\ntrue\nnull\noops\n\n");
     assert!(output.stderr.is_empty());
     for call in ["print()", "print(1, 2)", "Console.print()", "Console.printLine(1, 2)"] {
-        rejects(&format!("class Application {{ main() {{ {call} }} }}"), "exactly one value");
+        rejects(&format!("class App {{ start() {{ {call} }} }}"), "exactly one value");
     }
     for call in ["Console.write('old')", "Console.writeLine('old')"] {
-        rejects(&format!("class Application {{ main() {{ {call} }} }}"), "requires a class call");
+        rejects(&format!("class App {{ start() {{ {call} }} }}"), "requires a class call");
     }
-    rejects("class Item {} class Application { main() { print(Item()) } }", "Output requires");
+    rejects("class Item {} class App { start() { print(Item()) } }", "Output requires");
 }
 
 #[test]
 fn invalid_server_tls_configuration_is_catchable() {
-    runs(r#"class Application { main() {
+    runs(r#"class App { start() {
         final server = Server()
         try { server.tls('/ube-missing-cert.pem', '/ube-missing-key.pem') }
         catch (GenericError err) { print('invalid TLS configuration') }
@@ -1017,15 +1017,15 @@ fn invalid_server_tls_configuration_is_catchable() {
 #[test]
 fn session_api_validates_instances_types_arity_and_construction() {
     rejects(
-        "class Application { main() { final session = Session() } }",
+        "class App { start() { final session = Session() } }",
         "request.session()",
     );
     rejects(
-        "class Application { main() { Session.get('key') } }",
+        "class App { start() { Session.get('key') } }",
         "requires an instance",
     );
     rejects(
-        "class Application { main() { Request.session() } }",
+        "class App { start() { Request.session() } }",
         "requires an instance",
     );
     for call in [
@@ -1036,7 +1036,7 @@ fn session_api_validates_instances_types_arity_and_construction() {
         "regenerate(1)",
         "destroy(1)",
     ] {
-        rejects(&format!("class Application {{ main() {{ final server = Server() server.get('/') {{ request -> request.session().{call} return Response.ok('ok') }} }} }}"), "expects");
+        rejects(&format!("class App {{ start() {{ final server = Server() server.get('/') {{ request -> request.session().{call} return Response.ok('ok') }} }} }}"), "expects");
     }
     for call in [
         "get(1)",
@@ -1044,15 +1044,15 @@ fn session_api_validates_instances_types_arity_and_construction() {
         "set('key', 42)",
         "remove(true)",
     ] {
-        rejects(&format!("class Application {{ main() {{ final server = Server() server.get('/') {{ request -> request.session().{call} return Response.ok('ok') }} }} }}"), "non-null strings");
+        rejects(&format!("class App {{ start() {{ final server = Server() server.get('/') {{ request -> request.session().{call} return Response.ok('ok') }} }} }}"), "non-null strings");
     }
-    rejects("class Application { main() { final server = Server() server.get('/') { request -> request.session(1) return Response.ok('ok') } } }", "expects 0 arguments");
+    rejects("class App { start() { final server = Server() server.get('/') { request -> request.session(1) return Response.ok('ok') } } }", "expects 0 arguments");
 }
 
 #[test]
 fn jwt_sign_verify_claims_and_failure_paths_run_natively() {
     runs(
-        r#"class Application { main() {
+        r#"class App { start() {
         final secret = 'test-only-32-byte-secret-0123456789'
         final token = Jwt.sign('{"sub":"user-123","iss":"ube-test","aud":"ube-api","exp":4102444800}', secret, 'HS256')
         final claims = Jwt.verify(token, secret, 'HS256', 'ube-test', 'ube-api')
@@ -1076,32 +1076,32 @@ fn jwt_sign_verify_claims_and_failure_paths_run_natively() {
 fn auth_builtins_validate_methods_types_and_factories() {
     for class in ["Jwt", "JwtClaims", "OAuth2", "OAuth2Token"] {
         rejects(
-            &format!("class Application {{ main() {{ {class}() }} }}"),
+            &format!("class App {{ start() {{ {class}() }} }}"),
             "cannot be constructed",
         );
     }
     rejects(
-        "class Application { main() { Jwt.sign('a', 'b') } }",
+        "class App { start() { Jwt.sign('a', 'b') } }",
         "expects 3 arguments",
     );
     rejects(
-        "class Application { main() { Jwt.verify('a', 'b', 'HS256', 'issuer', null) } }",
+        "class App { start() { Jwt.verify('a', 'b', 'HS256', 'issuer', null) } }",
         "non-null",
     );
     rejects(
-        "class Application { main() { OAuth2.create('a','b','c','d',42) } }",
+        "class App { start() { OAuth2.create('a','b','c','d',42) } }",
         "argument types",
     );
     rejects(
-        "class Application { main() { JwtClaims.get('sub') } }",
+        "class App { start() { JwtClaims.get('sub') } }",
         "require an instance",
     );
     rejects(
-        "class Application { main() { OAuth2.authorize('a', 'b') } }",
+        "class App { start() { OAuth2.authorize('a', 'b') } }",
         "require an instance",
     );
     runs(
-        r#"class Application { main() {
+        r#"class App { start() {
         try { OAuth2.create('http://provider.example/auth', 'https://provider.example/token', 'id', '', 'https://client.example/callback') }
         catch (GenericError err) { print('requires HTTPS') }
     } }"#,
@@ -1112,7 +1112,7 @@ fn auth_builtins_validate_methods_types_and_factories() {
 #[test]
 fn http3_configuration_and_startup_errors_are_catchable() {
     runs(
-        r#"class Application { main() {
+        r#"class App { start() {
         final server = Server()
         print(server.http3Port())
         try { server.enableHttp3(-1) } catch (GenericError err) { print('invalid port') }
@@ -1124,19 +1124,19 @@ fn http3_configuration_and_startup_errors_are_catchable() {
         "-1\ninvalid port\ninvalid port\n0\nTLS required\n",
     );
     rejects(
-        "class Application { main() { Server.http3Port() } }",
+        "class App { start() { Server.http3Port() } }",
         "requires an instance",
     );
     rejects(
-        "class Application { main() { final server = Server() server.enableHttp3() } }",
+        "class App { start() { final server = Server() server.enableHttp3() } }",
         "1 arguments",
     );
     rejects(
-        "class Application { main() { final server = Server() server.http3Port(1) } }",
+        "class App { start() { final server = Server() server.http3Port(1) } }",
         "0 arguments",
     );
     rejects(
-        "class Application { main() { final server = Server() server.enableHttp3('port') } }",
+        "class App { start() { final server = Server() server.enableHttp3('port') } }",
         "port must be an int",
     );
 }
@@ -1144,9 +1144,9 @@ fn http3_configuration_and_startup_errors_are_catchable() {
 #[test]
 fn unified_sql_bindings_transactions_and_typed_results_native() {
     runs(r#"
-class Application {
+class App {
     insert(SQL db, SQLParams params) { db.execute('INSERT INTO users VALUES (?, ?)', params) }
-    main() {
+    start() {
         final db = SQL.open('sqlite::memory:')
         final params = SQLParams.create()
         try {
@@ -1193,40 +1193,40 @@ class Application {
 #[test]
 fn unified_sql_enforces_factory_arity_receiver_and_types() {
     for source in [
-        "class Application { main() { final db = SQL() } }",
-        "class Application { main() { final p = SQLParams() } }",
-        "class Application { main() { final r = SQLResult() } }",
-        "class Application { main() { final t = SQLTransaction() } }",
+        "class App { start() { final db = SQL() } }",
+        "class App { start() { final p = SQLParams() } }",
+        "class App { start() { final r = SQLResult() } }",
+        "class App { start() { final t = SQLTransaction() } }",
     ] { rejects(source, "SQL handles cannot be constructed"); }
-    rejects("class Application { main() { SQL.query('SELECT 1', SQLParams.create()) } }", "require an instance");
-    rejects("class Application { main() { final db = SQL.open('sqlite::memory:') db.open('sqlite::memory:') } }", "require the class");
-    rejects("class Application { main() { SQL.open(42) } }", "Invalid SQL method argument types");
-    rejects("class Application { main() { final p = SQLParams.create() p.addInt('42') } }", "Invalid SQL method argument types");
-    rejects("class Application { main() { final p = SQLParams.create() p.addString(null) } }", "Invalid SQL method argument types");
-    rejects("class Application { main() { final db = SQL.open('sqlite::memory:') db.query('SELECT 1') } }", "expects 2 arguments");
-    rejects("class Application { main() { final db = SQL.open('sqlite::memory:') db.query('SELECT 1', null) } }", "Invalid SQL method argument types");
-    rejects("class Application { main() { final db = SQL.open('sqlite::memory:') db.missing() } }", "Unknown SQL method");
+    rejects("class App { start() { SQL.query('SELECT 1', SQLParams.create()) } }", "require an instance");
+    rejects("class App { start() { final db = SQL.open('sqlite::memory:') db.open('sqlite::memory:') } }", "require the class");
+    rejects("class App { start() { SQL.open(42) } }", "Invalid SQL method argument types");
+    rejects("class App { start() { final p = SQLParams.create() p.addInt('42') } }", "Invalid SQL method argument types");
+    rejects("class App { start() { final p = SQLParams.create() p.addString(null) } }", "Invalid SQL method argument types");
+    rejects("class App { start() { final db = SQL.open('sqlite::memory:') db.query('SELECT 1') } }", "expects 2 arguments");
+    rejects("class App { start() { final db = SQL.open('sqlite::memory:') db.query('SELECT 1', null) } }", "Invalid SQL method argument types");
+    rejects("class App { start() { final db = SQL.open('sqlite::memory:') db.missing() } }", "Unknown SQL method");
 }
 
 #[test]
 fn orm_models_and_fluent_queries_are_checked_before_execution() {
-    rejects("class User(string name) {} class Application { main() { Orm.model(SQL.open('sqlite::memory:'), User, 'users') } }", "require a non-null int or long field named id");
-    rejects("class Address(string city) {} class User(int id, Address address) {} class Application { main() { Orm.model(SQL.open('sqlite::memory:'), User, 'users') } }", "must be int, long, decimal, bool, string");
-    rejects("class User(int id, string name) {} class Application { main() { final users = Orm.model(SQL.open('sqlite::memory:'), User, 'users') users.query().where('typo', '=', 1) } }", "Unknown ORM column 'typo'");
-    rejects("class User(int id, string name) {} class Application { main() { final users = Orm.model(SQL.open('sqlite::memory:'), User, 'users') users.query().where('name', '=', 1) } }", "expects string");
-    rejects("class User(int id) {} class Other(int id) {} class Application { main() { final users = Orm.model(SQL.open('sqlite::memory:'), User, 'users') users.create(Other(1)) } }", "Invalid ORM argument types");
-    rejects("class User(int id) {} class Application { main() { final users = Orm.model(SQL.open('sqlite::memory:'), User(1), 'users') } }", "model must be a class name");
-    rejects("class User(int id) {} class Application { main() { final users = Orm.model(SQL.open('sqlite::memory:'), User, 'users') users.delete(null) } }", "Invalid ORM argument types");
-    rejects("class Application { main() { OrmModel() } }", "ORM handles cannot be constructed");
-    rejects("class User(int id) {} class Application { main() { final users = Orm.model(SQL.open('sqlite::memory:'), User, 'users') users.query().where('id', '=', null) } }", "where requires a non-null scalar");
+    rejects("class User(string name) {} class App { start() { Orm.model(SQL.open('sqlite::memory:'), User, 'users') } }", "require a non-null int or long field named id");
+    rejects("class Address(string city) {} class User(int id, Address address) {} class App { start() { Orm.model(SQL.open('sqlite::memory:'), User, 'users') } }", "must be int, long, decimal, bool, string");
+    rejects("class User(int id, string name) {} class App { start() { final users = Orm.model(SQL.open('sqlite::memory:'), User, 'users') users.query().where('typo', '=', 1) } }", "Unknown ORM column 'typo'");
+    rejects("class User(int id, string name) {} class App { start() { final users = Orm.model(SQL.open('sqlite::memory:'), User, 'users') users.query().where('name', '=', 1) } }", "expects string");
+    rejects("class User(int id) {} class Other(int id) {} class App { start() { final users = Orm.model(SQL.open('sqlite::memory:'), User, 'users') users.create(Other(1)) } }", "Invalid ORM argument types");
+    rejects("class User(int id) {} class App { start() { final users = Orm.model(SQL.open('sqlite::memory:'), User(1), 'users') } }", "model must be a class name");
+    rejects("class User(int id) {} class App { start() { final users = Orm.model(SQL.open('sqlite::memory:'), User, 'users') users.delete(null) } }", "Invalid ORM argument types");
+    rejects("class App { start() { OrmModel() } }", "ORM handles cannot be constructed");
+    rejects("class User(int id) {} class App { start() { final users = Orm.model(SQL.open('sqlite::memory:'), User, 'users') users.query().where('id', '=', null) } }", "where requires a non-null scalar");
 }
 
 #[test]
 fn orm_runtime_guards_reject_unsafe_queries_and_incompatible_rows() {
     runs(r#"
 class User(long id, string name, bool active) {}
-class Application {
-    main() {
+class App {
+    start() {
         final db = SQL.open('sqlite::memory:')
         final users = Orm.model(db, User, 'select')
         final query = users.query()
@@ -1255,7 +1255,7 @@ class Application {
 
 #[test]
 fn orm_join_columns_aliases_and_related_filters_are_checked() {
-    let prefix = "class User(long id, string name) {} class Order(long id, long userId, bool active) {} class Application { main() { final db = SQL.open('sqlite::memory:') final users = Orm.model(db, User, 'users') final orders = Orm.model(db, Order, 'orders') final q = users.query() ";
+    let prefix = "class User(long id, string name) {} class Order(long id, long userId, bool active) {} class App { start() { final db = SQL.open('sqlite::memory:') final users = Orm.model(db, User, 'users') final orders = Orm.model(db, Order, 'orders') final q = users.query() ";
     for (body,message) in [
         ("q.join(orders,'o','missing','userId')", "Unknown ORM column 'missing'"),
         ("q.join(orders,'o','id','missing')", "Unknown ORM column 'missing'"),
@@ -1271,17 +1271,17 @@ fn orm_join_columns_aliases_and_related_filters_are_checked() {
 
 #[test]
 fn request_body_requires_instance_and_no_arguments() {
-    rejects("class Application { main() { Request.body() } }", "requires an instance");
-    rejects("class Application { main() { final server = Server() server.post('/', request -> Response.ok(request.body('extra'))) } }", "expects 0 arguments");
+    rejects("class App { start() { Request.body() } }", "requires an instance");
+    rejects("class App { start() { final server = Server() server.post('/', request -> Response.ok(request.body('extra'))) } }", "expects 0 arguments");
 }
 
 #[test]
 fn money_currency_mismatch_is_catchable_and_runs_finally() {
     runs(r#"
-        class Application {
+        class App {
             Money subtract() { return Money.php(10.0).subtract(Money.usd(5.0)) }
             async Money failAsync() { return this.subtract() }
-            main() {
+            start() {
                 final original = Money.php(10.0)
                 try { print(original.add(Money.usd(5.0)).amount()) }
                 catch (CurrencyMismatchError error) { print(error.message()) }
@@ -1307,7 +1307,7 @@ fn money_currency_mismatch_is_catchable_and_runs_finally() {
 #[test]
 fn unhandled_money_currency_mismatch_uses_normal_exception_reporting() {
     for operation in ["add", "subtract"] {
-        let source = format!("class Application {{ main() {{ try {{ Money.php(1.0).{operation}(Money.usd(1.0)) }} finally {{ print('cleanup') }} print('unreachable') }} }}");
+        let source = format!("class App {{ start() {{ try {{ Money.php(1.0).{operation}(Money.usd(1.0)) }} finally {{ print('cleanup') }} print('unreachable') }} }}");
         let output = native(&source);
         assert_eq!(output.status.code(), Some(1));
         assert_eq!(output.stdout, b"cleanup\n");
@@ -1327,14 +1327,14 @@ fn exact_money_api_checks_receiver_arity_and_non_null_text() {
         ("Money.php(1.0).parse('1', 'PHP')", "a class call"),
         ("Money.php(1.0).multiplyPercent(12)", "non-null parameter types"),
     ] {
-        rejects(&format!("class Application {{ main() {{ {source} }} }}"), expected);
+        rejects(&format!("class App {{ start() {{ {source} }} }}"), expected);
     }
 }
 
 #[test]
 fn gc_api_requires_static_calls_and_no_arguments() {
     for source in ["Gc()", "Gc.collect(1)", "Gc.objects(1)", "Gc.reclaimed(1)"] {
-        let errors = diagnostics(&format!("class Application {{ main() {{ {source} }} }}"));
+        let errors = diagnostics(&format!("class App {{ start() {{ {source} }} }}"));
         assert!(!errors.is_empty(), "invalid collector call accepted: {source}");
     }
 }
@@ -1342,21 +1342,21 @@ fn gc_api_requires_static_calls_and_no_arguments() {
 #[test]
 fn task_combinators_check_literal_elements_and_outcome_calls() {
     for method in ["all", "any", "race", "allSettled"] {
-        rejects(&format!("class Application {{ main() {{ final result = await Task.{method}([1]) }} }}"), "only task elements");
+        rejects(&format!("class App {{ start() {{ final result = await Task.{method}([1]) }} }}"), "only task elements");
     }
-    rejects("class Application { main() { final results = await Task.allSettled([async 1]) final result = results['bad'] } }", "index must be int");
-    rejects("class Application { main() { TaskOutcome() } }", "does not create instances");
-    rejects("class Application { main() { final results = await Task.allSettled([async 1]) final result = results.get('bad') } }", "Invalid task outcome method call");
+    rejects("class App { start() { final results = await Task.allSettled([async 1]) final result = results['bad'] } }", "index must be int");
+    rejects("class App { start() { TaskOutcome() } }", "does not create instances");
+    rejects("class App { start() { final results = await Task.allSettled([async 1]) final result = results.get('bad') } }", "Invalid task outcome method call");
 }
 
 #[test]
 fn stacktrace_records_nested_calls_and_preserves_original_throw() {
     let output = native(r#"class Problem(string message) {}
-class Application {
+class App {
     fail() { throw Problem('boom') }
     relay() { this.fail() }
     finished() { return }
-    main() {
+    start() {
         this.finished()
         try { this.relay() } catch (Problem error) {
             final original = error.stacktrace()
@@ -1369,40 +1369,40 @@ class Application {
 }"#);
     assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
     let text = String::from_utf8_lossy(&output.stdout);
-    assert!(text.starts_with("Problem: boom\n  at Application.fail (3:"), "{text}");
-    let fail = text.find("at Application.fail").unwrap();
-    let relay = text.find("at Application.relay (4:").unwrap();
-    let main = text.find("at Application.main (8:").unwrap();
+    assert!(text.starts_with("Problem: boom\n  at App.fail (3:"), "{text}");
+    let fail = text.find("at App.fail").unwrap();
+    let relay = text.find("at App.relay (4:").unwrap();
+    let main = text.find("at App.start (8:").unwrap();
     assert!(fail < relay && relay < main, "{text}");
-    assert!(!text.contains("Application.finished"), "{text}");
+    assert!(!text.contains("App.finished"), "{text}");
     assert!(!text.contains("Problem.message"), "{text}");
     assert!(text.ends_with("true\n"), "{text}");
 }
 
 #[test]
 fn stacktrace_captures_runtime_errors_and_unhandled_output() {
-    let caught = native(r#"class Application {
+    let caught = native(r#"class App {
     fail() { final cache=Cache.memory(0) }
-    main() { try { this.fail() } catch(Error error) { Console.printLine(error.stacktrace()) } }
+    start() { try { this.fail() } catch(Error error) { Console.printLine(error.stacktrace()) } }
 }"#);
     assert!(caught.status.success(), "{}", String::from_utf8_lossy(&caught.stderr));
     let text=String::from_utf8_lossy(&caught.stdout);
-    assert!(text.contains("at Application.fail (2:"), "{text}");
-    assert!(text.contains("at Application.main (3:"), "{text}");
-    let unhandled=native("class Application { fail() { throw 'boom' } main() { this.fail() } }");
+    assert!(text.contains("at App.fail (2:"), "{text}");
+    assert!(text.contains("at App.start (3:"), "{text}");
+    let unhandled=native("class App { fail() { throw 'boom' } start() { this.fail() } }");
     assert!(!unhandled.status.success());
     let stderr=String::from_utf8_lossy(&unhandled.stderr);
     assert!(stderr.contains("unhandled exception GenericError: boom"), "{stderr}");
-    assert!(stderr.contains("at Application.fail (1:"), "{stderr}");
-    assert!(stderr.contains("at Application.main (1:"), "{stderr}");
+    assert!(stderr.contains("at App.fail (1:"), "{stderr}");
+    assert!(stderr.contains("at App.start (1:"), "{stderr}");
 }
 
 #[test]
 fn async_stacktrace_retains_throwing_task_without_stale_frames() {
-    let output=native(r#"class Application {
+    let output=native(r#"class App {
     async fail() { throw 'async boom' }
     done() { return }
-    main() {
+    start() {
         try { await this.fail() } catch(Error error) { Console.printLine(error.stacktrace()) }
         this.done()
         try { throw 'later' } catch(Error error) { Console.printLine(error.stacktrace()) }
@@ -1410,32 +1410,32 @@ fn async_stacktrace_retains_throwing_task_without_stale_frames() {
 }"#);
     assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
     let text=String::from_utf8_lossy(&output.stdout);
-    assert!(text.contains("GenericError: async boom\n  at Application.fail (2:"), "{text}");
+    assert!(text.contains("GenericError: async boom\n  at App.fail (2:"), "{text}");
     let later=text.split("GenericError: later").nth(1).unwrap();
-    assert!(later.contains("at Application.main (7:"), "{text}");
-    assert!(!later.contains("Application.fail"), "{text}");
-    assert!(!later.contains("Application.done"), "{text}");
+    assert!(later.contains("at App.start (7:"), "{text}");
+    assert!(!later.contains("App.fail"), "{text}");
+    assert!(!later.contains("App.done"), "{text}");
 }
 
 #[test]
 fn stacktrace_requires_an_error_instance_and_zero_arguments() {
-    rejects("class Application { main() { GenericError.stacktrace() } }", "error instance");
-    rejects("class Application { main() { try { throw 'bad' } catch(Error e) { e.stacktrace(1) } } }", "no arguments");
+    rejects("class App { start() { GenericError.stacktrace() } }", "error instance");
+    rejects("class App { start() { try { throw 'bad' } catch(Error e) { e.stacktrace(1) } } }", "no arguments");
 }
 
 #[test]
 fn stacktrace_supports_error_compatible_traits_and_unthrown_instances() {
     runs(r#"trait Retryable { string message() bool retryable() }
     class Problem(string message,bool retryable) {}
-    class Application { main() {
+    class App { start() {
         Console.printLine(Problem('not thrown',true).stacktrace() == '')
         try { throw Problem('retry',true) } catch(Retryable error) { Console.printLine(error.stacktrace()) }
-    }}"#, "true\nProblem: retry\n  at Application.main (5:21)\n");
+    }}"#, "true\nProblem: retry\n  at App.start (5:21)\n");
 }
 
 #[test]
 fn native_math_arguments_match_decimal_and_integer_abis() {
-    runs(r#"class Application { main() {
+    runs(r#"class App { start() {
         Console.printLine(Math.sqrt(9))
         Console.printLine(Math.pow(2,3))
         Console.printLine(Math.isNaN(Math.sqrt(-1)))

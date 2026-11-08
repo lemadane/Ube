@@ -1,7 +1,7 @@
 import Profile
 
-class Main {
-    main() {
+class App {
+    start() {
         final profile = Profile(42, 'Alice & Bob', [95, 88])
         final xml = profile.toXml()
         Console.printLine(xml)

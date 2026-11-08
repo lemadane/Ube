@@ -48,6 +48,7 @@ impl TextualLlvmEmitter {
             .push_str("; Target Data Layout for Ube Native Binary\n");
         self.output.push_str("target datalayout = \"e-m:e-p270:32:32-p271:32:32-p272:64:64-i64:64-f80:128-n8:16:32:64-S128\"\n\n");
 
+        self.output.push_str("declare void @ube_static_pending(i8*)\ndeclare { i64, i64 } @ube_static_load(i8*, i64)\ndeclare void @ube_static_store(i8*, i64, i64, i1)\n");
         self.output.push_str("declare i8* @ube_task_spawn_poll(i64, i8*, i64)\ndeclare { i64, i64 } @ube_poll_get(i8*, i64)\ndeclare void @ube_poll_set(i8*, i64, i64, i64, i1)\ndeclare i64 @ube_poll_pc(i8*)\ndeclare i1 @ube_poll_step(i8*, i64)\ndeclare i1 @ube_poll_await(i8*, i8*)\ndeclare { i64, i64 } @ube_poll_value(i8*)\ndeclare void @ube_poll_finish(i8*, i64, i64)\n");
         self.output.push_str("declare void @ube_type_method(i8*, i8*, i8*)\ndeclare i1 @ube_object_satisfies(i8*, i8*)\ndeclare i8* @ube_object_method(i8*, i8*)\ndeclare void @ube_object_register(i8*, i8*)\ndeclare i1 @ube_object_is(i8*, i8*)\ndeclare i8* @ube_exception_create(i8*, i8*, i8*, i8*)\ndeclare i8* @ube_exception_object(i8*)\ndeclare i8* @ube_exception_take()\ndeclare void @ube_exception_set(i8*)\ndeclare void @ube_exception_suppress(i8*, i8*)\ndeclare i8* @ube_exception_poll_cancel()\ndeclare void @ube_exception_fail_unhandled()\n");
         self.output.push_str("declare i64 @ube_mockery_create()\ndeclare void @ube_mockery_allow(i64, i8*)\ndeclare void @ube_mockery_throws(i64, i8*, i8*)\ndeclare void @ube_mockery_verify(i64, i8*, i32)\ndeclare i64 @ube_mockery_calls(i64, i8*)\ndeclare void @ube_mockery_verify_no_calls(i64)\ndeclare void @ube_mockery_reset(i64)\ndeclare void @ube_mockery_clearCalls(i64)\ndeclare void @ube_mockery_dispose(i64)\ndeclare void @ube_mockery_call_void(i64, i8*)\n");
@@ -660,7 +661,7 @@ impl TextualLlvmEmitter {
         self.output.push_str("define private void @ube_register_types() {\nentry:\n");
         self.emit_json_schemas(ir_program);
         for function in &ir_program.functions {
-            if !self.class_map.contains_key(&function.class_name) || function.is_async { continue; }
+            if !self.class_map.contains_key(&function.class_name) || function.is_async || function.is_static { continue; }
             let name = self.emit_operand(&IrOperand::ConstantString(function.class_name.clone()));
             let params: Vec<_> = function.params.iter().map(|(_,t)| t.clone()).collect();
             let signature = self.emit_operand(&IrOperand::ConstantString(method_signature(&function.name, &params, &function.return_type)));
@@ -686,11 +687,12 @@ impl TextualLlvmEmitter {
             self.output.push('\n');
         }
 
-        // Emit synthetic C-ABI main entry point if any class contains a main() method
+        // Emit synthetic C-ABI main entry point if any class contains a start() method
         let main_fn = ir_program
             .functions
             .iter()
-            .find(|f| f.name.eq_ignore_ascii_case("main"));
+            .filter(|f| f.name.eq_ignore_ascii_case("start"))
+            .min_by_key(|f| f.class_name != "App");
 
         if let Some(m_fn) = main_fn {
             let target_symbol = format!("{}_{}", m_fn.class_name, m_fn.name);
@@ -700,14 +702,21 @@ impl TextualLlvmEmitter {
             self.output.push_str("entry:\n");
             self.output.push_str("  call void @ube_runtime_init()\n");
             self.output.push_str("  call void @ube_args_init(i32 %argc, i8** %argv)\n");
+            if ir_program.functions.iter().any(|f| f.class_name == "__ube.internal" && f.name == "statics") {
+                self.output.push_str("  call void @__ube.internal_statics(i8* null)\n  call void @ube_exception_fail_unhandled()\n");
+            }
             // Startup shares the IR builder's declaration zero-initialization path.
-            self.output.push_str(&format!(
-                "  %app = call {}* @__ube.internal_zero(i8* null)\n", class_type
-            ));
-            self.output.push_str(&format!(
-                "  call void @{}({}* %app)\n",
-                target_symbol, class_type
-            ));
+            if m_fn.is_static {
+                self.output.push_str(&format!("  call void @{}(i8* null)\n", target_symbol));
+            } else {
+                self.output.push_str(&format!(
+                    "  %app = call {}* @__ube.internal_zero(i8* null)\n", class_type
+                ));
+                self.output.push_str(&format!(
+                    "  call void @{}({}* %app)\n",
+                    target_symbol, class_type
+                ));
+            }
             self.output.push_str("  call void @ube_task_scope_leave()\n");
             self.output.push_str("  call void @ube_exception_fail_unhandled()\n");
             self.output.push_str("  call void @ube_runtime_cleanup()\n");
@@ -814,7 +823,7 @@ impl TextualLlvmEmitter {
                 }
                 buf.push_str(&format!("  {}\n", self.emit_instruction(instruction)));
                 let result = match instruction {
-                    IrInstruction::Cast { dest, ty, .. } | IrInstruction::Load { dest, ty, .. } => Some((*dest, ty.clone())),
+                    IrInstruction::LoadStatic { dest, ty, .. } | IrInstruction::Cast { dest, ty, .. } | IrInstruction::Load { dest, ty, .. } => Some((*dest, ty.clone())),
                     IrInstruction::GetField { dest, field_ty, .. } => Some((*dest, field_ty.clone())),
                     IrInstruction::CallMethod { dest: Some(dest), ret_ty, .. } | IrInstruction::CallRuntime { dest: Some(dest), ret_ty, .. } | IrInstruction::CallTrait { dest: Some(dest), ret_ty, .. } => Some((*dest, ret_ty.clone())),
                     IrInstruction::InstantiateClass { dest, .. } => Some((*dest, Type::Bytes)),
@@ -846,6 +855,24 @@ impl TextualLlvmEmitter {
 
     fn emit_instruction(&mut self, instr: &IrInstruction) -> String {
         match instr {
+            IrInstruction::LoadStatic { dest, key, ty } => {
+                let key = self.emit_operand(&IrOperand::ConstantString(key.clone()));
+                let mut lines = vec![format!("%static_raw_{} = call {{ i64, i64 }} @ube_static_load(i8* {}, i64 {})", dest.0, key, dest.0 * 2)];
+                lines.extend(self.decode_value(ty, &format!("%static_raw_{}", dest.0), &dest.0.to_string()).0);
+                lines.join("\n  ")
+            }
+            IrInstruction::StoreStatic { key, value, ty } => {
+                let key = self.emit_operand(&IrOperand::ConstantString(key.clone()));
+                let (mut lines, value) = self.coerce(value, ty);
+                // Use the unique key constant for temporary names: there can be
+                // multiple writes to one field, so reserve a fresh emitter id.
+                let id = self.string_counter;
+                self.string_counter += 1;
+                let encoded = self.encode_value(ty, &value, &format!("static_store_{id}"));
+                lines.extend(encoded.0);
+                lines.push(format!("call void @ube_static_store(i8* {}, i64 {}, i64 {}, i1 {})", key, encoded.1, encoded.2, self.type_to_llvm(ty).ends_with('*')));
+                lines.join("\n  ")
+            }
             IrInstruction::JsonEncode { dest, value } => self.emit_json_encode(*dest, value),
             IrInstruction::XmlEncode { dest,value,options } => self.emit_xml_encode(*dest,value,options),
             IrInstruction::Cast { dest, value, ty } => {

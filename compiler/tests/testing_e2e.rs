@@ -128,8 +128,8 @@ fn invalid_sources_signatures_empty_suites_and_options_fail() {
             "require no parameters",
         ),
         (
-            "class Invalid { main() {} testOne() {} }",
-            "must not define main",
+            "class Invalid { start() {} testOne() {} }",
+            "must not define start",
         ),
         (
             "class Invalid { testOne() { Testicle.equal(1, 'one') } }",
@@ -154,4 +154,21 @@ fn invalid_sources_signatures_empty_suites_and_options_fail() {
     }
     let output = run(&[], &["--timeout", "0"]);
     assert_eq!(output.status.code(), Some(1));
+}
+
+#[test]
+fn static_tests_and_hooks_use_class_receivers() {
+    let output = run(
+        &[("tests/statics_test.ube", r#"
+        class StaticTests {
+            static var int total = 0
+            static beforeEach() { static.total = 41 }
+            static afterEach() { Testicle.equal(42, static.total) }
+            static testStatic() { static.total = static.total + 1 }
+            static async testAsyncStatic() { static.total = static.total + 1 }
+        }
+        "#)], &[],
+    );
+    assert!(output.status.success(), "{}\n{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
+    assert!(String::from_utf8_lossy(&output.stdout).contains("Tests: 2 passed, 0 failed"));
 }

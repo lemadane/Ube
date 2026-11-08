@@ -18,12 +18,12 @@ class Profile(int id, string name, Address address) {}
 ```
 
 ```ube
-// Main.ube
+// App.ube
 import Address
 import Profile
 
-class Main {
-    main() {
+class App {
+    start() {
         final store = KeyValueStore.open('data/records.db')
         try {
             final profile = Profile(42, 'Alice', Address('東京'))
@@ -105,7 +105,7 @@ Keep the database and any existing `-wal`/`-shm` companion files together. Stop 
 data/
 ```
 
-The files are not encrypted by KeyValueStore. Application-level schema/version handling and any encryption requirements remain explicit application concerns.
+The files are not encrypted by KeyValueStore. App-level schema/version handling and any encryption requirements remain explicit application concerns.
 
 ## End-to-end stress evidence
 

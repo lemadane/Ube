@@ -4,8 +4,8 @@
 HTTP/1.1, HTTP/2, and HTTP/3 are supported. For example:
 
 ```ube
-class Application {
-    main() {
+class App {
+    start() {
         final server = Server()
         server.post('/echo', request -> Response.ok(request.body()))
         server.put('/echo', request -> Response.ok(request.body()))
@@ -64,7 +64,7 @@ cancellation, and timeouts leave the connection usable for other streams.
 length; unsupported expectations receive 417.
 
 Uploads run concurrently on each connection and respect transport flow control.
-One unfinished upload does not block other streams. Application callbacks still
+One unfinished upload does not block other streams. App callbacks still
 run serially on the calling server thread after their complete body is available.
 
 See the framing requirements in [HTTP/2 RFC 9113](https://www.rfc-editor.org/rfc/rfc9113.html#section-8.1)

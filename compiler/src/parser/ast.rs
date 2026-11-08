@@ -36,6 +36,7 @@ pub struct MethodDecl {
     pub return_type: Option<TypeSpec>, // None means implicit void
     pub body: Vec<Stmt>,
     pub is_async: bool,
+    pub is_static: bool,
     pub span: Span,
 }
 
@@ -47,9 +48,19 @@ pub struct CaseDecl {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub struct StaticFieldDecl {
+    pub name: String,
+    pub type_spec: TypeSpec,
+    pub is_mutable: bool,
+    pub initializer: Option<Expr>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct ClassDecl {
     pub name: String,
     pub primary_params: Vec<ConstructorParam>,
+    pub static_fields: Vec<StaticFieldDecl>,
     pub cases: Vec<CaseDecl>,
     pub methods: Vec<MethodDecl>,
     pub span: Span,

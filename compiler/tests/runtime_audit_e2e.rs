@@ -65,13 +65,13 @@ fn expect_output(output: Output, expected: &str) {
 #[test]
 fn currency_mismatch_recovers_through_the_real_cli() {
     expect_output(run_ube(r#"
-        class Application {
+        class App {
             Money fail(bool subtract) {
                 if (subtract) { return Money.php(10.0).subtract(Money.usd(5.0)) }
                 return Money.php(10.0).add(Money.usd(5.0))
             }
             async Money failAsync() { return this.fail(true) }
-            main() {
+            start() {
                 try { print(this.fail(false).amount()) }
                 catch (CurrencyMismatchError error) { print(error.message()) }
                 finally { print('add cleanup') }
@@ -92,8 +92,8 @@ fn list_lookup_distinguishes_zero_from_invalid_indices_through_the_real_cli() {
     expect_output(
         run_ube(
             r#"
-        class Application {
-            main() {
+        class App {
+            start() {
                 final items = [0, 42]
                 print(items[0])
                 try { print(items[-1]) }
@@ -114,8 +114,8 @@ fn money_decimal_arithmetic_is_exact_through_the_real_cli() {
     expect_output(
         run_ube(
             r#"
-        class Application {
-            main() {
+        class App {
+            start() {
                 final sum = Money.php(0.1).add(Money.php(0.2))
                 print(sum.amount() == 0.3)
                 print(Money.php(0.3).subtract(Money.php(0.2)).amount() == 0.1)
@@ -133,8 +133,8 @@ fn map_lookup_distinguishes_missing_entries_from_zero_through_the_real_cli() {
     expect_output(
         run_ube(
             r#"
-        class Application {
-            main() {
+        class App {
+            start() {
                 final values = [1: 0, 2: 42]
                 print(values[1] ?? -1)
                 print(values[1] != null)
@@ -231,10 +231,10 @@ fn trait_defaults_and_mixed_concrete_arguments_execute_through_the_real_cli() {
         class First { string name() { return 'first' } }
         class Second { string name() { return 'second' } }
         class Unrelated { int value() { return 42 } }
-        class Application {
+        class App {
             string render(Named first, Named second) { return '${first.name()} ${second.name()}' }
             string describe(Named value) { return '${value.title()} ${value.name()}' }
-            main() {
+            start() {
                 print(this.render(First(), Second()))
                 print(this.describe(First()))
                 print(this.describe(Second()))
@@ -249,8 +249,8 @@ fn trait_defaults_and_mixed_concrete_arguments_execute_through_the_real_cli() {
 #[test]
 fn exact_money_text_api_preserves_large_values_and_rejects_rounding() {
     expect_output(run_ube(r#"
-        class Application {
-            main() {
+        class App {
+            start() {
                 final large = Money.parse('9007199254740993.01', 'PHP')
                 print(large.add(Money.parse('0.02', 'PHP')).amountText())
                 print(large.amountText())
@@ -377,7 +377,7 @@ fn nullable_channels_cancellation_and_cleanup_survive_repeated_native_execution(
     expect_output(
         run_ube(
             r#"
-        class Application {
+        class App {
             int? number(int iteration) { if (iteration % 2 == 0) { return 0 } return null }
             bool? flag(int iteration) { if (iteration % 2 == 0) { return false } return null }
             async int? wait(Channel<int?> blocked, Channel<int> ready, Channel<int> completed) {
@@ -387,7 +387,7 @@ fn nullable_channels_cancellation_and_cleanup_survive_repeated_native_execution(
                 }
                 finally { final done = await completed.send(1) }
             }
-            main() {
+            start() {
                 var iteration = 0
                 var closed = 0
                 var cancelled = 0
@@ -438,7 +438,7 @@ fn generated_objects_keep_live_graphs_and_reclaim_unreachable_cycles() {
             r#"
         class Node(var Node? next = null, int value = 0) {}
         class Mixed(bool active, int count, Node child, bool flag) {}
-        class Application {
+        class App {
             Node make(int value) {
                 try { return Node(null, value) }
                 finally { Gc.collect() }
@@ -451,7 +451,7 @@ fn generated_objects_keep_live_graphs_and_reclaim_unreachable_cycles() {
                 if ((left.next() ?? left).value() != value + 1) { throw 'live child lost' }
                 if ((right.next() ?? right).value() != value) { throw 'live parent lost' }
             }
-            main() {
+            start() {
                 var kept = this.make(-1)
                 final mixed = Mixed(true, 7, Node(null, 42), false)
                 Gc.collect()
@@ -483,7 +483,7 @@ fn generated_tracing_heap_survives_parallel_collection_and_async_object_handoffs
         run_ube(
             r#"
         class Node(var Node? next = null, int value = 0) {}
-        class Application {
+        class App {
             async int work(int seed) {
                 var iteration = 0
                 for (iteration < 200) {
@@ -498,7 +498,7 @@ fn generated_tracing_heap_survives_parallel_collection_and_async_object_handoffs
                 return seed
             }
             async Node echo(Node value) { Gc.collect() return value }
-            main() {
+            start() {
                 final one = this.work(1000)
                 final two = this.work(2000)
                 final three = this.work(3000)
@@ -530,8 +530,8 @@ fn loop_scoped_locals_reuse_stack_storage_through_the_real_cli() {
     expect_output(
         run_ube(
             r#"
-        class Application {
-            main() {
+        class App {
+            start() {
                 var iteration = 0
                 var total = 0L
                 for (iteration < 1000000) {
@@ -554,9 +554,9 @@ fn generated_temporary_objects_are_collected_automatically() {
         run_ube(
             r#"
         class Entry(int value) {}
-        class Application {
+        class App {
             int read(int value) { final entry = Entry(value) return entry.value() }
-            main() {
+            start() {
                 var iteration = 0
                 for (iteration < 5000) {
                     if (this.read(iteration) != iteration) { throw 'live temporary lost' }
@@ -576,13 +576,13 @@ fn generated_temporary_objects_are_collected_automatically() {
 #[test]
 fn concurrent_collection_mutations_are_memory_safe_and_keep_all_entries() {
     expect_output(run_ube(r#"
-        class Application {
+        class App {
             async fill(List values, Channel<int> start, int seed) {
                 final signal = await start.receive()
                 var i = 0
                 for (i < 10000) { values.add(seed + i) i = i + 1 }
             }
-            main() {
+            start() {
                 final values = [] final start = Channel<int>(2)
                 final a = this.fill(values, start, 0)
                 final b = this.fill(values, start, 10000)
@@ -597,8 +597,8 @@ fn concurrent_collection_mutations_are_memory_safe_and_keep_all_entries() {
 #[test]
 fn task_lists_reject_non_task_payloads_without_dereferencing_them() {
     expect_output(run_ube(r#"
-        class Application {
-            main() {
+        class App {
+            start() {
                 final invalid = [1]
                 try { final result = await Task.all(invalid) }
                 catch (Error err) { print(err.message()) }
@@ -614,9 +614,9 @@ fn task_lists_reject_non_task_payloads_without_dereferencing_them() {
 fn settled_outcomes_preserve_zero_and_original_typed_failures() {
     expect_output(run_ube(r#"
         class WorkError(string message, int code) {}
-        class Application {
+        class App {
             async int fail() { throw WorkError('failed work', 73) }
-            main() {
+            start() {
                 final results = await Task.allSettled([this.fail(), async 0])
                 print(results.len()) print(results[0].succeeded()) print(results[1].succeeded())
                 print(results[1].value()) print(results[1].error() == null)
@@ -635,12 +635,12 @@ fn settled_outcomes_preserve_zero_and_original_typed_failures() {
 #[test]
 fn combinator_deadline_joins_child_cleanup_and_cancels_pending_receives() {
     expect_output(run_ube(r#"
-        class Application {
+        class App {
             async int child(Channel<int> ready, Channel<int> blocked, Channel<int> done) {
                 try { final sent = await ready.send(1) return await blocked.receive() }
                 finally { final sent = await done.send(7) }
             }
-            main() {
+            start() {
                 final ready = Channel<int>(1) final blocked = Channel<int>(1) final done = Channel<int>(1)
                 final child = this.child(ready, blocked, done)
                 final started = await ready.receive()
@@ -662,7 +662,7 @@ fn combinator_deadline_joins_child_cleanup_and_cancels_pending_receives() {
 #[test]
 fn parent_completion_cancels_and_joins_unawaited_children() {
     expect_output(run_ube(r#"
-        class Application {
+        class App {
             async child(Channel<int> ready, Channel<int> blocked, Channel<int> done) {
                 try { final sent = await ready.send(1) final value = await blocked.receive() }
                 finally { final sent = await done.send(9) }
@@ -671,7 +671,7 @@ fn parent_completion_cancels_and_joins_unawaited_children() {
                 final child = this.child(ready, blocked, done)
                 final started = await ready.receive()
             }
-            main() {
+            start() {
                 final ready = Channel<int>(1) final blocked = Channel<int>(1) final done = Channel<int>(1)
                 final finished = await this.parent(ready, blocked, done)
                 print(await done.receive().timeout(1000))
@@ -685,12 +685,12 @@ fn parent_completion_cancels_and_joins_unawaited_children() {
 fn deadline_and_cancellation_preserve_typed_cleanup_failures() {
     expect_output(run_ube(r#"
         class CleanupError(string message, int code) {}
-        class Application {
+        class App {
             async int work(Channel<int> ready, Channel<int> blocked) {
                 try { final sent = await ready.send(1) return await blocked.receive() }
                 finally { throw CleanupError('cleanup failed', 9) }
             }
-            main() {
+            start() {
                 final ready = Channel<int>(1) final blocked = Channel<int>(1)
                 final first = this.work(ready, blocked)
                 final started = await ready.receive()
@@ -710,7 +710,7 @@ fn deadline_and_cancellation_preserve_typed_cleanup_failures() {
 fn shared_nullable_fields_remain_coherent_between_generated_workers() {
     expect_output(run_ube(r#"
         class Shared(var int? number = null) {}
-        class Application {
+        class App {
             async write(Shared state) {
                 var i = 0
                 for (i < 5000) { state.number(7) state.number(null) i = i + 1 }
@@ -723,7 +723,7 @@ fn shared_nullable_fields_remain_coherent_between_generated_workers() {
                     i = i + 1
                 }
             }
-            main() {
+            start() {
                 final state = Shared(null)
                 final tasks = [this.write(state), this.read(state)]
                 final done = await Task.all(tasks)
@@ -736,12 +736,12 @@ fn shared_nullable_fields_remain_coherent_between_generated_workers() {
 #[test]
 fn root_scope_joins_workers_before_reporting_the_main_error() {
     let output = run_ube(r#"
-        class Application {
+        class App {
             async child(Channel<int> ready, Channel<int> blocked) {
                 try { final sent = await ready.send(1) final value = await blocked.receive() }
                 finally { print('child cleanup') throw 'cleanup failed' }
             }
-            main() {
+            start() {
                 final ready = Channel<int>(1) final blocked = Channel<int>(1)
                 final task = this.child(ready, blocked)
                 final started = await ready.receive()

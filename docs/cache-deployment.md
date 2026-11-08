@@ -6,9 +6,9 @@ See [Cache](cache.md) for the API and [runnable examples](../examples/cache/READ
 
 | Deployment | Owner and lifetime | Suitable use |
 | --- | --- | --- |
-| `Cache.memory(bytes)` | Application process; data disappears when it exits | Local, disposable acceleration |
-| `Cache.open(path, bytes)` | Application process; disk data is recovered on reopen | Local cache that survives application restarts |
-| Embedded `cache.listen(address, token)` | Application process owns both store and TCP listener | Sharing a cache hosted by an existing application |
+| `Cache.memory(bytes)` | App process; data disappears when it exits | Local, disposable acceleration |
+| `Cache.open(path, bytes)` | App process; disk data is recovered on reopen | Local cache that survives application restarts |
+| Embedded `cache.listen(address, token)` | App process owns both store and TCP listener | Sharing a cache hosted by an existing application |
 | `ube cache` | Independent service process | Sharing across application servers with independent restarts |
 
 A disk-backed cache loads its retained, unexpired entries into memory. It is not a tiered cache that fetches evicted entries back from disk: eviction removes the persisted entry too. Reopening with a smaller budget can permanently evict entries. An embedded listener is a separate TCP listener in the application process, not routes attached to the application's HTTP server.
@@ -64,7 +64,7 @@ The metrics listener continues to bind only to `127.0.0.1`, even when the cache 
 
 `ube cache` runs in the foreground and does not daemonize. A service manager or container supervisor should own its lifetime and restart policy. It remains alive until terminated. There is no remote shutdown command and no custom graceful signal handler; an interrupted/terminated standalone process relies on WAL recovery at restart. Durable mutations have committed before acknowledgement.
 
-Embedded applications should close caches in `finally`. Runtime cleanup also stops and joins cache listeners after joining application tasks. An embedded listener does not keep a completed `main()` alive. See the [interactive embedded example](../examples/cache/server/Main.ube); pressing Enter or closing stdin allows it to finish.
+Embedded applications should close caches in `finally`. Runtime cleanup also stops and joins cache listeners after joining application tasks. An embedded listener does not keep a completed `start()` alive. See the [interactive embedded example](../examples/cache/server/App.ube); pressing Enter or closing stdin allows it to finish.
 
 Each listener has one accept thread, four worker threads, and a queue of up to 64 accepted connections. Frame size is bounded, and connection/read/write timeouts apply. A full queue can close a new connection; applications should handle that as a cache failure. Disk operations serialize through the cache's store lock. Disk stalls and synchronous journal writes can delay requests. Do not interpret health endpoint responsiveness as proof that a disk write will succeed.
 

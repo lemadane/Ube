@@ -1,5 +1,5 @@
-class Application {
-    main() {
+class App {
+    start() {
         Log.put('requestId', 'req-42')
         try {
             log('Processing request')

@@ -304,12 +304,16 @@ impl<'a> Parser<'a> {
         }
 
         let mut cases = Vec::new();
+        let mut static_fields = Vec::new();
         let mut methods = Vec::new();
 
         if self.match_token(&TokenKind::OpenBrace) {
             while !self.check(&TokenKind::CloseBrace) && !self.check(&TokenKind::Eof) {
                 if self.check(&TokenKind::Case) {
                     cases.push(self.parse_case_decl()?);
+                } else if self.check(&TokenKind::Static)
+                    && matches!(self.peek_token.kind, TokenKind::Var | TokenKind::Final) {
+                    static_fields.push(self.parse_static_field()?);
                 } else {
                     methods.push(self.parse_method_decl()?);
                 }
@@ -318,6 +322,7 @@ impl<'a> Parser<'a> {
             Ok(ClassDecl {
                 name: class_name,
                 primary_params,
+                static_fields,
                 cases,
                 methods,
                 span: Span::combine(start_span, end_tok.span),
@@ -326,6 +331,7 @@ impl<'a> Parser<'a> {
             Ok(ClassDecl {
                 name: class_name,
                 primary_params,
+                static_fields,
                 cases,
                 methods,
                 span: start_span,
@@ -390,8 +396,30 @@ impl<'a> Parser<'a> {
         })
     }
 
+    fn parse_static_field(&mut self) -> Result<StaticFieldDecl, ()> {
+        let start = self.expect(&TokenKind::Static, "static")?.span;
+        let is_mutable = self.match_token(&TokenKind::Var);
+        if !is_mutable { self.expect(&TokenKind::Final, "var or final")?; }
+        let type_spec = self.parse_type_spec()?;
+        let token = self.current_token.clone();
+        let TokenKind::Identifier(name) = token.kind else {
+            self.diagnostics.push(Diagnostic::error("Expected static field name", Some(token.span)));
+            return Err(());
+        };
+        self.advance();
+        let initializer = if self.match_token(&TokenKind::Equal) {
+            Some(self.parse_expr(Precedence::None)?)
+        } else { None };
+        Ok(StaticFieldDecl { name, type_spec, is_mutable, initializer, span: start })
+    }
+
     fn parse_method_decl(&mut self) -> Result<MethodDecl, ()> {
         let start_span = self.current_token.span;
+        let is_static = self.match_token(&TokenKind::Static);
+        if is_static && self.in_trait {
+            self.diagnostics.push(Diagnostic::error("Traits declare instance methods; static methods belong to classes", Some(start_span)));
+            return Err(());
+        }
         let is_async = self.match_token(&TokenKind::Async);
 
         // Check if return type is omitted: identifier followed directly by '('
@@ -468,6 +496,7 @@ impl<'a> Parser<'a> {
             return_type,
             body,
             is_async,
+            is_static,
             span: Span::combine(start_span, end_span),
         })
     }
@@ -951,6 +980,13 @@ impl<'a> Parser<'a> {
         self.advance();
 
         match tok.kind {
+            TokenKind::Static => {
+                if !self.check(&TokenKind::Dot) {
+                    self.diagnostics.push(Diagnostic::error("'static' must be followed by '.member'", Some(tok.span)));
+                    return Err(());
+                }
+                Ok(Expr { kind: ExprKind::Identifier("static".into()), span: tok.span })
+            },
             TokenKind::IntLiteral(val) => Ok(Expr {
                 kind: ExprKind::IntLiteral(val),
                 span: tok.span,
@@ -1036,6 +1072,10 @@ impl<'a> Parser<'a> {
                             generic_type,
                         );
                     }
+                }
+                if self.check(&TokenKind::OpenParen) && !name.chars().next().is_some_and(char::is_uppercase) {
+                    self.diagnostics.push(Diagnostic::error("Unqualified method calls require 'this.' or 'static.'", Some(tok.span)));
+                    return Err(());
                 }
                 if name.chars().next().map_or(false, |c| c.is_uppercase()) {
                     let generic_type = if self.match_token(&TokenKind::Less) {
@@ -1361,6 +1401,7 @@ impl<'a> Parser<'a> {
                         self.advance();
                         m
                     }
+                    TokenKind::Static => { self.advance(); "static".into() }
                     TokenKind::In => {
                         self.advance();
                         "in".to_string()

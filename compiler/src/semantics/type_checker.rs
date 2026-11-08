@@ -28,6 +28,7 @@ pub struct TypeChecker {
     traits: HashMap<String, TraitInfo>,
     current_class: Option<String>,
     current_return_type: Option<Type>,
+    in_static_context: bool,
     orm_declarations: HashMap<String, ClassDecl>,
     zero_init_classes: std::collections::HashSet<String>,
     loop_depth: usize,
@@ -42,6 +43,7 @@ impl TypeChecker {
             traits: HashMap::new(),
             current_class: None,
             current_return_type: None,
+            in_static_context: false,
             orm_declarations: HashMap::new(),
             zero_init_classes: Default::default(),
             loop_depth: 0,
@@ -1794,7 +1796,7 @@ impl TypeChecker {
                         .count();
 
                     for reserved in ["toJson", "toXml"] {
-                        if cls.methods.iter().any(|m|m.name==reserved)||cls.primary_params.iter().any(|p|p.name==reserved) {
+                        if cls.methods.iter().any(|m|m.name==reserved)||cls.primary_params.iter().any(|p|p.name==reserved)||cls.static_fields.iter().any(|f|f.name==reserved) {
                             self.diagnostics.push(Diagnostic::error(format!("{reserved} is reserved for automatic serialization"),Some(cls.span)));
                         }
                     }
@@ -1867,9 +1869,14 @@ impl TypeChecker {
             }
         }
 
+        let entry_class = program.items.iter().filter_map(|item| {
+            let Item::Class(cls) = item else { return None };
+            cls.methods.iter().find(|method| method.name.eq_ignore_ascii_case("start"))
+                .map(|method| (cls.name.clone(), method.is_static))
+        }).min_by_key(|(name, _)| name != "App");
         for item in &program.items {
             if let Item::Class(cls) = item {
-                if cls.methods.iter().any(|method| method.name.eq_ignore_ascii_case("main")) {
+                if entry_class.as_ref().is_some_and(|(name, is_static)| name == &cls.name && !is_static) {
                     if let Err(message) = self.check_zero_value(&Type::Class { name: cls.name.clone() }, &mut Vec::new()) {
                         self.diagnostics.push(Diagnostic::error(message, Some(cls.span)));
                     }
@@ -1883,6 +1890,28 @@ impl TypeChecker {
 
     fn check_class(&mut self, cls: &ClassDecl) {
         self.current_class = Some(cls.name.clone());
+        let mut names = std::collections::HashSet::new();
+        for name in cls.primary_params.iter().map(|p| &p.name)
+            .chain(cls.methods.iter().map(|m| &m.name))
+            .chain(cls.static_fields.iter().map(|f| &f.name)) {
+            if !names.insert(name) {
+                self.diagnostics.push(Diagnostic::error(format!("Duplicate member '{}'", name), Some(cls.span)));
+            }
+        }
+        self.in_static_context = true;
+        for field in &cls.static_fields {
+            let expected = self.type_spec_to_type(&field.type_spec);
+            if let Some(initializer) = &field.initializer {
+                if let Some(actual) = self.check_expr(cls, initializer) {
+                    if !self.is_assignable_to(&actual, &expected) {
+                        self.diagnostics.push(Diagnostic::error(format!("Static field '{}' expects '{}', found '{}'", field.name, expected, actual), Some(field.span)));
+                    }
+                }
+            } else if let Err(message) = self.check_zero_value(&expected, &mut Vec::new()) {
+                self.diagnostics.push(Diagnostic::error(message, Some(field.span)));
+            }
+        }
+        self.in_static_context = false;
 
         for method in &cls.methods {
             self.check_method(cls, method);
@@ -1914,6 +1943,7 @@ impl TypeChecker {
     }
 
     fn check_method(&mut self, cls: &ClassDecl, method: &MethodDecl) {
+        self.in_static_context = method.is_static;
         let mut return_type = method
             .return_type
             .as_ref()
@@ -1956,6 +1986,7 @@ impl TypeChecker {
 
         self.symbol_table.pop_scope();
         self.current_return_type = None;
+        self.in_static_context = false;
     }
 
     fn check_zero_value(&self, ty: &Type, visiting: &mut Vec<String>) -> Result<(), String> {
@@ -2223,10 +2254,18 @@ impl TypeChecker {
             ExprKind::StringLiteral(_) | ExprKind::TextBlock(_) => Some(Type::String),
             ExprKind::BoolLiteral(_) => Some(Type::Bool),
             ExprKind::NullLiteral => Some(Type::Nullable(Box::new(Type::Void))),
-            ExprKind::This => Some(Type::Class {
-                name: cls.name.clone(),
-            }),
+            ExprKind::This => {
+                if self.in_static_context {
+                    self.diagnostics.push(Diagnostic::error("'this' is unavailable in a static method or initializer", Some(expr.span)));
+                    None
+                } else { Some(Type::Class { name: cls.name.clone() }) }
+            },
             ExprKind::Identifier(name) => {
+                if name == "static" { return Some(Type::Class { name: cls.name.clone() }); }
+                if self.symbol_table.lookup(name).is_none() && cls.static_fields.iter().any(|f| f.name == *name) {
+                    self.diagnostics.push(Diagnostic::error(format!("static field '{}' must be accessed through 'static.'", name), Some(expr.span)));
+                    return None;
+                }
                 let field_name = if name.starts_with('_') {
                     name.clone()
                 } else {
@@ -2262,6 +2301,7 @@ impl TypeChecker {
             }
             ExprKind::MemberAccess { object, member, .. } => {
                 let obj_ty = self.check_expr(cls, object)?;
+                if let Some(result) = self.check_static_member(cls, object, &obj_ty, member, expr.span, None, None) { return result; }
                 match obj_ty {
                     Type::Class { name } => {
                         if let Some(info) = self.classes.get(&name) {
@@ -2334,6 +2374,7 @@ impl TypeChecker {
                 match &callee.kind {
                     ExprKind::MemberAccess { object, member, .. } => {
                         if let Some(obj_ty) = self.check_expr(cls, object) {
+                            if let Some(result) = self.check_static_member(cls, object, &obj_ty, member, expr.span, Some(&arg_types), None) { return result; }
                             if member == "stacktrace" && matches!(&obj_ty, Type::Class { name } if name == "Error" || self.satisfies_trait(name, "Error")) {
                                 let class_receiver = matches!(&object.kind, ExprKind::Identifier(name) if self.symbol_table.lookup(name).is_none() && (self.classes.contains_key(name) || self.traits.contains_key(name)));
                                 if class_receiver || !args.is_empty() {
@@ -2743,11 +2784,23 @@ impl TypeChecker {
                 }
                 Some(Type::Void)
             }
+            ExprKind::NullCoalescingAssign { target, value } => {
+                let read = self.check_expr(cls, target)?;
+                let assignment = Expr { kind: ExprKind::Assign { target: target.clone(), value: value.clone() }, span: expr.span };
+                self.check_expr(cls, &assignment);
+                if !matches!(read, Type::Nullable(_)) {
+                    self.diagnostics.push(Diagnostic::error("??= requires a nullable target", Some(target.span)));
+                }
+                Some(read)
+            }
             ExprKind::Assign { target, value } => {
                 let val_ty = self.check_expr(cls, value)?;
                 match &target.kind {
                     ExprKind::MemberAccess { object, member, .. } => {
                         let obj_ty = self.check_expr(cls, object);
+                        if let Some(ty) = &obj_ty {
+                            if let Some(result) = self.check_static_member(cls, object, ty, member, target.span, None, Some(&val_ty)) { return result; }
+                        }
                         let target_cls = match obj_ty {
                             Some(Type::Class { name }) => name,
                             _ => cls.name.clone(),
@@ -2791,6 +2844,9 @@ impl TypeChecker {
                         }
                     }
                     ExprKind::Identifier(name) => {
+                        if self.symbol_table.lookup(name).is_none() {
+                            self.check_expr(cls, target);
+                        }
                         if let Some(sym) = self.symbol_table.lookup(name) {
                             if !sym.is_mutable {
                                 self.diagnostics.push(Diagnostic::error(
@@ -2823,6 +2879,10 @@ impl TypeChecker {
                 generic_type,
                 args,
             } => {
+                if cls.methods.iter().any(|m| m.is_static && m.name == *class_name) {
+                    self.diagnostics.push(Diagnostic::error(format!("static method '{}' must be accessed through 'static.'", class_name), Some(expr.span)));
+                    return None;
+                }
                 let class_name = canonical_builtin_class_name(class_name).unwrap_or(class_name);
                 if class_name == "Mockery" || class_name.starts_with(crate::mockery::PREFIX) {
                     self.diagnostics.push(Diagnostic::error("Use Mockery.mock(TraitName) to create a mock", Some(expr.span)));
@@ -3263,7 +3323,12 @@ impl TypeChecker {
         let Some(required) = self.traits.get(target) else { return false; };
         let methods = self.classes.get(source).map(|c| &c.methods)
             .or_else(|| self.traits.get(source).map(|t| &t.methods));
-        methods.is_some_and(|methods| required.methods.iter().all(|(name, signature)| methods.get(name).map_or_else(|| required.defaults.contains(name), |actual| actual == signature)))
+        methods.is_some_and(|methods| required.methods.iter().all(|(name, signature)| {
+            let is_static = self.orm_declarations.get(source)
+                .is_some_and(|class| class.methods.iter().any(|method| method.name == *name && method.is_static));
+            !is_static && methods.get(name)
+                .map_or_else(|| required.defaults.contains(name), |actual| actual == signature)
+        }))
     }
 
     fn is_output_type(&self, ty: &Type) -> bool {
@@ -3335,3 +3400,58 @@ impl TypeChecker {
 include!("orm.rs");
 
 include!("mockery.rs");
+
+impl TypeChecker {
+    /// Return Some for user static members or an invalid class receiver;
+    /// leave ordinary instance members and built-in APIs to their existing checks.
+    fn check_static_member(
+        &mut self, cls: &ClassDecl, object: &Expr, object_ty: &Type,
+        member: &str, span: crate::diagnostics::Span,
+        arguments: Option<&[Type]>, assigned: Option<&Type>,
+    ) -> Option<Option<Type>> {
+        let Type::Class { name } = object_ty else { return None; };
+        let declaration = self.orm_declarations.get(name)?.clone();
+        let class_receiver = matches!(&object.kind, ExprKind::Identifier(n)
+            if n == "static" || (self.symbol_table.lookup(n).is_none() && self.orm_declarations.contains_key(n)));
+        let field = declaration.static_fields.iter().find(|f| f.name == member);
+        let method = declaration.methods.iter().find(|m| m.name == member && m.is_static);
+        if field.is_none() && method.is_none() {
+            if class_receiver && !declaration.cases.iter().any(|c| c.name == member) {
+                self.diagnostics.push(Diagnostic::error(format!("'{}' is not a static member of '{}'; requires an instance of '{}'", member, name, name), Some(span)));
+                return Some(None);
+            }
+            return None;
+        }
+        let mut fail = |message: String| {
+            self.diagnostics.push(Diagnostic::error(message, Some(span)));
+            Some(None)
+        };
+        if !class_receiver { return fail(format!("static member '{}' requires 'static.' inside '{}' or '{}.' outside it", member, name, name)); }
+        if name == &cls.name && !matches!(&object.kind, ExprKind::Identifier(n) if n == "static") {
+            return fail(format!("static member '{}' must be accessed through 'static.' inside '{}'", member, name));
+        }
+        if member.starts_with('_') && name != &cls.name { return fail(format!("static member '{}' is private to class '{}'", member, name)); }
+        if let Some(field) = field {
+            if arguments.is_some() { return fail(format!("static field '{}' is not a method", member)); }
+            let ty = self.type_spec_to_type(&field.type_spec);
+            if let Some(actual) = assigned {
+                if !field.is_mutable {
+                    self.diagnostics.push(Diagnostic::error(format!("cannot reassign immutable static field '{}'", member), Some(span)));
+                }
+                if !self.is_assignable_to(actual, &ty) {
+                    self.diagnostics.push(Diagnostic::error(format!("Static field '{}' expects '{}', found '{}'", member, ty, actual), Some(span)));
+                }
+            }
+            return Some(Some(ty));
+        }
+        let method = method.unwrap();
+        let Some(arguments) = arguments else { return fail(format!("static method '{}' requires a call", member)); };
+        if assigned.is_some() { return fail(format!("static method '{}' is not assignable", member)); }
+        let expected: Vec<_> = method.params.iter().map(|p| self.type_spec_to_type(&p.type_spec)).collect();
+        if arguments.len() != expected.len() || !arguments.iter().zip(&expected).all(|(a, e)| self.is_assignable_to(a, e)) {
+            self.diagnostics.push(Diagnostic::error(format!("Invalid arguments for static method '{}.{}'", name, member), Some(span)));
+        }
+        let ty = method.return_type.as_ref().map_or(Type::Void, |t| self.type_spec_to_type(t));
+        Some(Some(if method.is_async { Type::Task(Box::new(if ty == Type::Void { Type::Int } else { ty })) } else { ty }))
+    }
+}

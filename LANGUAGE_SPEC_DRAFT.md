@@ -14,7 +14,8 @@ Tagline: Sharp, simple, native.
 Ube is positioned between Go and Java:
 * Native performance and simple single-binary deployment like Go.
 * Familiar, readable, brace-delimited syntax like Java.
-* Pure object-oriented programming model (everything is an instance method of a class).
+* Class-based programming model with instance members and explicitly declared static members; no free functions.
+* Static declarations and qualification follow [static members](docs/static-members.md): `static.name` inside the owning class and `ClassName.name` outside it.
 * Built-in `Log` for severity-filtered diagnostics on stderr and `Console` for plain stdout output.
 * Implicit void return types: methods without an explicit return type default to void. The `void` keyword does not exist in Ube.
 * Immutable by default (fields, parameters, local variables).
@@ -48,9 +49,9 @@ formatted as `null`. Arbitrary objects and collections must be formatted explici
 `print(value)` is shorthand for `Console.printLine(value)` and has the same argument rules.
 
 ```ube
-class Application {
-    main() {
-        log('Application started')
+class App {
+    start() {
+        log('App started')
         Log.warn('Retrying connection')
         Log.setLevel('debug')
         Log.debug('Detailed diagnostics')
@@ -127,7 +128,7 @@ A physical `.ube` source file may contain at most one top-level type declaration
 either one `class` or one `trait`. Multiple classes, multiple traits, and mixed
 class/trait declarations in one file are compiler errors. Imports and comments
 are allowed alongside the declaration; import-only files are allowed. The filename
-must match the declared class or trait name exactly, including case: `class Application` belongs in `Application.ube`.
+must match the declared class or trait name exactly, including case: `class App` belongs in `App.ube`.
 
 Local imports use `import path.Type`, resolved relative to the importing file
 as `path/Type.ube`. Dependencies are loaded transitively into a shared type
@@ -140,10 +141,10 @@ Documentation snippets grouping several types represent separate files.
 ### Project manifests and dependencies
 
 `ube.toml` declares `[package]` metadata (`name`, `version`, and optional
-`edition = "2026"`), optional `[build].entry` (default `src/Main.ube`), and
+`edition = "2026"`), optional `[build].entry` (default `src/App.ube`), and
 `[dependencies]`. The entry is a relative `.ube` path within the project.
 `ube init` initializes the current directory; `ube new <name>` creates a new
-project with `src/Main.ube` declaring `class Main`. Neither command overwrites an
+project with `src/App.ube` declaring `class App`. Neither command overwrites an
 existing manifest.
 
 Dependency aliases are importable identifiers. Dependencies use either
@@ -193,13 +194,13 @@ class Invoice(long id, decimal total) {
     }
 }
 
-class Application {
+class App {
     render(Printable item) {
         log(item.getHeader())
         item.printDetails()
     }
 
-    main() {
+    start() {
         final user = User(1000L, 'Lem')
         final invoice = Invoice(5001L, 199.99)
 
@@ -211,9 +212,9 @@ class Application {
 
 ---
 
-## 6. Application-Scoped Sharing via Constructor Injection
+## 6. App-Scoped Sharing via Constructor Injection
 
-Create shared objects explicitly inside `Application.main()` and inject them through primary constructors. Sharing is a lifetime convention, not an enforced singleton: other instances remain legal, and there is no singleton marker or registry.
+Create shared objects explicitly inside `App.start()` and inject them through primary constructors. Sharing is a lifetime convention, not an enforced singleton: other instances remain legal, and there is no singleton marker or registry.
 
 ```java
 class DatabaseConnection(string url) {
@@ -228,8 +229,8 @@ class UserService(DatabaseConnection db) {
     }
 }
 
-class Application {
-    main() {
+class App {
+    start() {
         // Created explicitly and shared with dependent services
         final db = DatabaseConnection('postgres://localhost:5432')
 
@@ -256,8 +257,8 @@ class Calculator {
     }
 }
 
-class Application {
-    main() {
+class App {
+    start() {
         final calculator = Calculator()
         final first = calculator.compute(10)
         final second = calculator.compute(20)
@@ -324,8 +325,8 @@ class Car(string model, Engine engine, Logger logger) {
     }
 }
 
-class Application {
-    main() {
+class App {
+    start() {
         final logger = Logger('APP')
         final engine = Engine(400)
         final car = Car('Mustang', engine, logger)
@@ -378,8 +379,8 @@ class LogLevel {
     }
 }
 
-class Application {
-    main() {
+class App {
+    start() {
         final status = OrderStatus.Approved(10042L, 199.99)
 
         // Pattern matching via switch (exhaustive compile-time check)
@@ -403,8 +404,8 @@ Ube uses `for` as its **sole loop keyword**. There is no `while` or `do-while` k
 **Loop `else` means zero body entries.** An optional `else` block runs only if the loop body was never entered. This includes an empty collection or a condition that is initially false. Entering the body sets this state before its first statement: an immediate `break` or `continue` therefore prevents the fallback. Normal completion after one or more iterations also skips it. A return or propagated error follows its normal control-flow path, not the fallback. A nested loop tracks its own body-entry state independently.
 
 ```ube
-class Application {
-    main() {
+class App {
+    start() {
         for (item in []) {
             log(item)
         } else {
@@ -424,8 +425,8 @@ Loop `else` does not test whether a search found a match. Use an explicit flag a
 
 
 ```java
-class Application {
-    main() {
+class App {
+    start() {
         // 1. Infinite Loop (Replaces while(true))
         var counter = 0
         for {
@@ -472,8 +473,8 @@ class Application {
 In Ube, `switch` is a first-class expression and statement without fall-through:
 
 ```java
-class Application {
-    main() {
+class App {
+    start() {
         // 1. Constant Value Matching
         final statusText = switch (200) {
             case 200 -> 'OK'
@@ -546,8 +547,8 @@ Ube uses word-based logical operators: `not`, `and`, `or`. Symbol `!` is prohibi
 Falsy values: `false`, `null`, `0`, `0.0`, `-0.0`, `''`. All other values are truthy.
 
 ```java
-class Application {
-    main() {
+class App {
+    start() {
         final bool isConnected = false
         final string input = ''
         final Object data = 42
@@ -576,14 +577,14 @@ class Application {
 
 A typed local declaration without an initializer uses zero initialization, not an implicit constructor call. Numbers become `0`, booleans `false`, strings `''`, and nullable references `null`. A user-defined class receives a fresh object whose fields are recursively zero-initialized. Constructor default expressions are ignored, including defaults that allocate objects or call methods. Explicit construction (`User()`) still evaluates defaults.
 
-The entry-point application instance uses the same zero-initialization path as local declarations. Its constructor defaults are not evaluated at startup. Configuration and resource initialization belong explicitly in `main()`.
+The entry-point application instance uses the same zero-initialization path as local declarations. Its constructor defaults are not evaluated at startup. Configuration and resource initialization belong explicitly in `start()`.
 
 Non-nullable class cycles are rejected during zero initialization; use nullable references to break them. Runtime-only types (including servers and channels) and traits require explicit initializers unless declared nullable. Zero initialization never invokes their creation APIs.
 
 ```ube
 class User(string name = 'Guest') {}
-class Application {
-    main() {
+class App {
+    start() {
         User zero                 // zero.name() is ''
         final configured = User() // configured.name() is 'Guest'
         User? absent              // null

@@ -483,7 +483,7 @@ mod capitalization_tests {
     #[test]
     fn every_builtin_requires_canonical_case_in_constructors_types_and_static_calls() {
         for &name in BUILTIN_CLASS_NAMES {
-            let canonical = format!("class Application {{ main() {{ final value = {name}() }} }}");
+            let canonical = format!("class App {{ start() {{ final value = {name}() }} }}");
             let mut parser = Parser::new(Lexer::new(&canonical));
             parser.parse_program();
             if name == "Log" {
@@ -493,8 +493,8 @@ mod capitalization_tests {
             }
             let lower = name.to_ascii_lowercase();
             for source in [
-                format!("class Application {{ main() {{ final value = {lower}() }} }}"),
-                format!("class Application({lower} value) {{}}"),
+                format!("class App {{ start() {{ final value = {lower}() }} }}"),
+                format!("class App({lower} value) {{}}"),
             ] {
                 let mut parser = Parser::new(Lexer::new(&source));
                 parser.parse_program();
@@ -504,7 +504,7 @@ mod capitalization_tests {
                     assert!(parser.diagnostics.iter().any(|d| d.message.contains("capitalization")), "{source}: {:?}", parser.diagnostics);
                 }
             }
-            let source = format!("class Application {{ main() {{ {lower}.method() }} }}");
+            let source = format!("class App {{ start() {{ {lower}.method() }} }}");
             let mut parser = Parser::new(Lexer::new(&source));
             let program = parser.parse_program();
             assert!(parser.diagnostics.is_empty(), "{source}: {:?}", parser.diagnostics);

@@ -3,12 +3,12 @@
 Thrown errors capture the active Ube call frames. Call `error.stacktrace()` inside a catch to get readable text:
 
 ```ube
-class Main {
+class App {
     fail() {
         throw 'user not found'
     }
 
-    main() {
+    start() {
         try {
             this.fail()
         } catch (Error error) {
@@ -22,8 +22,8 @@ The result includes the error type and message, followed by frames from the thro
 
 ```text
 GenericError: user not found
-  at Main.fail (3:15)
-  at Main.main (8:13)
+  at App.fail (3:15)
+  at App.start (8:13)
 ```
 
 `stacktrace()` requires an error instance and no arguments. It works with built-in errors, concrete classes that satisfy `Error`, and error-compatible trait references. An error that has not been thrown has no captured trace and returns an empty string. Runtime failures also capture the active Ube methods. Unhandled errors print the captured frames automatically before exiting unsuccessfully.
@@ -36,13 +36,13 @@ GenericError: user not found
   --- spawned at ---
   at Request.handle (24:9)
   --- spawned at ---
-  at Main.main (8:13)
+  at App.start (8:13)
   --- awaited at ---
   at Request.handle (25:9)
   --- spawned at ---
-  at Main.main (8:13)
+  at App.start (8:13)
   --- awaited at ---
-  at Main.main (9:13)
+  at App.start (9:13)
 ```
 
 Spawn and await sections can repeat a caller when it both submits and awaits work; those sections describe different events. Await observations retain the same error object identity but store separate immutable diagnostic records. Repeated or concurrent awaiters do not change the source task's trace or one another's observation. A rethrow within a handler keeps that handler's observed trace.

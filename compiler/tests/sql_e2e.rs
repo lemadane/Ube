@@ -84,8 +84,8 @@ fn sqlite_cli_persistence_binding_rollback_and_legacy_interoperability() {
         &directory.0,
         "writer",
         r#"
-class Application {
-    main() {
+class App {
+    start() {
         final db = SQL.open('sqlite://data.db?mode=rwc')
         final params = SQLParams.create()
         try {
@@ -140,8 +140,8 @@ class Application {
         &directory.0,
         "reader",
         r#"
-class Application {
-    main() {
+class App {
+    start() {
         final db = SQL.open('sqlite://data.db?mode=ro')
         final params = SQLParams.create()
         try {
@@ -195,12 +195,12 @@ fn orm_cli_class_mapping_queries_transactions_and_persistence() {
         "orm-writer",
         r#"
 class User(long id, var string name, var bool active, int? age, long? serial, decimal? score, bool? verified, string? email) {}
-class Application {
+class App {
     long countUsers(OrmModel<User> users) {
         final query = users.query()
         try { return query.count() } finally { query.close() }
     }
-    main() {
+    start() {
         final db = SQL.open('sqlite://orm.db?mode=rwc')
         final users = Orm.model(db, User, 'users')
         try {
@@ -275,8 +275,8 @@ class Application {
         "orm-reader",
         r#"
 class User(long id, string name, bool active, int? age, long? serial, decimal? score, bool? verified, string? email) {}
-class Application {
-    main() {
+class App {
+    start() {
         final db = SQL.open('sqlite://orm.db?mode=ro')
         final users = Orm.model(db, User, 'users')
         try {
@@ -321,8 +321,8 @@ fn orm_cli_inner_left_and_self_joins_keep_typed_results_and_transactions() {
 class User(long id, string name, long? managerId) {}
 class Order(long id, long userId, string status) {}
 class Line(long id, long orderId) {}
-class Application {
-    main() {
+class App {
+    start() {
         final db = SQL.open('sqlite::memory:')
         final users = Orm.model(db, User, 'users')
         final orders = Orm.model(db, Order, 'orders')

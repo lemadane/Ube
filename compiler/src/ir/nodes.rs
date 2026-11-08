@@ -49,6 +49,8 @@ impl IrOperand {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum IrInstruction {
+    LoadStatic { dest: Register, key: String, ty: Type },
+    StoreStatic { key: String, value: IrOperand, ty: Type },
     Cast { dest: Register, value: IrOperand, ty: Type },
     JsonEncode { dest: Register, value: IrOperand },
     XmlEncode { dest: Register, value: IrOperand, options: Option<IrOperand> },
@@ -175,6 +177,7 @@ pub struct IrFunction {
     pub params: Vec<(Register, Type)>,
     pub return_type: Type,
     pub is_async: bool,
+    pub is_static: bool,
     pub blocks: Vec<BasicBlock>,
 }
 

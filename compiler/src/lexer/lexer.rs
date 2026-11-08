@@ -393,6 +393,7 @@ impl<'a> Lexer<'a> {
             "true" => TokenKind::True,
             "false" => TokenKind::False,
             "this" => TokenKind::This,
+            "static" => TokenKind::Static,
             "with" => TokenKind::With,
             "in" => TokenKind::In,
             "try" => TokenKind::Try,

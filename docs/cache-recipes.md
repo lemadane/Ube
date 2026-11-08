@@ -7,7 +7,7 @@ These examples use implemented APIs. See the [reference](cache.md), [deployment 
 Try the cache first. On a miss or cache failure, load the authoritative source. Attempt to cache that result, then return it even if that cache write fails. This example logs cache failures without printing cache keys, values, or credentials:
 
 ```ube
-class Main {
+class App {
     string loadProfile(Cache cache, string key) {
         try {
             final cached = cache.get(key)
@@ -30,7 +30,7 @@ class Main {
         return profile
     }
 
-    main() {
+    start() {
         final cache = Cache.memory(4096)
         try {
             Console.printLine(this.loadProfile(cache, 'user:42'))
@@ -51,7 +51,7 @@ For a shared backend, replace `Cache.memory(4096)` with `Cache.connect(address, 
 ## Atomic counter across tasks
 
 ```ube
-class Main {
+class App {
     async int incrementMany(Cache cache, int iterations) {
         var index = 0
         for (index < iterations) {
@@ -61,7 +61,7 @@ class Main {
         return iterations
     }
 
-    main() {
+    start() {
         final cache = Cache.memory(4096)
         try {
             cache.set('count', '0', 0)

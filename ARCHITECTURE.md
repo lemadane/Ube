@@ -129,16 +129,18 @@ We evaluated **Java**, **Rust**, and **C++** as candidate implementation languag
 
 ---
 
-## 4. Pure Object-Oriented Bootstrapping Model
+## 4. Class-Based Bootstrapping Model
 
-Ube prohibits free functions, static methods, and package-level functions. The entire system bootstraps strictly through class instantiations and instance method invocations.
+Ube prohibits free functions and package-level functions. Class members are instance members by default; explicit `static` fields and methods belong to the class. Static calls use an empty native ABI context without constructing an instance, and are excluded from structural instance-method metadata.
+
+The runtime stores static slots separately from instance layouts. Slot loads, stores, and GC root updates share the collector lock; reference loads pin the value in the reader's frame before releasing the lock. Replacing a reference removes the old slot root. Startup publishes default values for all static slots, then evaluates explicit initializers once in declaration order before entering application code. See [static members](docs/static-members.md).
 
 ### 4.1 Application Entry Point
-The application entry point is defined as a method named `main()` (with implicit void return type, as there is no `void` keyword in Ube) on a class such as `Main` or `Application` (in `Main.ube` or `Application.ube`, respectively):
+The application entry point is defined as an instance or static method named `start()` (with implicit void return type, as there is no `void` keyword in Ube) on a class, conventionally `App` in `App.ube`:
 
 ```java
-class Application {
-    main() {
+class App {
+    start() {
         final service = UserService()
         service.run()
     }
@@ -146,14 +148,14 @@ class Application {
 ```
 
 #### Synthetic Bootstrap Code
-The compiler generates a native C-ABI `main(int argc, char** argv)` function during LLVM IR generation:
+`App.start()` takes precedence over other classes' `start()` methods. `main()` is an ordinary method. The compiler generates a native C-ABI `main(int argc, char** argv)` function during LLVM IR generation:
 
 ```llvm
 define i32 @main(i32 %argc, i8** %argv) {
 entry:
     call void @ube_runtime_init()
-    %app_ptr = call %Application* @__ube.internal_zero(i8* null)
-    call void @Application_main(%Application* %app_ptr)
+    %app_ptr = call %App* @__ube.internal_zero(i8* null)
+    call void @App_start(%App* %app_ptr)
     call void @ube_exception_fail_unhandled()
     call void @ube_runtime_cleanup()
     ret i32 0
@@ -162,7 +164,7 @@ entry:
 
 ### Shared Zero Initialization
 
-The IR builder generates `__ube.internal_zero` for startup using the same zero-value builder as typed local declarations. `User user` creates a fresh zero-valued object; `User()` is explicit construction and applies constructor defaults. Startup ignores `Application` defaults, including expressions with side effects. Resource creation belongs explicitly inside `main()`.
+The IR builder generates `__ube.internal_zero` for startup using the same zero-value builder as typed local declarations. `User user` creates a fresh zero-valued object; `User()` is explicit construction and applies constructor defaults. Startup ignores `App` defaults, including expressions with side effects. Resource creation belongs explicitly inside `start()`.
 
 Numbers become `0`, booleans `false`, strings `''`, and nullable references `null`. Non-nullable user-class fields are recursively zero-initialized without default evaluation. Non-nullable cycles are diagnosed; nullable links terminate recursion. Runtime-only types and traits require explicit initializers unless nullable. These are allocated class objects, not allocation-free embedded values.
 

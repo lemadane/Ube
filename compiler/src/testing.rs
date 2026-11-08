@@ -81,9 +81,9 @@ pub fn run(args: &[String]) -> i32 {
             }
         };
         let program = loaded.program;
-        // A generated entry point owns test execution; never silently execute or replace an application main.
-        if program.items.iter().any(|item| matches!(item, Item::Class(c) if c.name == "UbeTestRunner" || c.methods.iter().any(|m| m.name == "main"))) {
-            eprintln!("{}: test files must not define main() or UbeTestRunner", file.display()); failed += 1; continue;
+        // A generated entry point owns test execution; never silently execute or replace an application entry point.
+        if program.items.iter().any(|item| matches!(item, Item::Class(c) if c.name == "UbeTestRunner" || c.methods.iter().any(|m| m.name == "start"))) {
+            eprintln!("{}: test files must not define start() or UbeTestRunner", file.display()); failed += 1; continue;
         }
         // Imported classes provide dependencies, but only this file owns tests.
         let mut parser = Parser::new(Lexer::new(&source));
@@ -111,30 +111,31 @@ pub fn run(args: &[String]) -> i32 {
                     failed += 1;
                     continue;
                 }
-                let call = |name: &str, asynchronous: bool| {
+                let call = |name: &str, asynchronous: bool, is_static: bool| {
                     format!(
-                        "{} subject.{name}()",
-                        if asynchronous { "await" } else { "" }
+                        "{} {}.{name}()",
+                        if asynchronous { "await" } else { "" },
+                        if is_static { class.name.as_str() } else { "subject" }
                     )
                 };
                 let before = hooks
                     .iter()
                     .find(|m| m.name == "beforeEach")
-                    .map(|m| call(&m.name, m.is_async))
+                    .map(|m| call(&m.name, m.is_async, m.is_static))
                     .unwrap_or_default();
                 let after = hooks
                     .iter()
                     .find(|m| m.name == "afterEach")
-                    .map(|m| call(&m.name, m.is_async))
+                    .map(|m| call(&m.name, m.is_async, m.is_static))
                     .unwrap_or_default();
-                let invocation = call(&method.name, method.is_async);
+                let invocation = call(&method.name, method.is_async, method.is_static);
                 let body = if after.is_empty() {
                     format!("{before}\n{invocation}")
                 } else {
                     format!("try {{ {before}\n{invocation} }} finally {{ {after} }}")
                 };
                 let generated = format!(
-                    "{}\nclass UbeTestRunner {{ main() {{ final subject = {}()\n{body}\n}} }}",
+                    "{}\nclass UbeTestRunner {{ start() {{ final subject = {}()\n{body}\n}} }}",
                     loaded.source, class.name
                 );
                 let mut parser = Parser::new(Lexer::new(&generated));

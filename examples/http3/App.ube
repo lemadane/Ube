@@ -1,5 +1,5 @@
-class Application {
-    main() {
+class App {
+    start() {
         final server = Server()
         server.tls('cert.pem', 'key.pem')
         server.enableHttp2()

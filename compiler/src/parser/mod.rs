@@ -12,16 +12,16 @@ mod tests {
     #[test]
     fn semicolons_are_rejected_in_statements_and_declarations() {
         for source in [
-            "; class Application { main() {} }",
-            "class Application { main() { Console.printLine('hello'); } }",
-            "class Application { main() { final value = 1; } }",
-            "class Application { main() { return; } }",
-            "class Application { main() { for (true) { break; } } }",
-            "class Application { main() { for (true) { continue; } } }",
+            "; class App { start() {} }",
+            "class App { start() { Console.printLine('hello'); } }",
+            "class App { start() { final value = 1; } }",
+            "class App { start() { return; } }",
+            "class App { start() { for (true) { break; } } }",
+            "class App { start() { for (true) { continue; } } }",
             "trait Printable { printDetails(); }",
-            "class Application { main(); }",
-            "class Application { main() { server.use('/api') { request -> Console.printLine('hello'); } } }",
-            "class Application { main() {} };",
+            "class App { start(); }",
+            "class App { start() { server.use('/api') { request -> Console.printLine('hello'); } } }",
+            "class App { start() {} };",
         ] {
             let mut parser = Parser::new(Lexer::new(source));
             parser.parse_program();
@@ -34,7 +34,7 @@ mod tests {
     #[test]
     fn newline_ends_a_bare_return() {
         let mut parser = Parser::new(Lexer::new(
-            "class Application { main() { return\n Console.printLine('unreachable') } }"
+            "class App { start() { return\n Console.printLine('unreachable') } }"
         ));
         let program = parser.parse_program();
         assert!(parser.diagnostics.is_empty(), "{:?}", parser.diagnostics);
@@ -56,8 +56,8 @@ mod tests {
                 }
             }
 
-            class Application {
-                void main() {
+            class App {
+                void start() {
                     final user = User(1000, 'Lem', 35)
                     user.birthday()
                 }
@@ -85,11 +85,11 @@ mod tests {
         }
 
         if let Item::Class(app_cls) = &program.items[1] {
-            assert_eq!(app_cls.name, "Application");
+            assert_eq!(app_cls.name, "App");
             assert_eq!(app_cls.methods.len(), 1);
-            assert_eq!(app_cls.methods[0].name, "main");
+            assert_eq!(app_cls.methods[0].name, "start");
         } else {
-            panic!("Expected Application class decl");
+            panic!("Expected App class decl");
         }
     }
 }

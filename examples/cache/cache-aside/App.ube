@@ -1,4 +1,4 @@
-class Main {
+class App {
     string loadProfile(Cache cache, string key) {
         try {
             final cached = cache.get(key)
@@ -21,7 +21,7 @@ class Main {
         return profile
     }
 
-    main() {
+    start() {
         final cache = Cache.memory(4096)
         try {
             Console.printLine(this.loadProfile(cache, 'user:42'))

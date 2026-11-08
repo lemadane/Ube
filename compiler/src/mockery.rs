@@ -202,6 +202,11 @@ pub fn expand(program: &Program) -> Program {
                         expressions(value, &mut requested);
                     }
                 }
+                for field in &class.static_fields {
+                    if let Some(value) = &field.initializer {
+                        expressions(value, &mut requested);
+                    }
+                }
                 for method in &class.methods {
                     statements(&method.body, &mut requested);
                 }
@@ -290,6 +295,7 @@ pub fn expand(program: &Program) -> Program {
             })
             .collect();
         result.items.push(Item::Class(ClassDecl {
+            static_fields: vec![],
             name,
             span,
             cases: vec![],

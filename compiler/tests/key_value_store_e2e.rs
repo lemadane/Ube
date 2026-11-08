@@ -16,7 +16,7 @@ struct Program {
 impl Program {
     fn new(source: &str) -> Self {
         let temp = tempfile::tempdir().unwrap();
-        let entry = support::write_source(&temp.path().join("Main.ube"), source);
+        let entry = support::write_source(&temp.path().join("App.ube"), source);
         fs::write(temp.path().join(".gitignore"), ".build/\n").unwrap();
         let executable = temp.path().join("program");
         let output = Command::new(env!("CARGO_BIN_EXE_ube-compiler"))
@@ -61,7 +61,7 @@ fn native_object_json_and_store_round_trip_are_real() {
         r#"
     class Address(string city) {}
     class Profile(int id,string name,long large,decimal ratio,bool active,int? absent,int? zero,Address address) {}
-    class Main {main(){
+    class App {start(){
         final store=KeyValueStore.open(Console.args()[0])
         final profile=Profile(-123,'Alice 世界 "quoted"',9007199254740993L,0.25,true,null,0,Address('東京'))
         Gc.collect()
@@ -107,7 +107,7 @@ fn serialization_rejects_cycles_resources_and_nonfinite_values_without_losing_st
     class Node(var Node? next,string label) {}
     class Pair(Node left,Node right) {}
     class Resource(Cache cache) {}
-    class Main {main(){
+    class App {start(){
         final node=Node(null,'leaf')
         final shared=Pair(node,node).toJson()
         Console.printLine(Json.toObject(shared).getObject('left').getString('label'))
@@ -152,7 +152,7 @@ fn serialization_rejects_cycles_resources_and_nonfinite_values_without_losing_st
 const STRESS: &str = r#"
 class Address(string city) {}
 class Payload(int id,string text,long wide,decimal ratio,bool active,int? absent,Address address) {}
-class Main {
+class App {
     string payload(int id){return Payload(id,'quotes " slash \\ newline\n 世界',9007199254740993L,0.25,true,null,Address('東京')).toJson()}
     async int work(KeyValueStore store,int worker){
         if(store.add('claim',worker.toJson())){store.increment('winners',1)}
@@ -160,7 +160,7 @@ class Main {
         for(i<250){store.set('worker:${worker}:${i}',this.payload(i)) store.increment('counter',1) if(i % 50 == 0){Gc.collect()} i=i+1}
         return i
     }
-    main(){
+    start(){
         final args=Console.args()
         final store=KeyValueStore.open(args[0])
         if(args[1]=='write'){
@@ -285,7 +285,7 @@ fn automatic_json_and_store_signatures_are_checked() {
         "Json.toObject('{}', 1)",
         "42.toJson(1)",
     ] {
-        let source = format!("class Main {{main(){{{statement}}}}}");
+        let source = format!("class App {{start(){{{statement}}}}}");
         let mut parser = Parser::new(Lexer::new(&source));
         let program = parser.parse_program();
         let mut checker = TypeChecker::new();
@@ -301,7 +301,7 @@ fn native_nullable_scalars_and_injected_storage_failures_preserve_records() {
     let program = Program::new(
         r#"
     class Scalars(byte code,bool? flag,decimal? ratio,long? counter,byte? absent) {}
-    class Main {main(){
+    class App {start(){
         byte zero
         Console.printLine(Scalars(zero,false,0.0,0L,null).toJson())
         final path=Console.args()[0]
@@ -359,7 +359,7 @@ fn native_lists_serialize_scalars_objects_nested_lists_and_reject_cycles() {
     let program = Program::new(r#"
     class Person(int id,string name) {}
     class Group(List people) {}
-    class Main {main(){
+    class App {start(){
         Console.printLine([].toJson())
         Console.printLine([1,-2,9007199254740993L,true,false,0.25,'世界 \"quoted\"',null].toJson())
         final people=[Person(42,'Alice')]
@@ -401,7 +401,7 @@ fn native_maps_serialize_nested_values_and_validate_keys() {
     let program = Program::new(r#"
     class Person(int id,string name) {}
     class Record(Map data) {}
-    class Main {main(){
+    class App {start(){
         final data=['person':Person(42,'世界'),'values':[1,true,null],'nested':['ok':false],'large':9007199254740993L,'ratio':0.25]
         Gc.collect()
         Console.printLine(Record(data).toJson())

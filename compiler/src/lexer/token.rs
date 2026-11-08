@@ -27,6 +27,7 @@ pub enum TokenKind {
     True,
     False,
     This,
+    Static,
     With,
     In,
     Try,

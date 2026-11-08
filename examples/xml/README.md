@@ -4,7 +4,7 @@ Build the matching runtime and compiler from the repository root, then run:
 
 ```bash
 cargo build -p ube-runtime -p ube-compiler
-./target/debug/ube-compiler run examples/xml/src/Main.ube
+./target/debug/ube-compiler run examples/xml/src/App.ube
 ```
 
 Expected output:

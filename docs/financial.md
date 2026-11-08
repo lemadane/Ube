@@ -3,8 +3,8 @@
 Use string inputs and outputs when exact decimal values matter:
 
 ```ube
-class Application {
-    main() {
+class App {
+    start() {
         final subtotal = Money.parse('0.10', 'PHP')
         final shipping = Money.parse('0.20', 'PHP')
         print(subtotal.add(shipping).amountText()) // 0.3

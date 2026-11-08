@@ -5,8 +5,8 @@ certificate and key before starting. Routes, response factories, query/header
 access, redirects, and sessions are shared with the TCP transports.
 
 ```ube
-class Application {
-    main() {
+class App {
+    start() {
         final server = Server()
         server.tls('cert.pem', 'key.pem')
         server.enableHttp2()
@@ -48,7 +48,7 @@ Direct HTTP/3 clients can connect without first making a TCP request.
 ## Local example
 
 Generate a development certificate for localhost, then run
-[examples/http3/Application.ube](../examples/http3/Application.ube):
+[examples/http3/App.ube](../examples/http3/App.ube):
 
 ```sh
 openssl req -x509 -newkey rsa:2048 -nodes -keyout key.pem -out cert.pem \
@@ -74,7 +74,7 @@ callbacks use the same route/session APIs on all three protocols.
 HTTP/3 supports concurrent request streams and QUIC flow control, with up to
 100 concurrent bidirectional streams per connection and 16 KiB request field
 sections. Handshake/request I/O has a ten-second timeout; QUIC idle connections
-expire after thirty seconds. Application callbacks run serially on the server
+expire after thirty seconds. App callbacks run serially on the server
 thread, so a blocking handler still delays other callbacks.
 
 0-RTT application data is disabled. WebTransport, HTTP datagrams, server push,

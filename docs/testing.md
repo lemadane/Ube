@@ -48,7 +48,7 @@ return type. Tests and hooks may be async; the runner awaits them.
 Each test gets a fresh class instance in a separate native process. Setup runs
 before the test; teardown runs through `finally`, including when setup or an
 assertion throws. A timeout or process termination cannot guarantee teardown.
-Test files may contain helper classes, but must not define `main()` or the
+Test files may contain helper classes, but must not define `start()` or the
 reserved generated class `UbeTestRunner`.
 
 ## Assertions

@@ -84,9 +84,9 @@ edits are rejected rather than silently overwriting each other's changes.
 ## Reading values in Ube
 
 ```ube
-// src/Main.ube
-class Main {
-    main() {
+// src/App.ube
+class App {
+    start() {
         final password = Env.require('DB_PASSWORD')
         // Pass password to the client that needs it; avoid logging secrets.
         string? optionalToken = Env.get('OPTIONAL_TOKEN')

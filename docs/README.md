@@ -6,7 +6,7 @@ Start with the [project README](../README.md) for language syntax, toolchain set
 
 - [Cache reference](cache.md): constructors, methods, TTL, eviction, capacity, persistence, and test coverage
 - [Runnable examples](../examples/cache/README.md): complete source files, commands, and expected outputs
-- [Application recipes](cache-recipes.md): cache-aside fallback, atomic counters, invalidation, and uncertain mutation outcomes
+- [App recipes](cache-recipes.md): cache-aside fallback, atomic counters, invalidation, and uncertain mutation outcomes
 - [Deployment and recovery](cache-deployment.md): standalone options, embedded hosting, multi-machine configuration, backup, and troubleshooting
 - [TCP protocol](cache-protocol.md): framing, authentication, fields, results, and limits
 

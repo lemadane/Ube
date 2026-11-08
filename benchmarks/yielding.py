@@ -10,13 +10,13 @@ import tempfile
 import time
 
 SOURCE = """
-class Main {
+class App {
     async int work(Channel<int> ready, Channel<int> gate) {
         final sent = await ready.send(1)
         final value = await gate.receive()
         return value + 1
     }
-    main() {
+    start() {
         final ready = Channel<int>(COUNT) final gate = Channel<int>(COUNT)
         final warm = this.work(ready, gate) final started = await ready.receive()
         final sent = await gate.send(1) final warmed = await warm
@@ -113,7 +113,7 @@ def main():
     with tempfile.TemporaryDirectory(prefix="ube-yielding-benchmark-") as temp:
         directory = Path(temp)
         (directory / ".gitignore").write_text(".build/\n")
-        source = directory / "Main.ube"
+        source = directory / "App.ube"
         executable = directory / "workload"
         for count in args.counts:
             source.write_text(SOURCE.replace("COUNT", str(count)))
@@ -121,7 +121,7 @@ def main():
                                    capture_output=True, text=True, timeout=args.timeout)
             if built.returncode:
                 raise RuntimeError(built.stderr)
-            if "define internal i1 @__ube_poll_Main_work" not in source.with_suffix(".ll").read_text():
+            if "define internal i1 @__ube_poll_App_work" not in source.with_suffix(".ll").read_text():
                 raise RuntimeError("compiler did not select the yielding backend")
             for repeat in range(args.repeat):
                 result = measure(executable, count, args.workers, args.timeout)

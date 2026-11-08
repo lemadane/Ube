@@ -129,8 +129,8 @@ fn compiled_ube_server_stays_running_and_serves_http_requests() {
     };
     let source = format!(
         r#"
-        class Application {{
-            main() {{
+        class App {{
+            start() {{
                 final server = Server()
                 final res = `Hello from Ube e2e!
 This is a captured multiline string.
@@ -202,8 +202,8 @@ fn compiled_ube_server_serves_http2_and_reports_actual_protocol() {
         .port();
     let source = format!(
         r#"
-        class Application {{
-            main() {{
+        class App {{
+            start() {{
                 final server = Server()
                 server.enableHttp2()
                 server.get('/protocol', request -> Response.ok('${{request.protocol()}} ${{request.isHttp3()}}'))
@@ -323,7 +323,7 @@ fn compiled_sessions_work_across_http1_and_http2() {
         .port();
     let source = format!(
         r#"
-        class Application(var Session? saved) {{
+        class App(var Session? saved) {{
             string readUser(Session session) {{ return session.get('userId') ?? 'anonymous' }}
             string checkStale(Request request) {{
                 try {{
@@ -331,7 +331,7 @@ fn compiled_sessions_work_across_http1_and_http2() {
                     return 'unexpected'
                 }} catch (GenericError err) {{ return 'expired handle' }}
             }}
-            main() {{
+            start() {{
                 final server = Server()
                 server.enableHttp2()
                 server.get('/get', request -> Response.ok(this.readUser(request.session())))
@@ -509,7 +509,7 @@ fn compiled_oauth_redirect_pkce_callback_and_session_work() {
         .port();
     let source = format!(
         r#"
-        class Application {{
+        class App {{
             Response callback(OAuth2 client, Request request) {{
                 try {{
                     final token = client.exchange(request.session(), request.query('code'), request.query('state'))
@@ -520,7 +520,7 @@ fn compiled_oauth_redirect_pkce_callback_and_session_work() {
                     }} finally {{ token.close() }}
                 }} catch (GenericError err) {{ return Response.unauthorized('invalid callback') }}
             }}
-            main() {{
+            start() {{
                 final client = OAuth2.create('https://provider.example/authorize', 'http://{token_address}/token', 'native-client', '', 'http://127.0.0.1:{port}/callback')
                 final server = Server()
                 server.enableHttp2()
@@ -696,7 +696,7 @@ fn compiled_http3_server_serves_quic_with_shared_sessions_and_stops() {
         .port();
     let source = format!(
         r#"
-        class Application {{ main() {{
+        class App {{ start() {{
             final server = Server()
             server.tls('{cert}', '{key}')
             server.enableHttp2()
@@ -888,7 +888,7 @@ fn compiled_http3_udp_bind_failure_is_catchable() {
     let occupied = std::net::UdpSocket::bind(("127.0.0.1", 0)).unwrap();
     let port = occupied.local_addr().unwrap().port();
     let source = format!(
-        r#"class Application {{ main() {{
+        r#"class App {{ start() {{
         final server = Server()
         server.tls('{cert}', '{key}')
         server.enableHttp3({port})
@@ -916,7 +916,7 @@ fn compiled_ube_server_receives_post_and_put_bodies() {
         .port();
     let source = format!(
         r#"
-        class Application(var int calls) {{
+        class App(var int calls) {{
             Response echo(Request request) {{
                 this._calls = this._calls + 1
                 return Response.ok(request.body())
@@ -925,7 +925,7 @@ fn compiled_ube_server_receives_post_and_put_bodies() {
                 try {{ return Response.ok(request.body()) }}
                 catch (GenericError error) {{ return Response.ok('invalid text') }}
             }}
-            main() {{
+            start() {{
                 final server = Server()
                 server.post('/echo', request -> this.echo(request))
                 server.put('/echo', request -> this.echo(request))
@@ -1204,7 +1204,7 @@ fn compiled_multiplexed_body_server(
         .port();
     let source = format!(
         r#"
-        class Application(var int calls) {{
+        class App(var int calls) {{
             Response echo(Request request) {{
                 this._calls = this._calls + 1
                 return Response.ok(request.body())
@@ -1213,7 +1213,7 @@ fn compiled_multiplexed_body_server(
                 try {{ return Response.ok(request.body()) }}
                 catch (GenericError error) {{ return Response.ok('invalid text') }}
             }}
-            main() {{
+            start() {{
                 final server = Server()
                 server.tls('{cert}', '{key}')
                 server.enableHttp2()
@@ -1649,7 +1649,7 @@ fn compiled_server_survives_caught_and_uncaught_currency_mismatches() {
         .port();
     let source = format!(
         r#"
-        class Application(var int cleaned, var int continued) {{
+        class App(var int cleaned, var int continued) {{
             Money fail(bool subtract) {{
                 try {{
                     if (subtract) {{ return Money.php(10.0).subtract(Money.usd(1.0)) }}
@@ -1675,7 +1675,7 @@ fn compiled_server_survives_caught_and_uncaught_currency_mismatches() {
                 }}
                 catch (CurrencyMismatchError error) {{ return Response.ok('recovered: ${{error.message()}}') }}
             }}
-            main() {{
+            start() {{
                 final server = Server()
                 server.get('/caught-add', request -> this.recover(false))
                 server.get('/caught-subtract', request -> this.recover(true))

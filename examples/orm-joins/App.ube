@@ -1,7 +1,7 @@
 import orm_joins_types.User
 import orm_joins_types.Order
-class Application {
-    main() {
+class App {
+    start() {
         final db = SQL.open('sqlite::memory:')
         final users = Orm.model(db, User, 'users')
         final orders = Orm.model(db, Order, 'orders')

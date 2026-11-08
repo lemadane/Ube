@@ -28,7 +28,7 @@ missing
 
 Sources:
 
-- [Main.ube](src/Main.ube): store/read/delete and cleanup
+- [App.ube](src/App.ube): store/read/delete and cleanup
 - [Profile.ube](src/Profile.ube): concrete data fields
 - [Address.ube](src/Address.ube): nested data object
 

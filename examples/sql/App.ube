@@ -1,5 +1,5 @@
-class Application {
-    main() {
+class App {
+    start() {
         final db = SQL.open('sqlite::memory:')
         final params = SQLParams.create()
         try {
