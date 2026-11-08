@@ -57,13 +57,15 @@ class App {
         Console.printLine(this.apply(addFive, 20))
         Console.printLine(this.makeAdder(7)(3))
         Console.printLine(this.curried()(8)(9))
+        (Func(int) -> Func(int) -> int) groupedCurried = this.curried()
+        Console.printLine(groupedCurried(3)(4))
         Console.printLine(static.scale(0.5)(8))
         var amount = 2
         final snapshot = () -> amount
         amount = 99
         Gc.collect()
         Console.printLine(snapshot())
-        Func(int) -> int typed = (int value) -> value * 2
+        (Func(int) -> int) typed = (int value) -> value * 2
         final boxed = Boxed(typed)
         Gc.collect()
         Console.printLine(boxed.transform()(6))
@@ -78,12 +80,14 @@ class App {
         Console.printLine(nullable(0) ?? 9)
         final formatted = () -> 'amount=${amount}'
         Console.printLine(formatted())
-        final choose = (bool flag) -> if (flag) { yield 1 } else { yield 2 }
+        (
+            Func(bool) -> int
+        ) choose = (bool flag) -> if (flag) { yield 1 } else { yield 2 }
         Console.printLine(choose(false))
     }
 }
 "#,
-        "15\n25\n10\n17\n4\n2\n12\ndone\n9007199254740993\ntrue\ntrue\n0\namount=99\n2\n",
+        "15\n25\n10\n17\n7\n4\n2\n12\ndone\n9007199254740993\ntrue\ntrue\n0\namount=99\n2\n",
     );
 }
 
@@ -128,6 +132,7 @@ class App(var int calls) {
         cache.close()
     }
 }
+
 class Holder(int value)
 "#,
         "0\n100\n100\n100\n300\n42\nclosure failure\n7\nasync void\n",
@@ -135,9 +140,44 @@ class Holder(int value)
 }
 
 #[test]
+fn async_start_runs_an_ordinary_method_and_await_returns_its_value() {
+    runs(
+        r#"
+class App {
+    int incrementMany(Cache cache, int count) {
+        cache.increment('count', count)
+        return count
+    }
+    int fail() { throw 'started failure' }
+    start() {
+        final cache = Cache.memory(4096)
+        cache.set('count', '0', 0)
+        final first = Async.start(() -> this.incrementMany(cache, 100))
+        final operation = () -> this.incrementMany(cache, 200)
+        final second = Async.start(operation)
+        Console.printLine(first.await())
+        Console.printLine(second.await())
+        Console.printLine(cache.get('count') ?? 'missing')
+        try {
+            Async.start(() -> this.fail()).await()
+        } catch (Error error) {
+            Console.printLine(error.message())
+        }
+        cache.close()
+    }
+}
+"#,
+        "100\n200\n300\nstarted failure\n",
+    );
+}
+
+#[test]
 fn invalid_function_signatures_and_calls_are_diagnosed() {
     for (source, expected) in [
         ("class App { start() { final f = (int n) -> n f() } }", "Func expects 1 arguments"),
+        ("class App { start() { Async.start(1) } }", "zero-argument Func"),
+        ("class App { start() { Async.start((int value) -> value) } }", "zero-argument Func"),
+        ("class App { start() { (Func() -> int) = () -> 1 } }", "variable name after parenthesized Func type"),
         ("class App { start() { final f = () -> 1 f(2) } }", "Func expects 0 arguments"),
         ("class App { start() { final f = (int n) -> n f('wrong') } }", "Func argument 1"),
         ("class App { start() { final value = 1 value() } }", "expected a Func value"),

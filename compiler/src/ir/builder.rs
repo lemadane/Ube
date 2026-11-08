@@ -1941,6 +1941,32 @@ impl IrBuilder {
                 if !matches!(callee.kind, ExprKind::MemberAccess { .. }) {
                     return self.build_function_call(callee, args);
                 }
+                if matches!(&callee.kind, ExprKind::MemberAccess { object, member, .. }
+                    if member == "start"
+                        && matches!(&object.kind, ExprKind::Identifier(name)
+                            if name == "Async" && self.lookup_var(name).is_none()))
+                {
+                    if let [operation] = args.as_slice() {
+                        if let ExprKind::Closure { params, expression } = &operation.kind {
+                            if params.is_empty() {
+                                return self.build_deferred_expression(expression);
+                            }
+                        }
+                        let invocation = Expr {
+                            kind: ExprKind::Call {
+                                callee: Box::new(operation.clone()),
+                                args: Vec::new(),
+                            },
+                            span: operation.span,
+                        };
+                        return self.build_deferred_expression(&invocation);
+                    }
+                    self.diagnostics.push(Diagnostic::error(
+                        "Async.start expects one zero-argument Func",
+                        Some(expr.span),
+                    ));
+                    return IrOperand::Null;
+                }
                 if let ExprKind::MemberAccess { object, member, .. } = &callee.kind {
                     if let Some(class_name) = self.static_class(object) {
                         if let Some(method) = self.class_decls.get(&class_name).and_then(|c| c.methods.iter().find(|m| m.is_static && m.name == *member)).cloned() {

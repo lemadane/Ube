@@ -12,6 +12,17 @@ Func(int) -> Func(int) -> int
 
 Function signatures must match exactly when assigning or returning a function. Calls check argument count and types, including the normal numeric conversions at the call site. `void` is allowed as a result, but not as a parameter. A function variable requires an explicit initializer.
 
+Parentheses may group a function type in a local declaration, making the boundary before a long variable name easier to see. Both spellings are equivalent:
+
+```ube
+Func() -> int shortOperation = () -> 42
+(Func() -> int) groupedOperation = () -> 42
+
+(
+    Func(int, string) -> Func(bool) -> int
+) operationFactory = (int count, string label) -> (bool enabled) -> count
+```
+
 ## Returning and calling functions
 
 An expression closure uses typed parameters followed by `->` and its result expression. Its return type is inferred. Use `()` for no parameters.
@@ -58,6 +69,17 @@ Object captures retain the same object reference; they do not deep-copy the obje
 Each invocation evaluates the expression again. Exceptions propagate to the caller's `try`/`catch`.
 
 ## Functions returning tasks
+
+Start an ordinary method or expression on the task runtime by passing a zero-argument function to `Async.start`:
+
+```ube
+final firstTask = Async.start(() -> this.incrementMany(cache, 100))
+final secondTask = Async.start(() -> this.incrementMany(cache, 100))
+final firstResult = firstTask.await()
+final secondResult = secondTask.await()
+```
+
+`Async.start(Func() -> T)` returns `Async<T>`. The function is called by the task runtime, so the expression inside it is not evaluated before the task starts. Ordinary method declarations do not need an `async` modifier.
 
 `Func() -> Async<int>` is a function that creates or returns a task when called:
 

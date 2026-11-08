@@ -1,8 +1,7 @@
 class App {
 
-    async int incrementMany(
-    Cache cache,
-        int iterations) {
+    // Increment a counter in the cache many times.
+    int incrementMany(Cache cache, int iterations) {
         var index = 0
         for (index < iterations) {
             cache.increment('count', 1)
@@ -11,16 +10,17 @@ class App {
         return iterations
     }
 
-    // 
+    // The entry point of the application. 
     start() {
         final cache = Cache.memory(4096)
         try {
             cache.set('count', '0', 0)
-            final first = this.incrementMany(cache, 100)
-            final second = this.incrementMany(cache, 100)
+            final first = Async.start(() -> this.incrementMany(cache, 100))
+            final second = Async.start(() -> this.incrementMany(cache, 100))
             first.await()
             second.await()
-            Console.printLine(cache.get('count') ?? 'missing')
+            Console.printLine(
+              cache.get('count') ?? 'missing')
         } finally {
             cache.close()
         }

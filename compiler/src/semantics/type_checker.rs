@@ -2523,6 +2523,23 @@ impl TypeChecker {
                                     }
                                     return Some(method.result);
                                 }
+                                if name == "Async" && member == "start" {
+                                    if !class_receiver {
+                                        self.diagnostics.push(Diagnostic::error("Async.start requires a class call", Some(expr.span)));
+                                    }
+                                    if args.len() != 1 {
+                                        self.diagnostics.push(Diagnostic::error("Async.start expects one zero-argument Func", Some(expr.span)));
+                                        return None;
+                                    }
+                                    let Some(Type::Function { params, return_type }) = arg_types.first() else {
+                                        self.diagnostics.push(Diagnostic::error("Async.start expects a zero-argument Func", Some(args[0].span)));
+                                        return None;
+                                    };
+                                    if !params.is_empty() {
+                                        self.diagnostics.push(Diagnostic::error("Async.start expects a zero-argument Func", Some(args[0].span)));
+                                    }
+                                    return Some(Type::Async(return_type.clone()));
+                                }
                                 if name == "Async" && ["all", "any", "race", "allSettled"].contains(&member.as_str()) {
                                     if !class_receiver { self.diagnostics.push(Diagnostic::error("Async combinators require a class call", Some(expr.span))); }
                                     if let Some(list) = args.first() {

@@ -423,13 +423,13 @@ See the [runnable context example](examples/log_context/App.ube).
 - **Pattern Support**: Matches constant values, Sum Class variant payloads, type checks (`is`), guard clauses (`if`), multiple OR values, and anonymous objects.
 
 ### 14. Concurrency Runtime (Tokio)
-- Async method calls are submitted to a shared multithreaded Tokio runtime. Receivers and arguments are captured before the call returns, and `.await()` blocks the calling Ube thread until completion.
+- `Async.start(() -> expression)` submits a zero-argument function to the shared multithreaded Tokio runtime. Captured values are retained for the task, and `.await()` returns its result.
 - The Rust runtime provides typed `Task<T>` results/errors, completion-based combinators, timeouts, cancellation, and bounded closable channels.
-- The compiler ABI transports task and channel values through an inline two-word value (64-bit payload plus presence metadata), encoding primitive values and pointers. Ube async method calls produce `Async<T>`; `.await()` retrieves the declared result type `T`; failures propagate into a surrounding `try`/`catch`.
-- One rule: **if it waits, call `.await()`.** `async expr` (or an `async` method call) starts work; `.await()` gets the result.
+- The compiler ABI transports task and channel values through an inline two-word value (64-bit payload plus presence metadata), encoding primitive values and pointers. `Async.start` produces `Async<T>`; `.await()` retrieves `T`; failures propagate into a surrounding `try`/`catch`.
+- One rule: **start work with `Async.start`, then call `.await()` when its result is needed.** Ordinary methods need no `async` declaration.
 - `Channel<T>(capacity)` is a typed bounded channel: `ch.send(v).await()` (false once closed), `ch.receive().await()`, and `ch.close()`. A closed-channel receive after queued values are drained is catchable.
 - `task.timeout(ms).await()` fails with a catchable `task timed out` and cancels the task; it works on any task, including `ch.receive()`.
-- Ube uses `Async<T>` and combinators such as `Async.all(...)` and `Async.race(...)`. The older prefix form `await value` remains accepted for compatibility; new code should use `value.await()`.
+- Ube uses `Async<T>` and combinators such as `Async.all(...)` and `Async.race(...)`. Legacy `async` and prefix `await` forms remain accepted for source compatibility; new code should use `Async.start(() -> expression)` and `value.await()`.
 - Unhandled failures propagate out of async code and otherwise stop the program with a clear error.
 
 ### 15. Exception Model (`try` / `catch` / `finally` & `throw`)
@@ -609,6 +609,8 @@ Func(int) -> int makeAdder(int amount) {
 ```
 
 Call the returned value with parentheses: `final addFive = this.makeAdder(5)`, then `addFive(10)`. A `Func() -> Async<int>` can be called and awaited as `first().await()`. Closures capture current local values, and captured object references remain alive through garbage collection. See [function values](docs/functions.md) and the [runnable example](examples/functions/App.ube).
+
+Function-typed locals may use parentheses to visually group long signatures: `(Func(int, string) -> bool) validator = (int id, string name) -> id > 0`.
 
 ### 2. Structural `trait` Subtyping (No `implements` Keyword)
 

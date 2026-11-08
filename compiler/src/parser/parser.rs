@@ -826,8 +826,50 @@ impl<'a> Parser<'a> {
         false
     }
 
+    fn parse_parenthesized_function_decl(&mut self) -> Result<Stmt, ()> {
+        let start_span = self.expect(&TokenKind::OpenParen, "(")?.span;
+        let type_annotation = self.parse_type_spec()?;
+        if !matches!(type_annotation, TypeSpec::Function { .. }) {
+            self.diagnostics.push(Diagnostic::error(
+                "Parenthesized local types are supported for Func signatures",
+                Some(start_span),
+            ));
+            return Err(());
+        }
+        self.expect(&TokenKind::CloseParen, ") after Func type")?;
+        let TokenKind::Identifier(name) = self.current_token.kind.clone() else {
+            self.diagnostics.push(Diagnostic::error(
+                "Expected variable name after parenthesized Func type",
+                Some(self.current_token.span),
+            ));
+            return Err(());
+        };
+        self.advance();
+        let initializer = if self.match_token(&TokenKind::Equal) {
+            Some(self.parse_expr(Precedence::None)?)
+        } else {
+            None
+        };
+        let end_span = self.current_token.span;
+        Ok(Stmt {
+            kind: StmtKind::LocalDecl {
+                name,
+                is_mutable: false,
+                type_annotation: Some(type_annotation),
+                initializer,
+            },
+            span: Span::combine(start_span, end_span),
+        })
+    }
+
     fn parse_expr_or_typed_decl_stmt(&mut self) -> Result<Stmt, ()> {
         let start_span = self.current_token.span;
+
+        if self.check(&TokenKind::OpenParen)
+            && matches!(&self.peek_token.kind, TokenKind::Identifier(name) if name == "Func")
+        {
+            return self.parse_parenthesized_function_decl();
+        }
 
         if self.is_typed_decl_start() {
             let type_annotation = self.parse_type_spec()?;
@@ -1006,6 +1048,12 @@ impl<'a> Parser<'a> {
         let mut left = self.parse_prefix()?;
 
         while prec < Precedence::from_token(&self.current_token.kind) {
+            if self.check(&TokenKind::OpenParen)
+                && self.current_token.span.start.line > left.span.end.line
+                && matches!(&self.peek_token.kind, TokenKind::Identifier(name) if name == "Func")
+            {
+                break;
+            }
             left = self.parse_infix(left)?;
         }
 

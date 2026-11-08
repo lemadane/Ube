@@ -68,7 +68,7 @@ Embedded applications should close caches in `finally`. Runtime cleanup also sto
 
 Each listener has one accept thread, four worker threads, and a queue of up to 64 accepted connections. Frame size is bounded, and connection/read/write timeouts apply. A full queue can close a new connection; applications should handle that as a cache failure. Disk operations serialize through the cache's store lock. Disk stalls and synchronous journal writes can delay requests. Do not interpret health endpoint responsiveness as proof that a disk write will succeed.
 
-Cache calls are synchronous. Use an async method when you need the call offloaded from the caller; methods containing these operations use Ube's blocking task backend. Do not assume that cancellation can interrupt an in-progress filesystem call.
+Cache calls are synchronous. Use `Async.start(() -> operation)` when you need the call offloaded from the caller; these operations use Ube's blocking task backend. Do not assume that cancellation can interrupt an in-progress filesystem call.
 
 ## Durability and recovery
 
