@@ -31,7 +31,7 @@ Start with the [project README](../README.md) for language syntax, toolchain set
 - [SQL](sql.md): SQL access and parameters
 - [Query builder](query-builder.md): model-free SELECT queries, projections, filters, and transactions
 - [SQLite](sqlite.md): embedded SQL storage
-- [ORM](orm.md): models and queries
+- [ORM](orm.md): models, grouped predicates, projections, aggregates, joins, and transactions
 
 ## Networking
 

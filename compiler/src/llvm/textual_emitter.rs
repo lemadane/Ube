@@ -380,6 +380,10 @@ impl TextualLlvmEmitter {
         for (suffix, ty) in [("int", "i32"), ("long", "i64"), ("decimal", "double"), ("bool", "i1"), ("string", "i8*")] {
             self.output.push_str(&format!("declare %OrmQuery* @ube_orm_where_{}(%OrmQuery*, i8*, i8*, {})\n", suffix, ty));
         }
+        self.output.push_str("declare %OrmQuery* @ube_orm_select(%OrmQuery*, i8*, i1)\ndeclare %OrmQuery* @ube_orm_where_group(%OrmQuery*, %OrmQuery*, i1)\ndeclare %OrmQuery* @ube_orm_or_where_null(%OrmQuery*, i8*, i1)\ndeclare %SQLResult* @ube_orm_aggregate(%OrmQuery*, i8*, i8*)\n");
+        for (suffix, ty) in [("int", "i32"), ("long", "i64"), ("decimal", "double"), ("bool", "i1"), ("string", "i8*")] {
+            self.output.push_str(&format!("declare %OrmQuery* @ube_orm_or_where_{suffix}(%OrmQuery*, i8*, i8*, {ty})\n"));
+        }
         for &class in crate::builtins::SQL_CLASSES {
             for method in crate::builtins::sql_methods(class) {
                 let mut params = Vec::new();
@@ -1631,7 +1635,7 @@ impl TextualLlvmEmitter {
                 "i8*".to_string()
             }
             Type::Class { name } => format!("%{}*", name),
-            Type::Orm { kind, .. } => format!("%{}*", if *kind == crate::orm::Kind::Rows { "SQLResult" } else { kind.class() }),
+            Type::Orm { kind, .. } => format!("%{}*", match kind { crate::orm::Kind::Rows => "SQLResult", crate::orm::Kind::Projection => "OrmQuery", _ => kind.class() }),
             Type::Nullable(inner) => {
                 if ty.nullable_scalar_inner().is_some() {
                     return format!("{{ i1, {} }}", self.type_to_llvm(inner));

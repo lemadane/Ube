@@ -39,7 +39,8 @@ impl IrBuilder {
                         ..
                     } if member == "using" => Some(handle(&model, Kind::Model)),
                     ty @ Type::Orm {
-                        kind: Kind::Query, ..
+                        kind: Kind::Query | Kind::Projection,
+                        ..
                     } if member == "join" || member == "leftJoin" => {
                         let Type::Orm {
                             model: target,
@@ -57,14 +58,30 @@ impl IrBuilder {
                         Some(crate::orm::joined(&ty, &target, alias))
                     }
                     Type::Orm {
+                        kind: Kind::Projection,
+                        ..
+                    } if member == "all" || member == "first" => Some(Type::Class {
+                        name: "SQLResult".into(),
+                    }),
+                    ty @ Type::Orm {
+                        kind: Kind::Query | Kind::Projection,
+                        ..
+                    } if member == "select" => Some(crate::orm::projected(&ty)),
+                    Type::Orm {
                         model,
                         kind: Kind::Query,
                         ..
                     } if member == "all" => Some(handle(&model, Kind::Rows)),
                     ty @ Type::Orm {
-                        kind: Kind::Query, ..
+                        kind: Kind::Query | Kind::Projection,
+                        ..
                     } if [
                         "where",
+                        "orWhere",
+                        "whereGroup",
+                        "orWhereGroup",
+                        "orWhereNull",
+                        "orWhereNotNull",
                         "whereNull",
                         "whereNotNull",
                         "orderBy",
@@ -358,7 +375,7 @@ impl IrBuilder {
             (Kind::Model, "query") => {
                 self.runtime("ube_orm_query", operands, handle(&model, Kind::Query))
             }
-            (Kind::Query, "join" | "leftJoin") => {
+            (Kind::Query | Kind::Projection, "join" | "leftJoin") => {
                 let Type::Orm { model: target, .. } = operands[1].get_type() else {
                     unreachable!()
                 };
@@ -370,7 +387,7 @@ impl IrBuilder {
                 operands.push(IrOperand::ConstantBool(member == "leftJoin"));
                 self.runtime("ube_orm_join", operands, result)
             }
-            (Kind::Query, "where") => {
+            (Kind::Query | Kind::Projection, "where" | "orWhere") => {
                 let suffix = match operands[3].get_type() {
                     Type::Int => "int",
                     Type::Long => "long",
@@ -379,16 +396,34 @@ impl IrBuilder {
                     _ => "string",
                 };
                 self.runtime(
-                    &format!("ube_orm_where_{suffix}"),
+                    &format!(
+                        "ube_orm_{}{suffix}",
+                        if member == "orWhere" {
+                            "or_where_"
+                        } else {
+                            "where_"
+                        }
+                    ),
                     operands,
                     receiver_ty.clone(),
                 )
             }
-            (Kind::Query, "whereNull" | "whereNotNull") => {
-                operands.push(IrOperand::ConstantBool(member == "whereNotNull"));
-                self.runtime("ube_orm_where_null", operands, receiver_ty.clone())
+            (
+                Kind::Query | Kind::Projection,
+                "whereNull" | "whereNotNull" | "orWhereNull" | "orWhereNotNull",
+            ) => {
+                operands.push(IrOperand::ConstantBool(member.ends_with("NotNull")));
+                self.runtime(
+                    if member.starts_with("or") {
+                        "ube_orm_or_where_null"
+                    } else {
+                        "ube_orm_where_null"
+                    },
+                    operands,
+                    receiver_ty.clone(),
+                )
             }
-            (Kind::Query, "orderBy" | "limit" | "offset") => self.runtime(
+            (Kind::Query | Kind::Projection, "orderBy" | "limit" | "offset") => self.runtime(
                 &format!(
                     "ube_orm_{}",
                     if member == "orderBy" {
@@ -399,6 +434,29 @@ impl IrBuilder {
                 ),
                 operands,
                 receiver_ty.clone(),
+            ),
+            (Kind::Query | Kind::Projection, "select") => {
+                operands.push(IrOperand::ConstantBool(kind == Kind::Query));
+                self.runtime(
+                    "ube_orm_select",
+                    operands,
+                    crate::orm::projected(&receiver_ty),
+                )
+            }
+            (Kind::Query | Kind::Projection, "whereGroup" | "orWhereGroup") => {
+                operands.push(IrOperand::ConstantBool(member == "orWhereGroup"));
+                self.runtime("ube_orm_where_group", operands, receiver_ty.clone())
+            }
+            (Kind::Projection, "all" | "first") => self.runtime(
+                if member == "all" {
+                    "ube_orm_all"
+                } else {
+                    "ube_orm_first"
+                },
+                operands,
+                Type::Class {
+                    name: "SQLResult".into(),
+                },
             ),
             (Kind::Query, "all") => {
                 self.runtime("ube_orm_all", operands, handle(&model, Kind::Rows))
@@ -413,8 +471,104 @@ impl IrBuilder {
                 );
                 self.orm_find_result(rows, &model)
             }
-            (Kind::Query, "count") => self.runtime("ube_orm_count", operands, Type::Long),
-            (Kind::Query, "close") => self.runtime("ube_orm_query_close", operands, Type::Void),
+            (Kind::Query | Kind::Projection, "count") => {
+                self.runtime("ube_orm_count", operands, Type::Long)
+            }
+            (Kind::Query | Kind::Projection, "sum" | "avg" | "min" | "max" | "countColumn") => {
+                let (ExprKind::StringLiteral(column) | ExprKind::TextBlock(column)) = &args[0].kind
+                else {
+                    unreachable!()
+                };
+                let Type::Orm { joins, .. } = &receiver_ty else {
+                    unreachable!()
+                };
+                let (column_model, column_name) =
+                    if let Some((alias, name)) = column.split_once('.') {
+                        (
+                            if alias == "base" {
+                                model.as_str()
+                            } else {
+                                joins
+                                    .iter()
+                                    .find(|(a, _)| a.eq_ignore_ascii_case(alias))
+                                    .unwrap()
+                                    .1
+                                    .as_str()
+                            },
+                            name,
+                        )
+                    } else {
+                        (model.as_str(), column.as_str())
+                    };
+                let fields = crate::orm::fields(&self.class_decls[column_model]).unwrap();
+                let ty = fields
+                    .iter()
+                    .find(|(name, _)| name == column_name)
+                    .unwrap()
+                    .1
+                    .clone();
+                let inner = if let Type::Nullable(t) = ty { *t } else { ty };
+                let result = if member == "countColumn" {
+                    Type::Long
+                } else if matches!(member.as_str(), "sum" | "avg") {
+                    Type::Decimal
+                } else {
+                    inner
+                };
+                operands.push(IrOperand::ConstantString(member.clone()));
+                let rows = self.runtime(
+                    "ube_orm_aggregate",
+                    operands,
+                    Type::Class {
+                        name: "SQLResult".into(),
+                    },
+                );
+                let getter = match result {
+                    Type::Int => "int",
+                    Type::Long => "long",
+                    Type::Decimal => "decimal",
+                    _ => "string",
+                };
+                let value = if member == "countColumn" {
+                    self.runtime(
+                        "ube_sql_result_get_long",
+                        vec![rows.clone(), IrOperand::ConstantInt(0)],
+                        Type::Long,
+                    )
+                } else {
+                    let is_null = self.runtime(
+                        "ube_sql_result_is_null",
+                        vec![rows.clone(), IrOperand::ConstantInt(0)],
+                        Type::Bool,
+                    );
+                    let present = self.fresh_reg();
+                    self.emit(IrInstruction::Binary {
+                        dest: present,
+                        op: BinaryOp::Equal,
+                        left: is_null,
+                        right: IrOperand::ConstantBool(false),
+                        operand_ty: Type::Bool,
+                        result_ty: Type::Bool,
+                    });
+                    self.orm_branch_value(
+                        IrOperand::Register(present, Type::Bool),
+                        Type::Nullable(Box::new(result.clone())),
+                        |this| {
+                            this.runtime(
+                                &format!("ube_sql_result_get_{getter}"),
+                                vec![rows.clone(), IrOperand::ConstantInt(0)],
+                                result,
+                            )
+                        },
+                    )
+                };
+                self.runtime("ube_sql_result_close", vec![rows], Type::Void);
+                value
+            }
+
+            (Kind::Query | Kind::Projection, "close") => {
+                self.runtime("ube_orm_query_close", operands, Type::Void)
+            }
             (Kind::Rows, "get") => {
                 let receiver = self.cast(
                     receiver,

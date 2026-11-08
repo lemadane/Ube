@@ -110,7 +110,7 @@ impl TypeChecker {
                 }],
                 receiver.clone(),
             ),
-            (Kind::Query, "join" | "leftJoin") => {
+            (Kind::Query | Kind::Projection, "join" | "leftJoin") => {
                 if args.len() != 4 || actual.len() != 4 {
                     return error(self,"ORM join expects a model repository, literal alias, source column, and target column".into());
                 }
@@ -167,7 +167,7 @@ impl TypeChecker {
                     crate::orm::joined(receiver, target, alias),
                 )
             }
-            (Kind::Query, "where") => {
+            (Kind::Query | Kind::Projection, "where" | "orWhere") => {
                 if args.len() != 3 || actual.len() != 3 {
                     return error(
                         self,
@@ -212,13 +212,79 @@ impl TypeChecker {
                     receiver.clone(),
                 )
             }
-            (Kind::Query, "whereNull" | "whereNotNull") => (vec![Type::String], receiver.clone()),
-            (Kind::Query, "orderBy") => (vec![Type::String, Type::String], receiver.clone()),
-            (Kind::Query, "limit" | "offset") => (vec![Type::Int], receiver.clone()),
+            (
+                Kind::Query | Kind::Projection,
+                "whereNull" | "whereNotNull" | "orWhereNull" | "orWhereNotNull",
+            ) => (vec![Type::String], receiver.clone()),
+            (Kind::Query | Kind::Projection, "orderBy") => {
+                (vec![Type::String, Type::String], receiver.clone())
+            }
+            (Kind::Query | Kind::Projection, "limit" | "offset") => {
+                (vec![Type::Int], receiver.clone())
+            }
             (Kind::Query, "all") => (vec![], handle(model, Kind::Rows)),
+            (Kind::Projection, "all" | "first") => (
+                vec![],
+                Type::Class {
+                    name: "SQLResult".into(),
+                },
+            ),
             (Kind::Query, "first") => (vec![], nullable),
-            (Kind::Query, "count") => (vec![], Type::Long),
-            (Kind::Query, "close") => (vec![], Type::Void),
+            (Kind::Query | Kind::Projection, "count") => (vec![], Type::Long),
+            (Kind::Query | Kind::Projection, "select") => {
+                if let Some(Expr {
+                    kind: ExprKind::StringLiteral(c) | ExprKind::TextBlock(c),
+                    ..
+                }) = args.first()
+                {
+                    if let Err(e) = self.orm_column_type(model, joins, c) {
+                        return error(self, e);
+                    }
+                }
+                (vec![Type::String], crate::orm::projected(receiver))
+            }
+            (Kind::Query | Kind::Projection, "whereGroup" | "orWhereGroup") => {
+                if actual.len() != 1
+                    || !matches!(&actual[0], Type::Orm { model: other, joins: other_joins, kind: Kind::Query | Kind::Projection } if other == model && other_joins == joins)
+                {
+                    return error(
+                        self,
+                        "ORM groups require a query with the same model and join aliases".into(),
+                    );
+                }
+                (vec![actual[0].clone()], receiver.clone())
+            }
+            (Kind::Query | Kind::Projection, "sum" | "avg" | "min" | "max" | "countColumn") => {
+                if args.len() != 1 || actual.len() != 1 || actual[0] != Type::String {
+                    return error(self, "ORM aggregate expects one literal column name".into());
+                }
+                let (ExprKind::StringLiteral(c) | ExprKind::TextBlock(c)) = &args[0].kind else {
+                    return error(self, "ORM aggregate column must be a string literal".into());
+                };
+                let ty = match self.orm_column_type(model, joins, c) {
+                    Ok(t) => t,
+                    Err(e) => return error(self, e),
+                };
+                let inner = if let Type::Nullable(t) = ty { *t } else { ty };
+                if member != "countColumn"
+                    && (!matches!(inner, Type::Int | Type::Long | Type::Decimal | Type::String)
+                        || matches!(member, "sum" | "avg") && inner == Type::String)
+                {
+                    return error(self, "ORM sum/avg require numeric columns; min/max require numeric or string columns".into());
+                }
+                let result = if member == "countColumn" {
+                    Type::Long
+                } else {
+                    Type::Nullable(Box::new(if matches!(member, "sum" | "avg") {
+                        Type::Decimal
+                    } else {
+                        inner
+                    }))
+                };
+                (vec![Type::String], result)
+            }
+
+            (Kind::Query | Kind::Projection, "close") => (vec![], Type::Void),
             (Kind::Rows, "next") => (vec![], Type::Bool),
             (Kind::Rows, "get") => (vec![], entity),
             (Kind::Rows, "rowCount") => (vec![], Type::Long),
@@ -245,7 +311,12 @@ impl TypeChecker {
                 format!("Invalid ORM argument types for {}.{member}", kind.class()),
             );
         }
-        if *kind == Kind::Query && matches!(member, "whereNull" | "whereNotNull" | "orderBy") {
+        if matches!(kind, Kind::Query | Kind::Projection)
+            && matches!(
+                member,
+                "whereNull" | "whereNotNull" | "orWhereNull" | "orWhereNotNull" | "orderBy"
+            )
+        {
             if let Some(Expr {
                 kind: ExprKind::StringLiteral(column) | ExprKind::TextBlock(column),
                 ..

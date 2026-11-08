@@ -96,12 +96,19 @@ try {
 | Query method | Behavior |
 | --- | --- |
 | `where(column, operator, value)` | Adds an AND comparison with a bound non-null scalar value. |
+| `orWhere(column, operator, value)` | Adds an OR comparison with the same column and value checks. |
+| `whereGroup(query)` / `orWhereGroup(query)` | Appends a snapshot of another query's predicates in parentheses, using AND or OR. |
+| `orWhereNull(column)` / `orWhereNotNull(column)` | Adds an OR SQL NULL predicate. |
 | `whereNull(column)` / `whereNotNull(column)` | Adds an SQL NULL predicate. |
 | `orderBy(column, direction)` | Adds a sort key; direction is `asc` or `desc`. |
 | `limit(count)` / `offset(count)` | Sets a nonnegative integer pagination value. |
 | `all()` | Returns a materialized `OrmRows<User>` cursor. |
 | `first()` | Returns the first matching `User?`, honoring ordering and offset. A zero limit returns null. |
 | `count()` | Returns the matching row count, ignoring pagination and ordering. |
+| `countColumn(column)` | Counts matching rows whose column is non-NULL, ignoring pagination and ordering. |
+| `sum(column)` / `avg(column)` | Returns `decimal?` for a numeric column, or null when no non-NULL values match. |
+| `min(column)` / `max(column)` | Returns the nullable column type for numeric or string columns. |
+| `select(column)` | Creates an `OrmProjection<Model>` snapshot that returns `SQLResult` cursors. |
 | `close()` | Releases the query handle. |
 
 Comparisons support `=`, `!=`, `<>`, `<`, `<=`, `>`, `>=`, `LIKE`, and `NOT LIKE`.
@@ -117,11 +124,11 @@ not compile-time validation against a live database. Invalid mappings, runtime
 field mismatches, invalid operators, and unsupported query values raise
 `SQLError`. Rows are validated before objects are constructed.
 
-Query methods mutate and return the same query handle. Use a fresh `query()` for
-an independent filter set; assigning a query to another variable does not clone
-it. Execution takes a snapshot. Queries support at most 128 predicates and 128
-sort keys, and retain the SQL parameter/result size limits. OR/grouped predicates, projections, aggregates other than count, and streaming
-are future extensions.
+Filter, ordering, and pagination methods mutate and return the same query
+handle. Use a fresh `query()` for an independent filter set; assigning a query to another variable does not clone
+it. Execution takes a snapshot. Queries support at most 128 predicate nodes
+(including groups), 16 levels of group nesting, 128 sort keys, and 16 MiB of predicate text and values. SQL
+parameter/result size limits still apply. Streaming is a future extension.
 
 `OrmRows<User>` supports `next()`, `get()`, `rowCount()`, `reset()`, and `close()`.
 Call `next()` before `get()`. Rows are detached from the database connection and
@@ -129,6 +136,85 @@ remain readable after it closes. Close result, query, and repository handles in
 `finally` blocks; repeated close is safe. Closing a repository releases that
 handle; already-created queries retain their mapping, but still require an
 active underlying connection or transaction to execute.
+
+## Parenthesized OR groups
+
+```ube
+final names = users.query().where('name', '=', 'Ada').orWhere('name', '=', 'Grace')
+final active = users.query().where('active', '=', true).whereGroup(names)
+try {
+    // WHERE active = ? AND (name = ? OR name = ?)
+    print(active.count())
+} finally { active.close() names.close() }
+```
+
+`orWhere`, `orWhereNull`, and `orWhereNotNull` use normal SQL AND/OR precedence.
+Use `whereGroup` or `orWhereGroup` for parentheses; groups may contain nested
+groups. A leading OR is treated as the first predicate without an OR prefix.
+
+Groups copy only the source query's predicates at the time of the call. Later
+source changes or closing the source do not affect the destination. Projections, ordering,
+and pagination are not copied. The source must have at least one predicate and
+use the same model mapping, SQL connection or transaction, and complete join
+configuration. Model/join types are checked at compilation; SQL targets and
+mapping details are checked at runtime. Invalid group additions leave the
+destination unchanged. Keep both handles and close them independently.
+
+## Projections and aggregate values
+
+```ube
+final base = users.query().where('active', '=', true).orderBy('id', 'asc')
+final selected = base.select('name').select('email')
+try {
+    final rows = selected.all()
+    try {
+        for (rows.next()) {
+            print(rows.getString(rows.columnIndex('name')))
+            print(rows.isNull(rows.columnIndex('email')))
+        }
+    } finally { rows.close() }
+} finally { selected.close() base.close() }
+```
+
+The first `select(column)` on an `OrmQuery<Model>` creates a new
+`OrmProjection<Model>` snapshot. The original query still returns complete model
+objects. Further `select` calls append columns to the same projection handle.
+Projections retain model and join validation through filters, ordering,
+pagination, and joins, and can appear in method signatures. Dynamic column
+strings are validated at runtime; literal columns are checked at compilation.
+Up to 128 projection columns and 16 MiB of projection text are allowed.
+
+Projected `all()` and `first()` return `SQLResult`, rather than partial model
+objects. Both leave the cursor before its first row. Projected `first()` returns
+a cursor with zero or one row and honors offset and `limit(0)`. Call `next()`
+before accessing values, use `isNull()` for nullable values, and close the result.
+Column labels match the strings passed to `select`, including qualified labels
+such as `o.amount`; select qualified columns to distinguish joined fields.
+Nullable columns introduced by a LEFT JOIN remain NULL in projected results.
+
+Aggregates operate on the complete filtered/joined row set, ignoring selected
+columns, ordering, limit, and offset:
+
+| Method | Result |
+| --- | --- |
+| `count()` | `long`: count of matching rows, including join duplicates. |
+| `countColumn('email')` | `long`: count of non-NULL column values. |
+| `sum('score')` / `avg('score')` | `decimal?`: numeric result; null for no non-NULL values. |
+| `min('id')` / `max('id')` | Nullable source-column type; numeric and string columns supported. |
+
+Aggregate column names must be string literals, so the compiler can validate
+types and preserve nullable result types. `sum` and `avg` require numeric columns.
+`min` and `max` accept numeric or string columns; boolean columns are supported
+by `countColumn`. SQL NULL values are excluded. A count returns zero when nothing
+matches; the other aggregates return null. `sum` and `avg` use Ube's floating-point
+`decimal`, including for integer inputs; large integer sums can lose precision.
+Use raw SQL when exact database NUMERIC/DECIMAL results are needed.
+
+For example, `final score = base.avg('score') ?? 0.0` handles an empty average.
+These are scalar aggregate methods, not GROUP BY/HAVING or aggregate-expression
+projections. Those operations remain available through raw SQL.
+
+See [the runnable example](../examples/orm-queries/App.ube).
 
 ## Joining related models
 
@@ -174,7 +260,7 @@ finds base records without a matching related record.
 Results contain **only the base model's fields**. A base object appears once
 per matching joined row; `count()` counts those joined rows, including repeated
 base IDs. `first`, ordering, and pagination operate on joined rows as well.
-Joined-object projections, distinct entity results, relationship hydration,
+Distinct entity results, relationship hydration,
 RIGHT/FULL/CROSS joins, and custom ON expressions are not implemented yet.
 This is SQL JOIN, not a set-operation intersection.
 

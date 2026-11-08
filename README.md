@@ -536,10 +536,12 @@ To include a backtick in a one-line string, write it between single quotes. Doub
 - **Builder/ORM foundation**: The query builder and ORM share this execution API, dialect helpers, parameters, results, and transaction context. Live-schema validation, migration diffs, streaming, and async SQL APIs are future work.
 - See [the complete SQL API and limitations](docs/sql.md) and [the runnable example](examples/sql/App.ube). The existing [SQLite-specific API](docs/sqlite.md) remains available.
 
-### 25. Typed ORM (`Orm`, `OrmModel<User>`, `OrmQuery<User>`, `OrmRows<User>`)
+### 25. Typed ORM (`Orm`, `OrmModel<User>`, `OrmQuery<User>`, `OrmProjection<User>`, `OrmRows<User>`)
 - **Ordinary classes**: `Orm.model(db, User, 'users')` maps scalar constructor fields to columns, with an application-assigned `int` or `long` primary key named `id`.
 - **Explicit CRUD**: `users.create(user)`, `users.save(user)`, `users.get(id)`, `users.find(id)`, and `users.delete(id)` operate on typed objects. `migrate()` creates a missing table without altering existing schemas.
 - **Fluent typed queries**: `users.query().where('active', '=', true).orderBy('id', 'asc').limit(20)` binds values and preserves the result model type. Literal column names and predicate types are checked during compilation.
+- **Grouped OR predicates**: `orWhere(...)`, `orWhereNull(...)`, and `orWhereNotNull(...)` support alternatives. `whereGroup(query)` and `orWhereGroup(query)` snapshot another query's predicates inside parentheses, including nested groups.
+- **Projections and aggregates**: `query.select('name').select('email')` creates an `OrmProjection<User>` snapshot returning ordinary `SQLResult` rows. `sum`, `avg`, `min`, `max`, and `countColumn` operate on filtered/joined rows. Empty sums, averages, and extrema return null. See [the runnable query example](examples/orm-queries/App.ube).
 - **Related-table joins**: `query.join(orders, 'o', 'id', 'userId')` and `leftJoin(...)` preserve typed base-model results, support related-column filters, and return a new query. See [the join example](examples/orm-joins/App.ube).
 - **Shared SQL transactions**: `users.using(tx)` pins ORM operations to a `SQLTransaction`, including raw SQL and savepoints. Changes are persisted explicitly with `save()`.
 - See [the ORM API and limitations](docs/orm.md) and [the runnable example](examples/orm/App.ube).

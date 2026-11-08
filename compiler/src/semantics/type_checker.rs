@@ -2921,7 +2921,7 @@ impl TypeChecker {
                     self.diagnostics.push(Diagnostic::error("Use log(value), Log.info(value), or Console.printLine(value); these built-ins do not create instances", Some(expr.span)));
                     return None;
                 }
-                if ["Orm", "OrmModel", "OrmQuery", "OrmRows"].contains(&class_name) {
+                if ["Orm", "OrmModel", "OrmQuery", "OrmProjection", "OrmRows"].contains(&class_name) {
                     self.diagnostics.push(Diagnostic::error("Use Orm.model(db, ModelClass, table); ORM handles cannot be constructed", Some(expr.span)));
                     return None;
                 }

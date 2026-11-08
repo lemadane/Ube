@@ -488,3 +488,133 @@ fn query_builder_signatures_reject_invalid_calls() {
         assert!(!checker.check_program(&program), "invalid call accepted: {statement}");
     }
 }
+
+#[test]
+fn orm_groups_projections_and_aggregates_execute_with_typed_queries() {
+    let directory = Directory::new();
+    let executable = compile(&directory.0, "orm-extended", r#"
+class User(long id, string name, bool active, decimal? score, string? email) {}
+class Order(long id, long userId, decimal amount) {}
+class App {
+    OrmProjection<User> names(OrmQuery<User> query) { return query.select('name') }
+    start() {
+        final db = SQL.open('sqlite::memory:')
+        final users = Orm.model(db, User, 'users')
+        final orders = Orm.model(db, Order, 'orders')
+        try {
+            users.migrate() orders.migrate()
+            users.create(User(1L, 'Ada', true, 10.0, null))
+            users.create(User(2L, 'Lin', true, 20.0, 'lin@example.test'))
+            users.create(User(3L, 'Grace', false, 30.0, null))
+            users.create(User(4L, 'Eve', false, null, 'eve@example.test'))
+            orders.create(Order(1L, 1L, 5.0)) orders.create(Order(2L, 1L, 15.0))
+            final names = users.query().where('name', '=', 'Ada').orWhere('name', '=', 'Grace')
+            final nested = users.query().whereGroup(names).orWhere('name', '=', 'Lin')
+            final active = users.query().where('active', '=', true).whereGroup(nested).orderBy('id', 'asc')
+            try {
+                print(active.count())
+                names.orWhere('name', '=', 'Eve')
+                print(active.count())
+                final entities = active.all()
+                try { for (entities.next()) { print(entities.get().name()) } } finally { entities.close() }
+                final projection = this.names(active).select('email')
+                try {
+                    final rows = projection.all()
+                    try {
+                        print(rows.columnCount())
+                        for (rows.next()) { print(rows.getString(rows.columnIndex('name'))) print(rows.isNull(1)) }
+                    } finally { rows.close() }
+                    projection.limit(0)
+                    final empty = projection.first()
+                    try { print(empty.rowCount()) } finally { empty.close() }
+                    print(projection.count())
+                } finally { projection.close() }
+                final unchanged = active.first() ?? User(0L, 'missing', false, null, null)
+                print(unchanged.name())
+            } finally { active.close() nested.close() names.close() }
+
+            final all = users.query().limit(0).offset(99)
+            try {
+                print(all.sum('score')) print(all.avg('score'))
+                print(all.sum('id')) print(all.avg('id'))
+                print(all.min('id')) print(all.max('id'))
+                print(all.min('name')) print(all.max('name'))
+                print(all.countColumn('score')) print(all.countColumn('email')) print(all.countColumn('active'))
+            } finally { all.close() }
+            final empty = users.query().where('id', '<', 0L)
+            try { print(empty.sum('score')) print(empty.avg('score')) print(empty.min('name')) print(empty.max('id')) print(empty.countColumn('score')) }
+            finally { empty.close() }
+            final nullOnly = users.query().whereNull('score')
+            try { print(nullOnly.sum('score')) print(nullOnly.min('score')) } finally { nullOnly.close() }
+            final alternative = users.query().where('name', '=', 'missing')
+            final group = users.query().where('name', '=', 'Ada').orWhere('name', '=', 'Grace')
+            try { alternative.orWhereGroup(group) print(alternative.count()) } finally { alternative.close() group.close() }
+            final nullOr = users.query().where('name', '=', 'Ada').orWhereNull('score')
+            try { print(nullOr.count()) nullOr.orWhereNotNull('email') print(nullOr.count()) } finally { nullOr.close() }
+
+            final base = users.query()
+            final joined = base.leftJoin(orders, 'o', 'id', 'userId')
+            final projection = joined.select('name').select('o.amount').orderBy('id', 'asc')
+            try {
+                print(joined.sum('o.amount')) print(joined.max('o.amount')) print(joined.countColumn('o.id'))
+                final rows = projection.all()
+                try {
+                    print(rows.rowCount())
+                    for (rows.next()) { if (rows.isNull(rows.columnIndex('o.amount'))) { print(rows.getString(0)) } }
+                } finally { rows.close() }
+            } finally { projection.close() joined.close() base.close() }
+
+            final tx = db.begin()
+            final txUsers = users.using(tx)
+            final txQuery = txUsers.query()
+            try {
+                txUsers.create(User(5L, 'Temporary', true, 40.0, null))
+                print(txQuery.sum('score'))
+                tx.rollback()
+                try { txQuery.sum('score') } catch (SQLError e) { print('finished transaction rejected') }
+            } finally { txQuery.close() txUsers.close() tx.close() }
+
+            final invalid = users.query()
+            final noPredicates = users.query()
+            final other = Orm.model(db, User, 'different_table')
+            final foreign = other.query().where('id', '=', 1L)
+            try {
+                try { invalid.whereGroup(noPredicates) } catch (SQLError e) { print('empty group rejected') }
+                try { invalid.whereGroup(foreign) } catch (SQLError e) { print('foreign group rejected') }
+                final badColumn = 'missing'
+                try { invalid.select(badColumn) } catch (SQLError e) { print('projection rejected') }
+                print(invalid.count())
+            } finally { invalid.close() noPredicates.close() foreign.close() other.close() }
+        } finally { orders.close() users.close() db.close() }
+    }
+}
+"#);
+    run(&executable, &directory.0, "2\n2\nAda\nLin\n2\nAda\ntrue\nLin\nfalse\n0\n2\nAda\n60\n20\n10\n2.5\n1\n4\nAda\nLin\n3\n2\n4\nnull\nnull\nnull\nnull\n0\nnull\nnull\n2\n2\n3\n20\n15\n2\n5\nLin\nGrace\nEve\n100\nfinished transaction rejected\nempty group rejected\nforeign group rejected\nprojection rejected\n4\n");
+}
+
+#[test]
+fn orm_rejects_invalid_projection_group_and_aggregate_types() {
+    use ube_compiler::{Lexer, Parser, TypeChecker};
+    for statement in [
+        "final value = query.orWhere('active', '=', 'yes')",
+        "final value = query.orWhere('missing', '=', 1)",
+        "final value = query.whereGroup(1)",
+        "final value = query.select('missing')",
+        "final value = query.select('name').all().get()",
+        "final value = query.sum('name')",
+        "final value = query.avg('active')",
+        "final value = query.max('active')",
+        "final value = query.min('missing')",
+        "final column = 'id' final value = query.min(column)",
+        "final value = query.sum()",
+        "final User value = query.select('name').first()",
+        "this.useLong(query.max('id'))",
+    ] {
+        let source = format!("class User(long id, string name, bool active) {{}} class App {{ useLong(long value) {{}} start() {{ final db = SQL.open('sqlite::memory:') final users = Orm.model(db, User, 'users') final query = users.query() {statement} }} }}");
+        let mut parser = Parser::new(Lexer::new(&source));
+        let program = parser.parse_program();
+        assert!(parser.diagnostics.is_empty(), "{statement}: {:?}", parser.diagnostics);
+        let mut checker = TypeChecker::new();
+        assert!(!checker.check_program(&program), "invalid call accepted: {statement}");
+    }
+}

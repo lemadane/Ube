@@ -7,13 +7,13 @@ use std::{
 };
 type Handle = *mut c_void;
 type Result<T> = std::result::Result<T, String>;
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 struct Field {
     name: String,
     kind: String,
     nullable: bool,
 }
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 struct Model {
     target: usize,
     transaction: bool,
@@ -63,13 +63,15 @@ impl Model {
         normalize(self.field("id")?, Param::BigInt(id))
     }
 }
-#[derive(Clone)]
+#[derive(Clone, Default)]
 struct Filter {
+    or: bool,
+    group: Vec<Filter>,
     column: String,
     operator: String,
     value: Option<Param>,
 }
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 struct Join {
     model: Arc<Model>,
     alias: String,
@@ -82,6 +84,7 @@ struct Query {
     model: Arc<Model>,
     joins: Vec<Join>,
     filters: Vec<Filter>,
+    projections: Vec<String>,
     order: Vec<(String, String)>,
     limit: Option<i32>,
     offset: i32,
@@ -100,6 +103,9 @@ impl Query {
         };
         let field = model.field(name)?;
         let quoted = if self.joins.is_empty() {
+            if alias != "base" {
+                return Err("unknown join alias".into());
+            }
             model.quoted(name)?
         } else {
             format!(
@@ -111,7 +117,7 @@ impl Query {
         Ok((model, field, quoted))
     }
     fn selection(&self, count: bool) -> Result<String> {
-        if self.joins.is_empty() {
+        if self.joins.is_empty() && self.projections.is_empty() {
             return if count {
                 Ok(format!("SELECT COUNT(*) FROM {}", self.model.table()?))
             } else {
@@ -121,6 +127,19 @@ impl Query {
         let m = &self.model;
         let projection = if count {
             "COUNT(*)".into()
+        } else if !self.projections.is_empty() {
+            self.projections
+                .iter()
+                .map(|c| {
+                    let (_, field, col) = self.column(c)?;
+                    Ok(if m.dialect == Dialect::Mysql && field.kind == "bool" {
+                        format!("CAST({col} AS SIGNED) AS {}", m.dialect.identifier(c)?)
+                    } else {
+                        format!("{col} AS {}", m.dialect.identifier(c)?)
+                    })
+                })
+                .collect::<Result<Vec<_>>>()?
+                .join(", ")
         } else {
             m.fields
                 .iter()
@@ -526,6 +545,7 @@ pub extern "C" fn ube_orm_query(h: Handle) -> Handle {
                 model,
                 joins: vec![],
                 filters: vec![],
+                projections: vec![],
                 order: vec![],
                 limit: None,
                 offset: 0,
@@ -598,11 +618,113 @@ fn mutate(h: Handle, f: impl FnOnce(&mut Query) -> Result<()>) -> Result<Handle>
     f(q)?;
     Ok(h)
 }
+// Count group nodes as well as leaves, and bound nesting before taking snapshots.
+fn predicate_size(filters: &[Filter]) -> (usize, usize, usize) {
+    let mut nodes = 0;
+    let mut bytes = 0;
+    let mut depth = 0;
+    for f in filters {
+        let (n, b, d) = predicate_size(&f.group);
+        nodes += 1 + n;
+        bytes += b
+            + f.column.len()
+            + f.operator.len()
+            + match &f.value {
+                Some(Param::Text(s)) => s.len(),
+                Some(Param::Blob(v)) => v.len(),
+                _ => 8,
+            };
+        depth = depth.max(1 + d);
+    }
+    (nodes, bytes, depth)
+}
+fn validate_predicate(q: &Query, f: &Filter) -> Result<()> {
+    if f.group.is_empty() {
+        q.column(&f.column)?;
+    } else {
+        for child in &f.group {
+            validate_predicate(q, child)?;
+        }
+    }
+    Ok(())
+}
+fn push_predicate(q: &mut Query, f: Filter) -> Result<()> {
+    validate_predicate(q, &f)?;
+    let (n, b, _) = predicate_size(&q.filters);
+    let (new_n, new_b, depth) = predicate_size(std::slice::from_ref(&f));
+    if n + new_n > 128 {
+        return Err("query exceeds 128 predicate nodes".into());
+    }
+    if b + new_b > 16 * 1024 * 1024 {
+        return Err("query predicates exceed 16 MiB".into());
+    }
+    if depth > 16 {
+        return Err("query groups exceed 16 levels".into());
+    }
+    q.filters.push(f);
+    Ok(())
+}
+
+#[no_mangle]
+pub extern "C" fn ube_orm_where_group(h: Handle, other: Handle, or: bool) -> Handle {
+    run(|| {
+        let group = query(other)?;
+        if group.filters.is_empty() {
+            return Err("predicate groups must not be empty".into());
+        }
+        mutate(h, |q| {
+            if q.model != group.model || q.joins != group.joins {
+                return Err(
+                    "predicate groups must use the same model, SQL target, and joins".into(),
+                );
+            }
+            push_predicate(
+                q,
+                Filter {
+                    or,
+                    group: group.filters,
+                    ..Default::default()
+                },
+            )
+        })
+    })
+}
+
+#[no_mangle]
+pub extern "C" fn ube_orm_select(h: Handle, column: *const c_char, copy: bool) -> Handle {
+    run(|| {
+        let column = text(column)?;
+        let append = |q: &mut Query| {
+            q.column(&column)?;
+            if q.projections.len() >= 128 {
+                return Err("query exceeds 128 projections".into());
+            }
+            if q.projections.iter().map(String::len).sum::<usize>() + column.len()
+                > 16 * 1024 * 1024
+            {
+                return Err("query projections exceed 16 MiB".into());
+            }
+            q.projections.push(column);
+            Ok(())
+        };
+        if copy {
+            let mut q = query(h)?;
+            append(&mut q)?;
+            let mut s = registry().lock().unwrap();
+            let id = s.id()?;
+            s.queries.insert(id, q);
+            Ok(id as Handle)
+        } else {
+            mutate(h, append)
+        }
+    })
+}
 fn filter(
     h: Handle,
     column: *const c_char,
     operator: *const c_char,
     value: Param,
+    or: bool,
 ) -> Result<Handle> {
     let column = text(column)?;
     let operator = text(operator)?.to_ascii_uppercase();
@@ -610,35 +732,21 @@ fn filter(
         return Err("unsupported comparison operator".into());
     }
     mutate(h, |q| {
-        if q.filters.len() >= 128 {
-            return Err("query exceeds 128 filters".into());
-        }
         let (_, field, _) = q.column(&column)?;
         if operator.contains("LIKE") && field.kind != "string" {
             return Err("LIKE requires a string column".into());
         }
         let value = normalize(field, value)?;
-        let size = |v: &Param| match v {
-            Param::Text(v) => v.len(),
-            Param::Blob(v) => v.len(),
-            _ => 8,
-        };
-        if q.filters
-            .iter()
-            .filter_map(|f| f.value.as_ref())
-            .map(size)
-            .sum::<usize>()
-            + size(&value)
-            > 16 * 1024 * 1024
-        {
-            return Err("query parameters exceed 16 MiB".into());
-        }
-        q.filters.push(Filter {
-            column,
-            operator,
-            value: Some(value),
-        });
-        Ok(())
+        push_predicate(
+            q,
+            Filter {
+                or,
+                group: vec![],
+                column,
+                operator,
+                value: Some(value),
+            },
+        )
     })
 }
 #[no_mangle]
@@ -648,7 +756,7 @@ pub extern "C" fn ube_orm_where_int(
     o: *const c_char,
     v: i32,
 ) -> Handle {
-    run(|| filter(h, c, o, Param::Integer(v)))
+    run(|| filter(h, c, o, Param::Integer(v), false))
 }
 #[no_mangle]
 pub extern "C" fn ube_orm_where_long(
@@ -657,7 +765,7 @@ pub extern "C" fn ube_orm_where_long(
     o: *const c_char,
     v: i64,
 ) -> Handle {
-    run(|| filter(h, c, o, Param::BigInt(v)))
+    run(|| filter(h, c, o, Param::BigInt(v), false))
 }
 #[no_mangle]
 pub extern "C" fn ube_orm_where_decimal(
@@ -666,7 +774,7 @@ pub extern "C" fn ube_orm_where_decimal(
     o: *const c_char,
     v: f64,
 ) -> Handle {
-    run(|| filter(h, c, o, Param::Double(v)))
+    run(|| filter(h, c, o, Param::Double(v), false))
 }
 #[no_mangle]
 pub extern "C" fn ube_orm_where_bool(
@@ -675,7 +783,7 @@ pub extern "C" fn ube_orm_where_bool(
     o: *const c_char,
     v: bool,
 ) -> Handle {
-    run(|| filter(h, c, o, Param::Bool(v)))
+    run(|| filter(h, c, o, Param::Bool(v), false))
 }
 #[no_mangle]
 pub extern "C" fn ube_orm_where_string(
@@ -684,25 +792,54 @@ pub extern "C" fn ube_orm_where_string(
     o: *const c_char,
     v: *const c_char,
 ) -> Handle {
-    run(|| filter(h, c, o, Param::Text(text(v)?)))
+    run(|| filter(h, c, o, Param::Text(text(v)?), false))
 }
 #[no_mangle]
 pub extern "C" fn ube_orm_where_null(h: Handle, c: *const c_char, not: bool) -> Handle {
+    null_filter(h, c, not, false)
+}
+fn null_filter(h: Handle, c: *const c_char, not: bool, or: bool) -> Handle {
     run(|| {
         let column = text(c)?;
         mutate(h, |q| {
             q.column(&column)?;
-            if q.filters.len() >= 128 {
-                return Err("query exceeds 128 filters".into());
-            }
-            q.filters.push(Filter {
-                column,
-                operator: if not { "IS NOT NULL" } else { "IS NULL" }.into(),
-                value: None,
-            });
-            Ok(())
+            push_predicate(
+                q,
+                Filter {
+                    or,
+                    group: vec![],
+                    column,
+                    operator: if not { "IS NOT NULL" } else { "IS NULL" }.into(),
+                    value: None,
+                },
+            )
         })
     })
+}
+#[no_mangle]
+pub extern "C" fn ube_orm_or_where_null(h: Handle, c: *const c_char, not: bool) -> Handle {
+    null_filter(h, c, not, true)
+}
+macro_rules! or_where {
+    ($name:ident, $ty:ty, $variant:ident) => {
+        #[no_mangle]
+        pub extern "C" fn $name(h: Handle, c: *const c_char, o: *const c_char, v: $ty) -> Handle {
+            run(|| filter(h, c, o, Param::$variant(v), true))
+        }
+    };
+}
+or_where!(ube_orm_or_where_int, i32, Integer);
+or_where!(ube_orm_or_where_long, i64, BigInt);
+or_where!(ube_orm_or_where_decimal, f64, Double);
+or_where!(ube_orm_or_where_bool, bool, Bool);
+#[no_mangle]
+pub extern "C" fn ube_orm_or_where_string(
+    h: Handle,
+    c: *const c_char,
+    o: *const c_char,
+    v: *const c_char,
+) -> Handle {
+    run(|| filter(h, c, o, Param::Text(text(v)?), true))
 }
 #[no_mangle]
 pub extern "C" fn ube_orm_order_by(
@@ -750,21 +887,33 @@ pub extern "C" fn ube_orm_offset(h: Handle, value: i32) -> Handle {
         })
     })
 }
+fn predicate_sql(q: &Query, filters: &[Filter], params: &mut Vec<Param>) -> Result<String> {
+    let mut result = String::new();
+    for (index, f) in filters.iter().enumerate() {
+        if index > 0 {
+            result.push_str(if f.or { " OR " } else { " AND " });
+        }
+        if !f.group.is_empty() {
+            result.push_str(&format!("({})", predicate_sql(q, &f.group, params)?));
+        } else {
+            result.push_str(&format!("{} {}", q.column(&f.column)?.2, f.operator));
+            if let Some(value) = &f.value {
+                params.push(value.clone());
+                result.push_str(&format!(" {}", q.model.placeholder(params.len())));
+            }
+        }
+    }
+    Ok(result)
+}
 fn statement(q: &Query, count: bool, first: bool) -> Result<(String, Vec<Param>)> {
     let m = &q.model;
     let mut sql = q.selection(count)?;
     let mut params = vec![];
-    let mut filters = vec![];
-    for f in &q.filters {
-        let mut part = format!("{} {}", q.column(&f.column)?.2, f.operator);
-        if let Some(v) = &f.value {
-            params.push(v.clone());
-            part.push_str(&format!(" {}", m.placeholder(params.len())));
-        }
-        filters.push(part);
-    }
-    if !filters.is_empty() {
-        sql.push_str(&format!(" WHERE {}", filters.join(" AND ")));
+    if !q.filters.is_empty() {
+        sql.push_str(&format!(
+            " WHERE {}",
+            predicate_sql(q, &q.filters, &mut params)?
+        ));
     }
     if !count {
         if !q.order.is_empty() {
@@ -803,7 +952,9 @@ pub extern "C" fn ube_orm_all(h: Handle) -> Handle {
         let q = query(h)?;
         let (s, p) = statement(&q, false, false)?;
         let rows = execute(&q.model, &s, p, true)? as Handle;
-        validate_rows(&q.model, rows)?;
+        if q.projections.is_empty() {
+            validate_rows(&q.model, rows)?;
+        }
         Ok(rows)
     })
 }
@@ -812,7 +963,11 @@ pub extern "C" fn ube_orm_first(h: Handle) -> Handle {
     run(|| {
         let q = query(h)?;
         let (s, p) = statement(&q, false, true)?;
-        first(&q.model, &s, p, true)
+        if q.projections.is_empty() {
+            first(&q.model, &s, p, true)
+        } else {
+            Ok(execute(&q.model, &s, p, true)? as Handle)
+        }
     })
 }
 #[no_mangle]
@@ -827,6 +982,53 @@ pub extern "C" fn ube_orm_count(h: Handle) -> i64 {
         let value = checked(sql::ube_sql_result_get_long(rows, 0));
         sql::ube_sql_result_close(rows);
         value
+    })
+}
+fn aggregate_statement(q: &Query, column: &str, operation: &str) -> Result<(String, Vec<Param>)> {
+    let (_, field, column) = q.column(column)?;
+    let op = match operation {
+        "countColumn" => "COUNT",
+        "sum" => "SUM",
+        "avg" => "AVG",
+        "min" => "MIN",
+        "max" => "MAX",
+        _ => return Err("unsupported ORM aggregate".into()),
+    };
+    if operation != "countColumn"
+        && (field.kind == "bool" || matches!(operation, "sum" | "avg") && field.kind == "string")
+    {
+        return Err("aggregate does not support this column type".into());
+    }
+    let mut expression = format!("{op}({column})");
+    // SUM/AVG have a stable decimal? API, independent of driver-specific NUMERIC
+    // results. decimal remains Ube's floating-point type, not exact SQL DECIMAL.
+    if matches!(operation, "sum" | "avg") || field.kind == "decimal" && operation != "countColumn" {
+        expression = if q.model.dialect == Dialect::Mysql {
+            format!("({expression} + 0e0)")
+        } else {
+            format!("CAST({expression} AS DOUBLE PRECISION)")
+        };
+    }
+    let (sql, values) = statement(q, true, false)?;
+    Ok((
+        sql.replacen("SELECT COUNT(*)", &format!("SELECT {expression}"), 1),
+        values,
+    ))
+}
+#[no_mangle]
+pub extern "C" fn ube_orm_aggregate(
+    h: Handle,
+    column: *const c_char,
+    operation: *const c_char,
+) -> Handle {
+    run(|| {
+        let q = query(h)?;
+        let (sql, values) = aggregate_statement(&q, &text(column)?, &text(operation)?)?;
+        let rows = first(&q.model, &sql, values, false)?;
+        if rows.is_null() {
+            return Err("aggregate returned no row".into());
+        }
+        Ok(rows)
     })
 }
 #[no_mangle]
@@ -867,13 +1069,16 @@ mod tests {
                         column: "name".into(),
                         operator: "=".into(),
                         value: Some(Param::Text("'; DROP TABLE users; --".into())),
+                        ..Default::default()
                     },
                     Filter {
                         column: "active".into(),
                         operator: "=".into(),
                         value: Some(Param::Bool(true)),
+                        ..Default::default()
                     },
                 ],
+                projections: vec![],
                 order: vec![("id".into(), "DESC".into())],
                 limit: None,
                 offset: 3,
@@ -901,6 +1106,134 @@ mod tests {
             assert!(!count.contains("OFFSET"));
             assert!(!count.contains("ORDER BY"));
         }
+    }
+    #[test]
+    fn groups_projections_and_aggregate_sql_preserve_dialects_and_bindings() {
+        for dialect in [Dialect::Postgres, Dialect::Mysql, Dialect::Sqlite] {
+            let model = Arc::new(Model {
+                target: 0,
+                transaction: false,
+                dialect,
+                table: "users".into(),
+                fields: schema("id\tlong\nname\tstring\nactive\tbool\nscore\tdecimal?\n").unwrap(),
+            });
+            let mut q = Query {
+                model,
+                joins: vec![],
+                filters: vec![],
+                projections: vec!["name".into(), "active".into()],
+                order: vec![("id".into(), "ASC".into())],
+                limit: Some(0),
+                offset: 99,
+            };
+            push_predicate(
+                &mut q,
+                Filter {
+                    column: "active".into(),
+                    operator: "=".into(),
+                    value: Some(Param::Bool(true)),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+            push_predicate(
+                &mut q,
+                Filter {
+                    group: vec![
+                        Filter {
+                            column: "name".into(),
+                            operator: "=".into(),
+                            value: Some(Param::Text("' OR 1=1 --".into())),
+                            ..Default::default()
+                        },
+                        Filter {
+                            or: true,
+                            column: "name".into(),
+                            operator: "=".into(),
+                            value: Some(Param::Text("Ada".into())),
+                            ..Default::default()
+                        },
+                    ],
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+            let (selected, values) = statement(&q, false, false).unwrap();
+            assert_eq!(values.len(), 3);
+            assert!(selected.contains(" AND (") && selected.contains(" OR "));
+            assert!(!selected.contains("OR 1=1"));
+            if dialect == Dialect::Postgres {
+                assert!(selected.contains("\"active\" = $1 AND (\"name\" = $2 OR \"name\" = $3)"));
+            }
+            if dialect == Dialect::Mysql {
+                assert!(selected.contains("CAST(`active` AS SIGNED) AS `active`"));
+            }
+            for operation in ["sum", "avg", "min", "max", "countColumn"] {
+                let (sql, values) = aggregate_statement(&q, "score", operation).unwrap();
+                assert_eq!(values.len(), 3);
+                assert!(
+                    !sql.contains("ORDER BY") && !sql.contains("LIMIT") && !sql.contains("OFFSET")
+                );
+                if operation != "countColumn" {
+                    assert!(sql.contains(if dialect == Dialect::Mysql {
+                        "+ 0e0"
+                    } else {
+                        "AS DOUBLE PRECISION"
+                    }));
+                }
+            }
+            assert!(aggregate_statement(&q, "active", "min").is_err());
+            assert!(aggregate_statement(&q, "name", "sum").is_err());
+            assert!(aggregate_statement(&q, "missing", "sum").is_err());
+        }
+    }
+    #[test]
+    fn predicate_groups_have_bounded_depth_and_size_and_fail_without_mutation() {
+        let model = Arc::new(Model {
+            target: 0,
+            transaction: false,
+            dialect: Dialect::Sqlite,
+            table: "users".into(),
+            fields: schema("id\tlong\n").unwrap(),
+        });
+        let mut q = Query {
+            model,
+            joins: vec![],
+            filters: vec![],
+            projections: vec![],
+            order: vec![],
+            limit: None,
+            offset: 0,
+        };
+        let leaf = Filter {
+            column: "id".into(),
+            operator: "=".into(),
+            value: Some(Param::BigInt(1)),
+            ..Default::default()
+        };
+        let mut deep = leaf.clone();
+        for _ in 0..15 {
+            deep = Filter {
+                group: vec![deep],
+                ..Default::default()
+            };
+        }
+        push_predicate(&mut q, deep.clone()).unwrap();
+        assert!(push_predicate(
+            &mut q,
+            Filter {
+                group: vec![deep],
+                ..Default::default()
+            }
+        )
+        .is_err());
+        assert_eq!(q.filters.len(), 1);
+        let wide = Filter {
+            group: vec![leaf; 128],
+            ..Default::default()
+        };
+        assert!(push_predicate(&mut q, wide).is_err());
+        assert_eq!(q.filters.len(), 1);
     }
     #[test]
     #[ignore = "requires isolated PostgreSQL database in UBE_TEST_POSTGRES_URL"]

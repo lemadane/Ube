@@ -35,6 +35,7 @@ const BUILTIN_CLASS_NAMES: &[&str] = &[
     "Orm",
     "OrmModel",
     "OrmQuery",
+    "OrmProjection",
     "OrmRows",
     "Json",
     "KeyValueStore",

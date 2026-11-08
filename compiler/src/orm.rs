@@ -7,6 +7,7 @@ use crate::{
 pub enum Kind {
     Model,
     Query,
+    Projection,
     Rows,
 }
 impl Kind {
@@ -14,6 +15,7 @@ impl Kind {
         match self {
             Self::Model => "OrmModel",
             Self::Query => "OrmQuery",
+            Self::Projection => "OrmProjection",
             Self::Rows => "OrmRows",
         }
     }
@@ -69,6 +71,7 @@ pub fn generic(name: &str, spec: &TypeSpec) -> Option<Type> {
     let kind = match name {
         "OrmModel" => Kind::Model,
         "OrmQuery" => Kind::Query,
+        "OrmProjection" => Kind::Projection,
         "OrmRows" => Kind::Rows,
         _ => return None,
     };
@@ -90,7 +93,9 @@ pub fn alias_valid(alias: &str) -> bool {
 }
 pub fn joined(query: &Type, model: &str, alias: &str) -> Type {
     let Type::Orm {
-        model: base, joins, ..
+        model: base,
+        joins,
+        kind,
     } = query
     else {
         unreachable!()
@@ -99,7 +104,19 @@ pub fn joined(query: &Type, model: &str, alias: &str) -> Type {
     joins.push((alias.into(), model.into()));
     Type::Orm {
         model: base.clone(),
-        kind: Kind::Query,
+        kind: *kind,
         joins,
+    }
+}
+
+/// Projections retain model/join validation but execute into SQLResult cursors.
+pub fn projected(query: &Type) -> Type {
+    let Type::Orm { model, joins, .. } = query else {
+        unreachable!()
+    };
+    Type::Orm {
+        model: model.clone(),
+        joins: joins.clone(),
+        kind: Kind::Projection,
     }
 }

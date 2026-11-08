@@ -1,0 +1,32 @@
+import User
+
+class App {
+    start() {
+        final db = SQL.open('sqlite::memory:')
+        final users = Orm.model(db, User, 'users')
+        try {
+            users.migrate()
+            users.create(User(1L, 'Ada', true, 10.0))
+            users.create(User(2L, 'Lin', true, 20.0))
+            users.create(User(3L, 'Grace', false, null))
+
+            final names = users.query().where('name', '=', 'Ada').orWhere('name', '=', 'Grace')
+            final active = users.query().where('active', '=', true).whereGroup(names)
+            final selected = active.select('name').select('score')
+            try {
+                final rows = selected.all()
+                try {
+                    for (rows.next()) {
+                        print(rows.getString(rows.columnIndex('name')))
+                        print(rows.getDecimal(rows.columnIndex('score')))
+                    }
+                } finally { rows.close() }
+                print(active.countColumn('score'))
+                print(active.sum('score') ?? 0.0)
+                print(active.avg('score') ?? 0.0)
+                print(active.min('name') ?? 'none')
+                print(active.max('score') ?? 0.0)
+            } finally { selected.close() active.close() names.close() }
+        } finally { users.close() db.close() }
+    }
+}
