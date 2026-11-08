@@ -125,7 +125,7 @@ fn text(ptr: *const c_char) -> Result<String> {
         .map(str::to_owned)
         .map_err(|_| "invalid UTF-8 argument".into())
 }
-fn string(value: &str) -> Result<*mut c_char> {
+pub(crate) fn string(value: &str) -> Result<*mut c_char> {
     if value.contains('\0') {
         return Err("text contains a null byte; select binary data as a blob".into());
     }

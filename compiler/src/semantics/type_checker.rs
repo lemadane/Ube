@@ -2427,7 +2427,7 @@ impl TypeChecker {
                                     return Some(result);
                                 }
                                 if crate::builtins::SQL_CLASSES.contains(&name.as_str()) {
-                                    let Some(method) = crate::builtins::sql_methods(name).into_iter().find(|m| m.name == member) else {
+                                    let Some(method) = crate::builtins::sql_call_method(name, member, &arg_types) else {
                                         self.diagnostics.push(Diagnostic::error(format!("Unknown {} method '{}'", name, member), Some(expr.span)));
                                         return None;
                                     };

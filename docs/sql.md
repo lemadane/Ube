@@ -1,15 +1,16 @@
 # Unified SQL execution
 
 `SQL` connects to PostgreSQL, MySQL/MariaDB, and SQLite through one execution
-API. Raw SQL, the upcoming standalone query builder, and the ORM can share its
+API. Raw SQL, the [standalone query builder](query-builder.md), and the ORM share its
 parameter values, result metadata, connection pools, errors, and transaction
 handles. The existing [SQLite API](sqlite.md) remains available for
 SQLite-specific features such as backup and restore.
 
 The [typed ORM](orm.md) now uses this execution foundation for class mapping,
 CRUD, fluent model queries, create-if-missing tables, and transaction-bound
-repositories. A standalone general query builder, live-schema-checked SQL,
-migration diffs, streaming, and asynchronous SQL built-ins are not implemented
+repositories. `db.table(name)` and `tx.table(name)` build model-free SELECT
+queries with projections, bound filters, ordering, and pagination. Live-schema-checked
+SQL, migration diffs, streaming, and asynchronous SQL built-ins are not implemented
 yet. SQL methods block their calling Ube thread while database IO runs on
 runtime workers. They do not return `Task` values. Runtime typed accessors are
 not compile-time database-schema validation.
@@ -37,6 +38,7 @@ the working directory. Two `sqlite::memory:` handles have separate databases.
 | `db.quoteIdentifier(name)` | `string` | Quotes one identifier component for this database. |
 | `db.execute(sql, params)` | `long` | Runs one statement and returns affected rows. |
 | `db.query(sql, params)` | `SQLResult` | Runs one statement and materializes its rows. |
+| `db.table(name)` | `SQLQuery` | Creates a model-free SELECT builder; see [query builder](query-builder.md). |
 | `db.begin()` | `SQLTransaction` | Reserves a connection and begins a transaction. |
 | `db.close()` | `void` | Invalidates the client, rolls back its outstanding transactions, and closes its pool. |
 

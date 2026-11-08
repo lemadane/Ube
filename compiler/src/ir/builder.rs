@@ -2025,7 +2025,7 @@ impl IrBuilder {
                                 _ => "App".into(),
                             });
                         if crate::builtins::SQL_CLASSES.contains(&class_name.as_str()) {
-                            if let Some(method) = crate::builtins::sql_methods(&class_name).into_iter().find(|m| m.name == member) {
+                            if let Some(method) = crate::builtins::sql_call_method(&class_name, member, &arg_ops.iter().map(|arg| arg.get_type()).collect::<Vec<_>>()) {
                                 let mut args = Vec::new();
                                 if !method.is_static { args.push(obj_op); }
                                 args.extend(arg_ops.into_iter().zip(&method.params).map(|(arg, ty)| self.cast(arg, ty.clone())));

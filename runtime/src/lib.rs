@@ -22,6 +22,7 @@ pub mod net;
 pub mod strings;
 pub mod sqlite;
 pub mod sql;
+pub mod sql_builder;
 pub mod orm;
 pub mod sessions;
 pub mod auth;
@@ -46,6 +47,7 @@ pub extern "C" fn ube_runtime_cleanup() {
     cache::cleanup();
     observability::cleanup();
     orm::cleanup();
+    sql_builder::cleanup();
     sql::cleanup();
     sqlite::cleanup();
     logging::ube_log_clear();

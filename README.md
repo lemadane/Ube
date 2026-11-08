@@ -528,11 +528,12 @@ World
 
 To include a backtick in a one-line string, write it between single quotes. Double quotes and backslashes inside raw blocks need no Ube escaping; JSON's own escaping rules still apply to JSON data.
 
-### 24. Unified SQL (`SQL`, `SQLParams`, `SQLTransaction`, `SQLResult`)
+### 24. Unified SQL (`SQL`, `SQLParams`, `SQLTransaction`, `SQLResult`, `SQLQuery`)
 - **Shared database execution**: `SQL.open(url)` supports PostgreSQL, MySQL/MariaDB, and SQLite. Network drivers provide pools and prepared statements; SQLite retains one connection per client.
 - **Typed bindings and results**: `SQLParams.create()` holds bound scalar values; `db.query(sql, params)` provides checked typed getters and explicit NULL handling. Values are never concatenated into SQL.
 - **Transactions**: `db.begin()` reserves a connection. Use `tx.commit()` and `tx.close()` in `finally`; savepoints and rollback are supported. Failures during execution invalidate and attempt to roll back the transaction.
-- **Builder/ORM foundation**: The ORM shares this execution API, dialect helpers, parameters, results, and transaction context. Live-schema validation, standalone query-builder APIs, migration diffs, streaming, and async SQL APIs are future work.
+- **Model-free queries**: `db.table('users').select('name').where('active', '=', true).orderBy('name', 'asc').limit(20)` builds a SELECT without a model class. Execute with `all()`, `first()`, or `count()`; use `tx.table(...)` inside a transaction. See [the query builder API](docs/query-builder.md) and [runnable example](examples/query-builder/App.ube).
+- **Builder/ORM foundation**: The query builder and ORM share this execution API, dialect helpers, parameters, results, and transaction context. Live-schema validation, migration diffs, streaming, and async SQL APIs are future work.
 - See [the complete SQL API and limitations](docs/sql.md) and [the runnable example](examples/sql/App.ube). The existing [SQLite-specific API](docs/sqlite.md) remains available.
 
 ### 25. Typed ORM (`Orm`, `OrmModel<User>`, `OrmQuery<User>`, `OrmRows<User>`)

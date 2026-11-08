@@ -76,6 +76,7 @@ const BUILTIN_CLASS_NAMES: &[&str] = &[
     "SQLParams",
     "SQLTransaction",
     "SQLResult",
+    "SQLQuery",
     "SQLError",
     "SQLite",
     "SQLiteResult",
@@ -633,14 +634,15 @@ pub fn auth_methods(class: &str) -> Vec<BuiltinMethod> {
         .collect()
 }
 
-/// Shared execution ABI for raw SQL, future query builders, and ORM adapters.
-pub const SQL_CLASSES: &[&str] = &["SQL", "SQLParams", "SQLTransaction", "SQLResult"];
+/// Shared execution ABI for raw SQL, query builders, and ORM adapters.
+pub const SQL_CLASSES: &[&str] = &["SQL", "SQLParams", "SQLTransaction", "SQLResult", "SQLQuery"];
 pub fn sql_methods(class: &str) -> Vec<BuiltinMethod> {
     use crate::types::Type;
     let object = |name: &str| Type::Class { name: name.into() };
     let method = |name, symbol, params, result, is_static| BuiltinMethod { name, symbol, params, result, is_static };
     match class {
         "SQL" => vec![
+            method("table", "ube_sql_table", vec![Type::String], object("SQLQuery"), false),
             method("open", "ube_sql_open", vec![Type::String], object("SQL"), true),
             method("openPool", "ube_sql_open_pool", vec![Type::String, Type::Int, Type::Int], object("SQL"), true),
             method("dialect", "ube_sql_dialect", vec![], Type::String, false),
@@ -665,6 +667,7 @@ pub fn sql_methods(class: &str) -> Vec<BuiltinMethod> {
             method("close", "ube_sql_params_close", vec![], Type::Void, false),
         ],
         "SQLTransaction" => vec![
+            method("table", "ube_sql_transaction_table", vec![Type::String], object("SQLQuery"), false),
             method("execute", "ube_sql_transaction_execute", vec![Type::String, object("SQLParams")], Type::Long, false),
             method("query", "ube_sql_transaction_query", vec![Type::String, object("SQLParams")], object("SQLResult"), false),
             method("savepoint", "ube_sql_transaction_savepoint", vec![Type::String], Type::Void, false),
@@ -674,6 +677,32 @@ pub fn sql_methods(class: &str) -> Vec<BuiltinMethod> {
             method("rollback", "ube_sql_transaction_rollback", vec![], Type::Void, false),
             method("close", "ube_sql_transaction_close", vec![], Type::Void, false),
         ],
+        "SQLQuery" => {
+            let mut methods = vec![
+                method("select", "ube_sql_builder_select", vec![Type::String], object("SQLQuery"), false),
+                method("whereNull", "ube_sql_builder_where_null", vec![Type::String], object("SQLQuery"), false),
+                method("whereNotNull", "ube_sql_builder_where_not_null", vec![Type::String], object("SQLQuery"), false),
+                method("orderBy", "ube_sql_builder_order_by", vec![Type::String, Type::String], object("SQLQuery"), false),
+                method("limit", "ube_sql_builder_limit", vec![Type::Int], object("SQLQuery"), false),
+                method("offset", "ube_sql_builder_offset", vec![Type::Int], object("SQLQuery"), false),
+                method("all", "ube_sql_builder_all", vec![], object("SQLResult"), false),
+                method("first", "ube_sql_builder_first", vec![], object("SQLResult"), false),
+                method("count", "ube_sql_builder_count", vec![], Type::Long, false),
+                method("toSql", "ube_sql_builder_to_sql", vec![], Type::String, false),
+                method("clone", "ube_sql_builder_clone", vec![], object("SQLQuery"), false),
+                method("close", "ube_sql_builder_close", vec![], Type::Void, false),
+            ];
+            for (symbol, ty) in [
+                ("ube_sql_builder_where_int", Type::Int),
+                ("ube_sql_builder_where_long", Type::Long),
+                ("ube_sql_builder_where_decimal", Type::Decimal),
+                ("ube_sql_builder_where_bool", Type::Bool),
+                ("ube_sql_builder_where_string", Type::String),
+            ] {
+                methods.push(method("where", symbol, vec![Type::String, Type::String, ty], object("SQLQuery"), false));
+            }
+            methods
+        },
         "SQLResult" => vec![
             method("next", "ube_sql_result_next", vec![], Type::Bool, false),
             method("reset", "ube_sql_result_reset", vec![], Type::Void, false),
@@ -693,6 +722,16 @@ pub fn sql_methods(class: &str) -> Vec<BuiltinMethod> {
         ],
         _ => vec![],
     }
+}
+
+/// Select the scalar binding ABI without erasing where() argument types.
+pub fn sql_call_method(class: &str, name: &str, args: &[crate::types::Type]) -> Option<BuiltinMethod> {
+    use crate::types::Type;
+    let methods = sql_methods(class);
+    let index = methods.iter().position(|m| m.name == name && m.params.len() == args.len()
+        && args.iter().zip(&m.params).all(|(a, p)| a == p || (*a == Type::Byte && *p == Type::Int)))
+        .or_else(|| methods.iter().position(|m| m.name == name))?;
+    methods.into_iter().nth(index)
 }
 
 /// Environment access never exports decrypted vault values into the process environment.

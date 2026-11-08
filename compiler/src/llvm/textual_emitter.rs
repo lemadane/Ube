@@ -596,6 +596,7 @@ impl TextualLlvmEmitter {
             ("SQLParams", "i8*"),
             ("SQLTransaction", "i8*"),
             ("SQLResult", "i8*"),
+            ("SQLQuery", "i8*"),
             ("SQLError", "i8*"),
             ("SQLite", "i8*"),
             ("SQLiteResult", "i8*"),
