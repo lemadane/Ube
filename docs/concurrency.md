@@ -65,10 +65,10 @@ There is no implicit detached-task API.
 
 | Operation | Behavior |
 |---|---|
-| `await Task.all(tasks)` | Values in input order; first failure cancels remaining work. |
-| `await Task.any(tasks)` | First success; all failures produce an aggregate error. |
-| `await Task.race(tasks)` | First completion, whether successful or failed. |
-| `await Task.allSettled(tasks)` | An immutable `TaskOutcomes` sequence preserving each success or error. |
+| `await Async.all(tasks)` | Values in input order; first failure cancels remaining work. |
+| `await Async.any(tasks)` | First success; all failures produce an aggregate error. |
+| `await Async.race(tasks)` | First completion, whether successful or failed. |
+| `await Async.allSettled(tasks)` | An immutable `TaskOutcomes` sequence preserving each success or error. |
 | `await task.timeout(ms)` | On expiry, cancels the task and joins cleanup before reporting the timeout. |
 
 Combinators cancel and join remaining workers before publishing their result.
@@ -80,7 +80,7 @@ lists are also validated at runtime, using registered opaque task IDs rather
 than dereferencing their elements as pointers.
 
 ```ube
-final results = await Task.allSettled([async 0, async false, async 'hello'])
+final results = await Async.allSettled([async 0, async false, async 'hello'])
 print(results[0].succeeded())
 print(results[0].value())
 print(results[1].boolValue())
@@ -99,7 +99,7 @@ Reading a failed outcome's value raises its original error, including its class
 and fields. A mismatched accessor raises a catchable error. Success with zero or
 false remains distinguishable from failure. These objects cannot be constructed
 directly. Generic object-valued outcome access and typed nullable task lists are
-not implemented; use ordinary typed awaits for those results. `Task.all` still
+not implemented; use ordinary typed awaits for those results. `Async.all` still
 returns an untyped single-word list, and `any`/`race` currently have integer
 result types in the language; use them with integer-valued tasks or use
 `allSettled` and its checked scalar accessors.

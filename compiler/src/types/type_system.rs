@@ -13,7 +13,7 @@ pub enum Type {
     InputStream,
     OutputStream,
     FileStream,
-    Task(Box<Type>),
+    Async(Box<Type>),
     Channel(Box<Type>),
     Orm { model: String, kind: crate::orm::Kind, joins: Vec<(String, String)> },
     Class {
@@ -53,7 +53,7 @@ impl fmt::Display for Type {
             Type::InputStream => write!(f, "InputStream"),
             Type::OutputStream => write!(f, "OutputStream"),
             Type::FileStream => write!(f, "FileStream"),
-            Type::Task(result) => write!(f, "Task<{}>", result),
+            Type::Async(result) => write!(f, "Async<{}>", result),
             Type::Channel(element) => write!(f, "Channel<{}>", element),
             Type::Class { name } => write!(f, "{}", name),
             Type::Orm { model, kind, .. } => write!(f, "{}<{}>", kind.class(), model),
@@ -76,7 +76,7 @@ impl fmt::Display for Type {
                     .map(|p| p.to_string())
                     .collect::<Vec<_>>()
                     .join(", ");
-                write!(f, "fn({}) -> {}", params_str, return_type)
+                write!(f, "Func({}) -> {}", params_str, return_type)
             }
         }
     }

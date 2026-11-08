@@ -1,1 +1,1 @@
-class Address(string city) {}
+class Address(string city)

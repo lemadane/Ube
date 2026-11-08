@@ -4,7 +4,7 @@ Objects, lists, maps, and supported scalar values provide `.toXml()`. `Xml.toObj
 
 ```ube
 // Profile.ube
-class Profile(int id, string name) {}
+class Profile(int id, string name)
 ```
 
 ```ube

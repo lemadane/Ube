@@ -8,13 +8,13 @@ Each source file must match its class name exactly. For example:
 
 ```ube
 // Address.ube
-class Address(string city) {}
+class Address(string city)
 ```
 
 ```ube
 // Profile.ube
 import Address
-class Profile(int id, string name, Address address) {}
+class Profile(int id, string name, Address address)
 ```
 
 ```ube

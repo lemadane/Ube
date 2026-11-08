@@ -130,12 +130,17 @@ fn compiled_ube_server_stays_running_and_serves_http_requests() {
     let source = format!(
         r#"
         class App {{
+            Func(Request) -> Response makeHandler(string message) {{
+                return (Request request) -> Response.ok(message)
+            }}
             start() {{
                 final server = Server()
                 final res = `Hello from Ube e2e!
 This is a captured multiline string.
 `
                 server.get('/', request -> Response.ok(res))
+                server.get('/func', this.makeHandler('returned function'))
+                Gc.collect()
                 server.start({port})
             }}
         }}
@@ -183,6 +188,12 @@ This is a captured multiline string.
         "GET /missing HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
     ))
     .expect("404 response should be UTF-8");
+    let function_response = String::from_utf8(send_request(
+        address,
+        "GET /func HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
+    )).unwrap();
+    assert!(function_response.starts_with("HTTP/1.1 200 OK\r\n"), "{function_response}");
+    assert!(function_response.ends_with("returned function"), "{function_response}");
     assert!(
         missing_route.starts_with("HTTP/1.1 404 Not Found\r\n"),
         "{missing_route}"

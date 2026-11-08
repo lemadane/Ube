@@ -11,6 +11,10 @@ pub enum TypeSpec {
     Class(String),
     Generic(String, Box<TypeSpec>),
     Nullable(Box<TypeSpec>),
+    Function {
+        params: Vec<TypeSpec>,
+        return_type: Box<TypeSpec>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -197,6 +201,10 @@ pub enum ExprKind {
     Lambda {
         parameter: String,
         body: Vec<Stmt>,
+    },
+    Closure {
+        params: Vec<Param>,
+        expression: Box<Expr>,
     },
     If {
         condition: Box<Expr>,

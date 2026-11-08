@@ -114,7 +114,7 @@ class XmlTests {
     }
 
     async testAsyncSerialization() {
-        final doc = await this.document()
+        final doc = this.document().await()
         Testicle.equal('async', doc.root().child('name').text())
     }
 

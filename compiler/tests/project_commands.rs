@@ -174,7 +174,7 @@ fn local_dependencies_are_imported_locked_checked_and_removed() {
     assert!(success(cli(&app, &["run"])).contains("43"));
     fs::write(
         app.join(".build/.deps/greet/src/Greeting.ube"),
-        "class Greeting {}",
+        "class Greeting",
     )
     .unwrap();
     failure(cli(&app, &["check"]), "was modified");
@@ -361,7 +361,7 @@ fn install_rejects_source_symlinks_and_serializes_installations() {
     #[cfg(unix)]
     {
         let lib = dir.path().join("library");
-        package(&lib, "greetings", "Greeting", "class Greeting {}");
+        package(&lib, "greetings", "Greeting", "class Greeting");
         std::os::unix::fs::symlink(lib.join("src/Greeting.ube"), lib.join("src/Alias.ube"))
             .unwrap();
         let manifest = fs::read(app.join("ube.toml")).unwrap();

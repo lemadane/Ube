@@ -1,2 +1,2 @@
-class Order(long id, long userId, string status) {}
+class Order(long id, long userId, string status)
 

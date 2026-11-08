@@ -4,10 +4,10 @@ use ube_compiler::{source::load_program, TypeChecker};
 #[test]
 fn rejects_multiple_declarations_in_every_combination() {
     for source in [
-        "class First {} class Second {}",
+        "class First class Second",
         "trait First {} trait Second {}",
-        "class First {} trait Second {}",
-        "trait First {} class Second {}",
+        "class First trait Second {}",
+        "trait First {} class Second",
     ] {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("App.ube");
@@ -61,11 +61,11 @@ fn imports_load_once_and_allow_cycles_with_one_declaration_per_file() {
 fn validates_imported_files_and_reports_missing_dependencies() {
     let dir = tempfile::tempdir().unwrap();
     let main = dir.path().join("App.ube");
-    fs::write(&main, "import Helper\nclass App {}").unwrap();
+    fs::write(&main, "import Helper\nclass App").unwrap();
     assert!(load_program(&main).err().unwrap().contains("Helper.ube"));
     fs::write(
         dir.path().join("Helper.ube"),
-        "class Helper {} trait Extra {}",
+        "class Helper trait Extra {}",
     )
     .unwrap();
     assert!(load_program(&main)
@@ -103,7 +103,7 @@ fn test_runner_loads_dependencies_without_discovering_their_tests() {
 
 #[test]
 fn filenames_must_match_class_and_trait_names_exactly() {
-    for declaration in ["class Expected {}", "trait Expected {}"] {
+    for declaration in ["class Expected", "trait Expected {}"] {
         let dir = tempfile::tempdir().unwrap();
         for filename in ["Wrong.ube", "expected.ube"] {
             let path = dir.path().join(filename);

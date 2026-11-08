@@ -1,0 +1,35 @@
+class App {
+    Func(int) -> int makeAdder(int amount) {
+        return (int value) -> value + amount
+    }
+
+    async int incrementMany(Cache cache, int count) {
+        cache.increment('count', count)
+        return count
+    }
+
+    Func() -> Async<int> makeIncrement(Cache cache, int count) {
+        return () -> this.incrementMany(cache, count)
+    }
+
+    start() {
+        final addFive = this.makeAdder(5)
+        Console.printLine(addFive(10))
+
+        final cache = Cache.memory(4096)
+        try {
+            cache.set('count', '0', 0)
+            final first = this.makeIncrement(cache, 100)
+            final second = this.makeIncrement(cache, 100)
+
+            // Calling a function starts its task. Start both before awaiting.
+            final firstTask = first()
+            final secondTask = second()
+            Console.printLine(firstTask.await())
+            Console.printLine(secondTask.await())
+            Console.printLine(cache.get('count') ?? 'missing')
+        } finally {
+            cache.close()
+        }
+    }
+}

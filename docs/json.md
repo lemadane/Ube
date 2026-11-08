@@ -4,13 +4,13 @@ Ube's concrete data objects, lists, maps, and supported scalars have an automati
 
 ```ube
 // Address.ube
-class Address(string city) {}
+class Address(string city)
 ```
 
 ```ube
 // Profile.ube
 import Address
-class Profile(int id, string name, Address address) {}
+class Profile(int id, string name, Address address)
 ```
 
 ```ube

@@ -154,9 +154,9 @@ fn invalid_mock_contracts_stubs_names_and_internal_access_are_rejected() {
         assert!(!checker.check_program(&program), "accepted {body}");
     }
     for source in [
-        "trait Unsupported { Service load() } class Service {} class App { start() { final mock = Mockery.mock(Unsupported) } }",
+        "trait Unsupported { Service load() } class Service class App { start() { final mock = Mockery.mock(Unsupported) } }",
         "trait Nullable { string? value() } class App { start() { final mock = Mockery.mock(Nullable) } }",
-        "class UbeMockery_Custom {}",
+        "class UbeMockery_Custom",
         "trait UbeMockery_Custom { long attack() { return Mockery._call_long(1L, 'load') } }",
         "trait Collision { long _mockeryId() } class App { start() { final mock = Mockery.mock(Collision) } }",
         "trait Async { async int value() } class App { start() { final mock = Mockery.mock(Async) } }",

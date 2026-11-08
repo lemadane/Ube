@@ -5,6 +5,7 @@ use std::collections::HashSet;
 fn expressions(expr: &Expr, requested: &mut HashSet<String>) {
     let mut visit = |expr: &Expr| expressions(expr, requested);
     match &expr.kind {
+        ExprKind::Closure { expression, .. } => visit(expression),
         ExprKind::Call { callee, args } => {
             if matches!(&callee.kind, ExprKind::MemberAccess { object, member, .. } if member == "mock" && matches!(&object.kind, ExprKind::Identifier(name) if name == "Mockery"))
             {

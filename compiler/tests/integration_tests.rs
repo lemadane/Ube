@@ -279,7 +279,7 @@ fn test_e2e_control_flow_and_dynamic_alloc() {
             long f,
             long g,
             long h
-        ) {}
+        )
 
         class App {
             start() {
@@ -369,7 +369,7 @@ fn test_e2e_default_constructor_args() {
         class User(
             string name,
             var int age = 0
-        ) {}
+        )
 
         class App {
             start() {
@@ -434,7 +434,7 @@ fn test_e2e_go_style_zero_values() {
             long id,
             string name,
             var int age = 18
-        ) {}
+        )
 
         class App {
             start() {
@@ -480,7 +480,7 @@ fn test_e2e_go_zero_value_user() {
             long id,
             string name,
             var int age = 18
-        ) {}
+        )
 
         class App {
             start() {
@@ -519,7 +519,7 @@ fn test_e2e_unified_zero_value_instantiation() {
             long id,
             string holder,
             var int balance = 100
-        ) {}
+        )
 
         class App {
             start() {
@@ -559,7 +559,7 @@ fn test_e2e_unified_zero_value_instantiation() {
 #[test]
 fn test_type_checker_constructor_argument_types() {
     let source_code = r#"
-        class User(long id, string name) {}
+        class User(long id, string name)
 
         class App {
             start() {
@@ -1286,7 +1286,7 @@ fn test_e2e_invalid_assignment_target_emits_diagnostic() {
 #[test]
 fn test_e2e_optional_chaining_emits_diagnostic_until_supported() {
     let source_code = r#"
-        class User(var string name) {}
+        class User(var string name)
 
         class App {
             start() {
@@ -2082,7 +2082,7 @@ fn test_e2e_task_all_combinator_success() {
         class App {
             start() {
                 final tasks = [async 10, async 20]
-                final results = await Task.all(tasks)
+                final results = await Async.all(tasks)
                 Console.printLine(results.len())
             }
         }
@@ -2094,14 +2094,14 @@ fn test_e2e_task_all_combinator_success() {
 
     assert!(
         parser.diagnostics.is_empty(),
-        "Parsing Task.all failed: {:?}",
+        "Parsing Async.all failed: {:?}",
         parser.diagnostics
     );
 
     let mut checker = TypeChecker::new();
     assert!(
         checker.check_program(&program),
-        "Type checking Task.all failed: {:?}",
+        "Type checking Async.all failed: {:?}",
         checker.diagnostics
     );
 }
@@ -2118,7 +2118,7 @@ fn test_e2e_task_all_combinator_fail_fast() {
             start() {
                 try {
                     final tasks = [async 10, this.failingTask()]
-                    await Task.all(tasks)
+                    await Async.all(tasks)
         
                 }
                 catch (Error err) {
@@ -2134,14 +2134,14 @@ fn test_e2e_task_all_combinator_fail_fast() {
 
     assert!(
         parser.diagnostics.is_empty(),
-        "Parsing Task.all fail-fast failed: {:?}",
+        "Parsing Async.all fail-fast failed: {:?}",
         parser.diagnostics
     );
 
     let mut checker = TypeChecker::new();
     assert!(
         checker.check_program(&program),
-        "Type checking Task.all fail-fast failed: {:?}",
+        "Type checking Async.all fail-fast failed: {:?}",
         checker.diagnostics
     );
 }
@@ -2153,7 +2153,7 @@ fn test_e2e_task_any_and_race_combinators() {
             start() {
                 final t1 = async 100
                 final t2 = async 200
-                final winner = await Task.race([t1, t2])
+                final winner = await Async.race([t1, t2])
                 Console.printLine(winner)
             }
         }
@@ -2165,14 +2165,14 @@ fn test_e2e_task_any_and_race_combinators() {
 
     assert!(
         parser.diagnostics.is_empty(),
-        "Parsing Task.race failed: {:?}",
+        "Parsing Async.race failed: {:?}",
         parser.diagnostics
     );
 
     let mut checker = TypeChecker::new();
     assert!(
         checker.check_program(&program),
-        "Type checking Task.race failed: {:?}",
+        "Type checking Async.race failed: {:?}",
         checker.diagnostics
     );
 }
@@ -2183,7 +2183,7 @@ fn test_e2e_task_all_settled_combinator() {
         class App {
             start() {
                 final tasks = [async 10, async 20]
-                final settled = await Task.allSettled(tasks)
+                final settled = await Async.allSettled(tasks)
                 Console.printLine(settled.len())
             }
         }
@@ -2195,14 +2195,14 @@ fn test_e2e_task_all_settled_combinator() {
 
     assert!(
         parser.diagnostics.is_empty(),
-        "Parsing Task.allSettled failed: {:?}",
+        "Parsing Async.allSettled failed: {:?}",
         parser.diagnostics
     );
 
     let mut checker = TypeChecker::new();
     assert!(
         checker.check_program(&program),
-        "Type checking Task.allSettled failed: {:?}",
+        "Type checking Async.allSettled failed: {:?}",
         checker.diagnostics
     );
 }
@@ -2245,7 +2245,7 @@ fn test_removed_concurrency_forms_are_rejected() {
     let removed_task_async = r#"
         class App {
             start() {
-                final task = Task.async(10 + 20)
+                final task = Async.async(10 + 20)
                 Console.printLine(await task)
             }
         }
@@ -2257,7 +2257,7 @@ fn test_removed_concurrency_forms_are_rejected() {
     assert!(checker
         .diagnostics
         .iter()
-        .any(|diagnostic| diagnostic.message.contains("Task.async(...) was removed")), "{:?}", checker.diagnostics);
+        .any(|diagnostic| diagnostic.message.contains("Async.async(...) was removed")), "{:?}", checker.diagnostics);
 
     let task_arithmetic = r#"
         class App {

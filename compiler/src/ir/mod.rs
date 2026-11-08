@@ -44,7 +44,7 @@ mod tests {
                 start() {
                     final worker = Worker()
                     final task = worker.compute(41)
-                    final results = await Task.all([task, worker.compute(42)])
+                    final results = await Async.all([task, worker.compute(42)])
                     Console.printLine(results.len())
                 }
             }

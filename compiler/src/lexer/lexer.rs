@@ -1,6 +1,7 @@
 use super::token::{Token, TokenKind};
 use crate::diagnostics::{Position, Span};
 
+#[derive(Clone)]
 pub struct Lexer<'a> {
     source: &'a str,
     chars: std::str::CharIndices<'a>,

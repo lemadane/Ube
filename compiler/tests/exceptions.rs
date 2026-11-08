@@ -54,7 +54,7 @@ fn rejects(source: &str, expected: &str) {
 
 #[test]
 fn concrete_catch_preserves_object_fields_and_exact_identity() {
-    runs(r#"class A(string message, int code) {} class B(string message) {}
+    runs(r#"class A(string message, int code) class B(string message)
     class App { start() { try { throw A('bad', 42) }
       catch (B err) { Console.printLine('wrong') } catch (A err) { Console.printLine(err.message()) Console.printLine(err.code()) }
       catch (Error err) { Console.printLine('wrong general') } } }"#, "bad\n42\n");
@@ -67,7 +67,7 @@ fn strings_are_boxed_once_and_error_trait_dispatches() {
 #[test]
 fn structural_category_matches_independent_classes() {
     runs(r#"trait Retryable { string message() bool retryable() }
-    class A(string message, bool retryable) {} class B(string message) { bool retryable() { return true } }
+    class A(string message, bool retryable) class B(string message) { bool retryable() { return true } }
     class App { start() {
       try { throw A('a', false) } catch (Retryable err) { Console.printLine(err.message()) Console.printLine(err.retryable()) }
       try { throw B('b') } catch (Retryable err) { Console.printLine(err.message()) Console.printLine(err.retryable()) }
@@ -77,14 +77,14 @@ fn structural_category_matches_independent_classes() {
 fn independent_traits_match_in_source_order() {
     runs(r#"trait Retryable { string message() bool retryable() }
     trait Security { string message() string securityCode() }
-    class Both(string message, bool retryable, string securityCode) {}
+    class Both(string message, bool retryable, string securityCode)
     class App { start() { try { throw Both('both', true, 'AUTH') }
       catch (Security err) { Console.printLine(err.securityCode()) }
       catch (Retryable err) { Console.printLine('wrong') } } }"#, "AUTH\n");
 }
 #[test]
 fn unmatched_errors_propagate_through_calls_and_cleanup_only_try() {
-    runs(r#"class A(string message) {} class B(string message) {}
+    runs(r#"class A(string message) class B(string message)
     class App { fail() { throw A('boom') } relay() { this.fail() }
     start() { try { try { this.relay() } catch (B err) { Console.printLine('wrong') } finally { Console.printLine('inner') } }
       catch (A err) { Console.printLine(err.message()) } finally { Console.printLine('outer') } } }"#, "inner\nboom\nouter\n");
@@ -96,7 +96,7 @@ fn try_finally_does_not_swallow_errors() {
 }
 #[test]
 fn accidental_conformance_requires_explicit_throw() {
-    runs(r#"class Customer(string message) {} class App { start() {
+    runs(r#"class Customer(string message) class App { start() {
       final customer = Customer('hello') Console.printLine('normal')
       try { throw customer } catch (Customer err) { Console.printLine(err.message()) } } }"#, "normal\nhello\n");
 }
@@ -143,8 +143,8 @@ fn cleanup_return_overrides_pending_return() {
 }
 #[test]
 fn composition_and_optional_causes_keep_original_concrete_objects() {
-    runs(r#"class Details(string message, string code) {}
-      class Root(string message) {}
+    runs(r#"class Details(string message, string code)
+      class Root(string message)
       class PaymentError(Details details, Error? cause = null) {
         string message() { return this._details.message() }
         string code() { return this._details.code() }
@@ -161,7 +161,7 @@ fn composition_and_optional_causes_keep_original_concrete_objects() {
 #[test]
 fn guarded_catches_narrow_before_condition_and_continue_on_false() {
     runs(r#"trait Retryable { string message() bool retryable() }
-      class A(string message, bool retryable) {}
+      class A(string message, bool retryable)
       class App { start() { try { throw A('boom', false) }
         catch (Retryable err) if (err.retryable()) { Console.printLine('wrong') }
         catch (A err) { Console.printLine(err.message()) }
@@ -176,7 +176,7 @@ fn throwing_catch_condition_propagates_after_cleanup() {
 }
 #[test]
 fn async_failures_keep_type_fields_causes_and_finally_order() {
-    runs(r#"class DbError(string message, int code) {}
+    runs(r#"class DbError(string message, int code)
       class App { async int fail() { try { throw DbError('db', 99) } finally { Console.printLine('worker cleanup') } }
         async int relay() { return await this.fail() }
         start() { try { final value = await this.relay() } catch (DbError err) { Console.printLine(err.message()) Console.printLine(err.code()) } finally { Console.printLine('awaiter cleanup') } }
@@ -247,22 +247,22 @@ fn unhandled_sync_and_async_errors_exit_unsuccessfully() {
 #[test]
 fn invalid_throw_operands_are_rejected() {
     for value in ["null", "1", "true", "Potato(1)"] {
-        rejects(&format!("class Potato(int value) {{}} class App {{ start() {{ throw {value} }} }}"), "throw target must");
+        rejects(&format!("class Potato(int value) class App {{ start() {{ throw {value} }} }}"), "throw target must");
     }
     rejects(r#"class Wrong { int message() { return 1 } } class App { start() { throw Wrong() } }"#, "throw target must");
 }
 #[test]
 fn invalid_and_unreachable_catch_types_are_rejected() {
     for ty in ["Missing", "Potato", "NotError"] {
-        rejects(&format!("trait NotError {{ bool retryable() }} class Potato(int value) {{}} class App {{ start() {{ try {{ Console.printLine(1) }} catch ({ty} err) {{}} }} }}"), "catch type");
+        rejects(&format!("trait NotError {{ bool retryable() }} class Potato(int value) class App {{ start() {{ try {{ Console.printLine(1) }} catch ({ty} err) {{}} }} }}"), "catch type");
     }
-    rejects(r#"class A(string message) {} class App { start() { try { throw A('x') } catch (Error err) {} catch (A err) {} } }"#, "Unreachable catch");
-    rejects(r#"trait R { string message() bool retryable() } class A(string message, bool retryable) {}
+    rejects(r#"class A(string message) class App { start() { try { throw A('x') } catch (Error err) {} catch (A err) {} } }"#, "Unreachable catch");
+    rejects(r#"trait R { string message() bool retryable() } class A(string message, bool retryable)
       class App { start() { try { throw A('x', true) } catch (R err) {} catch (A err) {} } }"#, "Unreachable catch");
 }
 #[test]
 fn catch_scopes_and_static_types_are_checked() {
-    rejects(r#"class A(string message, int code) {} class App { start() { try { throw A('x',1) } catch (A err) { Console.printLine(err.missing()) } } }"#, "Member");
+    rejects(r#"class A(string message, int code) class App { start() { try { throw A('x',1) } catch (A err) { Console.printLine(err.missing()) } } }"#, "Member");
     rejects(r#"class App { start() { try { throw 'x' } catch (Error err) {} Console.printLine(err) } }"#, "err");
     rejects(r#"class App { start() { try { final local = 1 } finally { Console.printLine(local) } } }"#, "local");
     rejects(r#"class App { start() { try { throw 'x' } catch (Error err) if (1) {} } }"#, "catch condition");
@@ -383,7 +383,7 @@ fn native_bare_return_needs_no_semicolon_and_runs_cleanup() {
 #[test]
 fn backing_fields_are_private_to_the_declaring_class() {
     for statement in ["Console.printLine(user._age)", "user._age = 2", "Console.printLine(user._name)", "user._name = 'B'"] {
-        rejects(&format!("class User(string name, var int age) {{}} class App {{ start() {{ final user = User('A', 1) {statement} }} }}"), "is private to class 'User'");
+        rejects(&format!("class User(string name, var int age) class App {{ start() {{ final user = User('A', 1) {statement} }} }}"), "is private to class 'User'");
     }
 }
 
@@ -416,7 +416,7 @@ fn public_field_access_and_setter_arguments_are_checked() {
         ("User.age(2)", "requires an instance of 'User'"),
         ("User.age()", "requires an instance of 'User'"),
     ] {
-        rejects(&format!("class User(string name, var int age) {{}} class App {{ start() {{ final user = User('A', 1) {statement} }} }}"), expected);
+        rejects(&format!("class User(string name, var int age) class App {{ start() {{ final user = User('A', 1) {statement} }} }}"), expected);
     }
 }
 
@@ -425,7 +425,7 @@ fn native_declarations_zero_initialize_without_constructor_defaults() {
     runs(r#"class Defaults {
       int load() { Console.printLine('default evaluated') return 99 }
     }
-    class Record(int count = Defaults().load(), string label = 'configured') {}
+    class Record(int count = Defaults().load(), string label = 'configured')
     class App { start() {
       Record zero
       Console.printLine(zero.count())
@@ -440,9 +440,9 @@ fn native_declarations_zero_initialize_without_constructor_defaults() {
 
 #[test]
 fn native_zero_initialization_recurses_without_sharing_or_defaults() {
-    runs(r#"class Point(var int x = 42) {}
-    class Pair(Point left, Point right) {}
-    class Node(int value = 99, Node? next = null) {}
+    runs(r#"class Point(var int x = 42)
+    class Pair(Point left, Point right)
+    class Node(int value = 99, Node? next = null)
     class App { start() {
       Pair pair
       pair.left().x(7)
@@ -459,7 +459,7 @@ fn native_zero_initialization_recurses_without_sharing_or_defaults() {
 #[test]
 fn native_primitive_declarations_keep_zero_values() {
     runs(r#"class Settings(int count = 7, long id = 9L, decimal ratio = 1.5,
-      bool enabled = true, string text = 'configured') {}
+      bool enabled = true, string text = 'configured')
     class App { start() {
       int count
       long id
@@ -475,8 +475,8 @@ fn native_primitive_declarations_keep_zero_values() {
 
 #[test]
 fn unsafe_zero_initialization_requires_nullable_links_or_explicit_initializers() {
-    rejects("class Node(Node next) {} class App { start() { Node node } }", "recursive non-nullable class");
-    rejects("class A(B b) {} class B(A a) {} class App { start() { A value } }", "recursive non-nullable class");
+    rejects("class Node(Node next) class App { start() { Node node } }", "recursive non-nullable class");
+    rejects("class A(B b) class B(A a) class App { start() { A value } }", "recursive non-nullable class");
     rejects("class App { start() { Server app } }", "requires an explicit initializer");
     rejects("class App { start() { Channel<int> values } }", "requires an explicit initializer");
     rejects("trait Named { string name() } class App { start() { Named value } }", "requires an explicit initializer");
@@ -487,7 +487,7 @@ fn native_startup_uses_the_same_zero_values_as_local_declarations() {
     runs(r#"class Defaults {
       int load() { Console.printLine('unexpected default evaluation') return 123 }
     }
-    class Child(int count = 77) {}
+    class Child(int count = 77)
     class App(int count = Defaults().load(), long support = 44L,
       string caption = 'configured', Child child = Child(), Child? absent = Child()) {
       start() {
@@ -613,7 +613,7 @@ fn nullable_false_and_decimal_zero_are_present() {
 
 #[test]
 fn nullable_fields_calls_and_presence_conditions_work_natively() {
-    runs(r#"class User(var int? age) {}
+    runs(r#"class User(var int? age)
       class App {
         int? echo(int? value) { return value }
         async long? wide(long? value) { return value }
@@ -822,7 +822,7 @@ fn log_shorthand_levels_filtering_and_console_streams() {
 
 #[test]
 fn log_nullable_values_interpolation_and_error_messages() {
-    let output = native(r#"class Failure(string message) {}
+    let output = native(r#"class Failure(string message)
     class App(var int calls = 0) {
         int value() { this._calls = this._calls + 1 return this._calls }
         start() {
@@ -851,7 +851,7 @@ fn log_checks_arity_types_and_capitalization() {
     rejects("class App { start() { Log.setLevel(1) } }", "setLevel requires a string");
     rejects("class App { start() { Log('wrong case') } }", "Use log(value)");
     rejects("class App { start() { log.info('wrong case') } }", "use Log");
-    rejects("class Item {} class App { start() { log(Item()) } }", "Output requires");
+    rejects("class Item class App { start() { log(Item()) } }", "Output requires");
     rejects("class App { start() { Console.printLine() } }", "exactly one value");
     rejects("class App { start() { Console() } }", "do not create instances");
 }
@@ -1002,7 +1002,7 @@ fn console_print_methods_and_shorthand() {
     for call in ["Console.write('old')", "Console.writeLine('old')"] {
         rejects(&format!("class App {{ start() {{ {call} }} }}"), "requires a class call");
     }
-    rejects("class Item {} class App { start() { print(Item()) } }", "Output requires");
+    rejects("class Item class App { start() { print(Item()) } }", "Output requires");
 }
 
 #[test]
@@ -1210,21 +1210,21 @@ fn unified_sql_enforces_factory_arity_receiver_and_types() {
 
 #[test]
 fn orm_models_and_fluent_queries_are_checked_before_execution() {
-    rejects("class User(string name) {} class App { start() { Orm.model(SQL.open('sqlite::memory:'), User, 'users') } }", "require a non-null int or long field named id");
-    rejects("class Address(string city) {} class User(int id, Address address) {} class App { start() { Orm.model(SQL.open('sqlite::memory:'), User, 'users') } }", "must be int, long, decimal, bool, string");
-    rejects("class User(int id, string name) {} class App { start() { final users = Orm.model(SQL.open('sqlite::memory:'), User, 'users') users.query().where('typo', '=', 1) } }", "Unknown ORM column 'typo'");
-    rejects("class User(int id, string name) {} class App { start() { final users = Orm.model(SQL.open('sqlite::memory:'), User, 'users') users.query().where('name', '=', 1) } }", "expects string");
-    rejects("class User(int id) {} class Other(int id) {} class App { start() { final users = Orm.model(SQL.open('sqlite::memory:'), User, 'users') users.create(Other(1)) } }", "Invalid ORM argument types");
-    rejects("class User(int id) {} class App { start() { final users = Orm.model(SQL.open('sqlite::memory:'), User(1), 'users') } }", "model must be a class name");
-    rejects("class User(int id) {} class App { start() { final users = Orm.model(SQL.open('sqlite::memory:'), User, 'users') users.delete(null) } }", "Invalid ORM argument types");
+    rejects("class User(string name) class App { start() { Orm.model(SQL.open('sqlite::memory:'), User, 'users') } }", "require a non-null int or long field named id");
+    rejects("class Address(string city) class User(int id, Address address) class App { start() { Orm.model(SQL.open('sqlite::memory:'), User, 'users') } }", "must be int, long, decimal, bool, string");
+    rejects("class User(int id, string name) class App { start() { final users = Orm.model(SQL.open('sqlite::memory:'), User, 'users') users.query().where('typo', '=', 1) } }", "Unknown ORM column 'typo'");
+    rejects("class User(int id, string name) class App { start() { final users = Orm.model(SQL.open('sqlite::memory:'), User, 'users') users.query().where('name', '=', 1) } }", "expects string");
+    rejects("class User(int id) class Other(int id) class App { start() { final users = Orm.model(SQL.open('sqlite::memory:'), User, 'users') users.create(Other(1)) } }", "Invalid ORM argument types");
+    rejects("class User(int id) class App { start() { final users = Orm.model(SQL.open('sqlite::memory:'), User(1), 'users') } }", "model must be a class name");
+    rejects("class User(int id) class App { start() { final users = Orm.model(SQL.open('sqlite::memory:'), User, 'users') users.delete(null) } }", "Invalid ORM argument types");
     rejects("class App { start() { OrmModel() } }", "ORM handles cannot be constructed");
-    rejects("class User(int id) {} class App { start() { final users = Orm.model(SQL.open('sqlite::memory:'), User, 'users') users.query().where('id', '=', null) } }", "where requires a non-null scalar");
+    rejects("class User(int id) class App { start() { final users = Orm.model(SQL.open('sqlite::memory:'), User, 'users') users.query().where('id', '=', null) } }", "where requires a non-null scalar");
 }
 
 #[test]
 fn orm_runtime_guards_reject_unsafe_queries_and_incompatible_rows() {
     runs(r#"
-class User(long id, string name, bool active) {}
+class User(long id, string name, bool active)
 class App {
     start() {
         final db = SQL.open('sqlite::memory:')
@@ -1255,7 +1255,7 @@ class App {
 
 #[test]
 fn orm_join_columns_aliases_and_related_filters_are_checked() {
-    let prefix = "class User(long id, string name) {} class Order(long id, long userId, bool active) {} class App { start() { final db = SQL.open('sqlite::memory:') final users = Orm.model(db, User, 'users') final orders = Orm.model(db, Order, 'orders') final q = users.query() ";
+    let prefix = "class User(long id, string name) class Order(long id, long userId, bool active) class App { start() { final db = SQL.open('sqlite::memory:') final users = Orm.model(db, User, 'users') final orders = Orm.model(db, Order, 'orders') final q = users.query() ";
     for (body,message) in [
         ("q.join(orders,'o','missing','userId')", "Unknown ORM column 'missing'"),
         ("q.join(orders,'o','id','missing')", "Unknown ORM column 'missing'"),
@@ -1342,16 +1342,16 @@ fn gc_api_requires_static_calls_and_no_arguments() {
 #[test]
 fn task_combinators_check_literal_elements_and_outcome_calls() {
     for method in ["all", "any", "race", "allSettled"] {
-        rejects(&format!("class App {{ start() {{ final result = await Task.{method}([1]) }} }}"), "only task elements");
+        rejects(&format!("class App {{ start() {{ final result = await Async.{method}([1]) }} }}"), "only task elements");
     }
-    rejects("class App { start() { final results = await Task.allSettled([async 1]) final result = results['bad'] } }", "index must be int");
+    rejects("class App { start() { final results = await Async.allSettled([async 1]) final result = results['bad'] } }", "index must be int");
     rejects("class App { start() { TaskOutcome() } }", "does not create instances");
-    rejects("class App { start() { final results = await Task.allSettled([async 1]) final result = results.get('bad') } }", "Invalid task outcome method call");
+    rejects("class App { start() { final results = await Async.allSettled([async 1]) final result = results.get('bad') } }", "Invalid task outcome method call");
 }
 
 #[test]
 fn stacktrace_records_nested_calls_and_preserves_original_throw() {
-    let output = native(r#"class Problem(string message) {}
+    let output = native(r#"class Problem(string message)
 class App {
     fail() { throw Problem('boom') }
     relay() { this.fail() }
@@ -1426,7 +1426,7 @@ fn stacktrace_requires_an_error_instance_and_zero_arguments() {
 #[test]
 fn stacktrace_supports_error_compatible_traits_and_unthrown_instances() {
     runs(r#"trait Retryable { string message() bool retryable() }
-    class Problem(string message,bool retryable) {}
+    class Problem(string message,bool retryable)
     class App { start() {
         Console.printLine(Problem('not thrown',true).stacktrace() == '')
         try { throw Problem('retry',true) } catch(Retryable error) { Console.printLine(error.stacktrace()) }

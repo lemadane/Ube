@@ -24,8 +24,8 @@ class CalculatorTests {
 
     async testAsync() {
         final values = Channel<int>(1)
-        final sent = await values.send(42)
-        Testicle.equal(42, await values.receive())
+        final sent = values.send(42).await()
+        Testicle.equal(42, values.receive().await())
         values.close()
     }
 }

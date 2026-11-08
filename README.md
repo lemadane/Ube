@@ -325,6 +325,7 @@ put each class or trait in its own file and import its dependencies.
 ### 4. Unified `class` Model & Enums via Sum Classes (No `enum` Keyword)
 - **Single Type Keyword (`class`)**: `class` is the sole user-defined type keyword (no `enum`, `struct`, `record`, or `union`).
 - **Primary Constructor Fields**: `class User(long id, string name, var int age)` automatically generates class-private backing fields (`_id`, `_name`, `_age`) and public getters (`id()`, `name()`, `age()`). A `var` field also supports a setter using the same name with one argument, such as `age(30)`.
+- **Empty Class Bodies**: Classes with no body must omit braces, for example `class Address(string city)`. Empty `{}` class bodies are rejected.
 - **Enums via Sum Classes**: Enumerations and algebraic variants are declared using `case` clauses inside a `class` (e.g. `class Status { case Pending case Approved(long orderId) }`).
 
 ### 5. No `void` Keyword & Implicit Void Return Types
@@ -422,12 +423,13 @@ See the [runnable context example](examples/log_context/App.ube).
 - **Pattern Support**: Matches constant values, Sum Class variant payloads, type checks (`is`), guard clauses (`if`), multiple OR values, and anonymous objects.
 
 ### 14. Concurrency Runtime (Tokio)
-- Async method calls are submitted to a shared multithreaded Tokio runtime. Receivers and arguments are captured before the call returns, and `await` blocks the calling Ube thread until completion.
+- Async method calls are submitted to a shared multithreaded Tokio runtime. Receivers and arguments are captured before the call returns, and `.await()` blocks the calling Ube thread until completion.
 - The Rust runtime provides typed `Task<T>` results/errors, completion-based combinators, timeouts, cancellation, and bounded closable channels.
-- The compiler ABI transports task and channel values through an inline two-word value (64-bit payload plus presence metadata), encoding primitive values and pointers. Ube await infers `Task<T>` from async method declarations; failures propagate into a surrounding `try`/`catch`.
-- One rule: **if it waits, you `await` it.** `async expr` (or an `async` method call) starts work; `await` gets the result.
-- `Channel<T>(capacity)` is a typed bounded channel: `await ch.send(v)` (false once closed), `await ch.receive()`, and `ch.close()`. A closed-channel receive after queued values are drained is catchable.
-- `await task.timeout(ms)` fails with a catchable `task timed out` and cancels the task; it works on any task, including `ch.receive()`.
+- The compiler ABI transports task and channel values through an inline two-word value (64-bit payload plus presence metadata), encoding primitive values and pointers. Ube async method calls produce `Async<T>`; `.await()` retrieves the declared result type `T`; failures propagate into a surrounding `try`/`catch`.
+- One rule: **if it waits, call `.await()`.** `async expr` (or an `async` method call) starts work; `.await()` gets the result.
+- `Channel<T>(capacity)` is a typed bounded channel: `ch.send(v).await()` (false once closed), `ch.receive().await()`, and `ch.close()`. A closed-channel receive after queued values are drained is catchable.
+- `task.timeout(ms).await()` fails with a catchable `task timed out` and cancels the task; it works on any task, including `ch.receive()`.
+- Ube uses `Async<T>` and combinators such as `Async.all(...)` and `Async.race(...)`. The older prefix form `await value` remains accepted for compatibility; new code should use `value.await()`.
 - Unhandled failures propagate out of async code and otherwise stop the program with a clear error.
 
 ### 15. Exception Model (`try` / `catch` / `finally` & `throw`)
@@ -595,6 +597,18 @@ class User(
     }
 }
 ```
+
+#### Function values
+
+Use `Func(parameterTypes) -> returnType` for a function value. Expression closures have typed parameters and an inferred result:
+
+```ube
+Func(int) -> int makeAdder(int amount) {
+    return (int value) -> value + amount
+}
+```
+
+Call the returned value with parentheses: `final addFive = this.makeAdder(5)`, then `addFive(10)`. A `Func() -> Async<int>` can be called and awaited as `first().await()`. Closures capture current local values, and captured object references remain alive through garbage collection. See [function values](docs/functions.md) and the [runnable example](examples/functions/App.ube).
 
 ### 2. Structural `trait` Subtyping (No `implements` Keyword)
 
@@ -1157,7 +1171,7 @@ class App {
 For Ube task ownership, cancellation, safe sharing, and settled-result examples,
 see [Concurrency in Ube](docs/concurrency.md). Async task bodies and the program's
 application scope cancel and join unfinished child tasks before completing. No new
-syntax is required. `Task.allSettled` now returns `TaskOutcomes`, with explicit
+syntax is required. `Async.allSettled` now returns `TaskOutcomes`, with explicit
 success/error status and checked scalar accessors instead of replacing failures
 with zero. Built-in list/map operations and generated scalar field accesses are
 synchronized; multi-step updates still require coordination.
@@ -1197,9 +1211,9 @@ assert_eq!(channel.receive().await?, None);
 - `await_timeout` returns `TaskError::Timeout` and requests cancellation. Dropping an async future cancels it at await points. A generated Ube method callback already running on the blocking pool cannot be forcibly stopped; its task is marked cancelled but its synchronous body may continue.
 - `Channel<T>` is bounded (default capacity 64). Sends wait for capacity, receive returns `None` after close and buffered values are drained, and close wakes blocked senders/receivers with a closed outcome.
 
-The compiler now schedules calls to declared `async` methods and infers the awaited result type. Async method results are transported through a two-word ABI value (64-bit integer/boolean/decimal bits or pointer, plus presence and scalar-kind metadata); compiler-generated callbacks own their capture context, and task handles are cleaned up with the runtime. `Task.all`, `Task.any`, `Task.race`, and `Task.allSettled` also return tasks; the language wrappers cancel and join remaining workers before completing.
+The compiler now schedules calls to declared `async` methods and infers the awaited result type. Async method results are transported through a two-word ABI value (64-bit integer/boolean/decimal bits or pointer, plus presence and scalar-kind metadata); compiler-generated callbacks own their capture context, and task handles are cleaned up with the runtime. `Async.all`, `Async.any`, `Async.race`, and `Async.allSettled` also return tasks; the language wrappers cancel and join remaining workers before completing.
 
-The compiler transports async method throws and runtime task failures to an enclosing `try`/`catch`; use `err.message()` to inspect the message and `err.stacktrace()` for captured Ube call frames. Unhandled errors also print those frames. See [error stack traces](docs/stacktraces.md) for location and async limits. Awaiting a failure without a matching `catch` propagates it from an async method or `async` expression to its awaiter; anywhere else the program stops with `Ube error: unhandled exception ...` (exit code 1). Generated async methods poll cancellation at basic-block boundaries and raise a catchable cancellation error so cleanup runs; a currently executing indivisible operation cannot be interrupted. `async expr` captures visible locals when submitted and evaluates the expression on a worker. Language channels support explicit element types (`Channel<T>(capacity)`) and `close()`; `send(value)` returns `Task<bool>` and `receive()` returns `Task<T>`, with the channel wait performed on Tokio. `send` completes with false if the channel is closed; after buffered values are drained, `receive` fails with a catchable channel-closed error. `task.timeout(ms)` wraps any task (including a channel operation) with a deadline; `Task.race` waits on several channels at once. The language channel bridge supports primitive values, pointer-sized values, and nullable scalars (`int?`, `long?`, `byte?`, `bool?`, `decimal?`). Scalar presence is stored separately, so null remains distinct from zero and false across locals, calls, fields, captures, tasks, and channels. Task errors and channel closure use the exception path, not a null payload. Untyped `List`/`Map` storage still uses single-word elements: storing nullable scalars or tasks with nullable scalar results is diagnosed, including lists passed to task combinators. Typed nullable collections/combinators remain Phase 1 follow-up work. Compiler and runtime must be rebuilt together for the new ABI.
+The compiler transports async method throws and runtime task failures to an enclosing `try`/`catch`; use `err.message()` to inspect the message and `err.stacktrace()` for captured Ube call frames. Unhandled errors also print those frames. See [error stack traces](docs/stacktraces.md) for location and async limits. Awaiting a failure without a matching `catch` propagates it from an async method or `async` expression to its awaiter; anywhere else the program stops with `Ube error: unhandled exception ...` (exit code 1). Generated async methods poll cancellation at basic-block boundaries and raise a catchable cancellation error so cleanup runs; a currently executing indivisible operation cannot be interrupted. `async expr` captures visible locals when submitted and evaluates the expression on a worker. Language channels support explicit element types (`Channel<T>(capacity)`) and `close()`; `send(value)` returns `Task<bool>` and `receive()` returns `Task<T>`, with the channel wait performed on Tokio. `send` completes with false if the channel is closed; after buffered values are drained, `receive` fails with a catchable channel-closed error. `task.timeout(ms)` wraps any task (including a channel operation) with a deadline; `Async.race` waits on several channels at once. The language channel bridge supports primitive values, pointer-sized values, and nullable scalars (`int?`, `long?`, `byte?`, `bool?`, `decimal?`). Scalar presence is stored separately, so null remains distinct from zero and false across locals, calls, fields, captures, tasks, and channels. Task errors and channel closure use the exception path, not a null payload. Untyped `List`/`Map` storage still uses single-word elements: storing nullable scalars or tasks with nullable scalar results is diagnosed, including lists passed to task combinators. Typed nullable collections/combinators remain Phase 1 follow-up work. Compiler and runtime must be rebuilt together for the new ABI.
 
 Cancellation is delivered once per worker callback, either at a cancellation poll or while awaiting. After delivery, subsequent awaits, including those in `finally`, wait normally so async cleanup can finish. Errors and timeouts from cleanup operations still propagate; the original cancellation remains pending unless handled or replaced by a cleanup failure.
 
@@ -1232,7 +1246,7 @@ class App {
 Throw a string for a `GenericError`, or throw an object that provides `string message()`. Error classes use structural typing and require no inheritance. Concrete catches match the original class; trait catches match the methods that the object provides. Handlers run in source order, and `catch (Error err)` is the general fallback.
 
 ```ube
-class RequestError(string message, int code) {}
+class RequestError(string message, int code)
 
 class App {
     start() {
@@ -1386,7 +1400,7 @@ Each class belongs in its matching source file:
 
 ```ube
 // KitchenOrderScan.ube
-class KitchenOrderScan(string restaurantID, string orderType) {}
+class KitchenOrderScan(string restaurantID, string orderType)
 ```
 
 ```ube
@@ -1433,7 +1447,7 @@ cargo test -p ube-compiler --test xml_e2e
 A typed variable declared without an initializer receives a zero value. This does not evaluate constructor defaults or run user code. Explicit constructor calls still evaluate defaults. The runtime initializes the entry-point `App` object using the same zero-initialization path, so its constructor defaults are also ignored at startup. Put configuration and resource creation explicitly inside `start()`.
 
 ```ube
-class User(string name = 'Guest', var int age = 18) {}
+class User(string name = 'Guest', var int age = 18)
 
 class App {
     start() {

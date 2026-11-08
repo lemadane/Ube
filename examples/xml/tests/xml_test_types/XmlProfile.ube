@@ -1,1 +1,1 @@
-class XmlProfile(int id, string name, List scores, int? missing) {}
+class XmlProfile(int id, string name, List scores, int? missing)

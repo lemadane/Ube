@@ -569,7 +569,7 @@ impl TextualLlvmEmitter {
             ("MoneyError", "i8*"),
             ("OutOfBoundsError", "i8*"),
             ("Error", "i8*"),
-            ("Task", "i8*"),
+            ("Async", "i8*"),
             ("Channel", "i8*"),
             ("List", "i8*"),
             ("Map", "i8*"),
@@ -1627,10 +1627,10 @@ impl TextualLlvmEmitter {
                 "i8*".to_string()
             }
             Type::Void => "void".to_string(),
-            Type::Task(_) => "i8*".to_string(),
+            Type::Async(_) => "i8*".to_string(),
             Type::Channel(_) => "i8*".to_string(),
             Type::Class { name }
-                if matches!(name.as_str(), "Task" | "Channel" | "List" | "Map" | "TaskOutcome" | "TaskOutcomes" | "ConsoleArgs" | "Cache" | "KeyValueStore" | "Xml" | "XmlDocument" | "XmlElement" | "XmlOptions") =>
+                if matches!(name.as_str(), "Async" | "Channel" | "List" | "Map" | "TaskOutcome" | "TaskOutcomes" | "ConsoleArgs" | "Cache" | "KeyValueStore" | "Xml" | "XmlDocument" | "XmlElement" | "XmlOptions") =>
             {
                 "i8*".to_string()
             }

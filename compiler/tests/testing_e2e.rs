@@ -122,7 +122,7 @@ fn timeouts_kill_the_test_and_allow_subsequent_tests_to_run() {
 #[test]
 fn invalid_sources_signatures_empty_suites_and_options_fail() {
     for (source, expected) in [
-        ("class Empty {}", "No tests found"),
+        ("class Empty", "No tests found"),
         (
             "class Invalid { testArgs(int n) {} }",
             "require no parameters",

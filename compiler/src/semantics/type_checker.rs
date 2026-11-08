@@ -28,6 +28,7 @@ pub struct TypeChecker {
     traits: HashMap<String, TraitInfo>,
     current_class: Option<String>,
     current_return_type: Option<Type>,
+    in_expression_closure: bool,
     in_static_context: bool,
     orm_declarations: HashMap<String, ClassDecl>,
     zero_init_classes: std::collections::HashSet<String>,
@@ -43,6 +44,7 @@ impl TypeChecker {
             traits: HashMap::new(),
             current_class: None,
             current_return_type: None,
+            in_expression_closure: false,
             in_static_context: false,
             orm_declarations: HashMap::new(),
             zero_init_classes: Default::default(),
@@ -122,11 +124,11 @@ impl TypeChecker {
         let mut channel_methods = HashMap::new();
         channel_methods.insert(
             "send".into(),
-            (vec![Type::Int], Type::Task(Box::new(Type::Bool))),
+            (vec![Type::Int], Type::Async(Box::new(Type::Bool))),
         );
         channel_methods.insert(
             "receive".into(),
-            (Vec::new(), Type::Task(Box::new(Type::Int))),
+            (Vec::new(), Type::Async(Box::new(Type::Int))),
         );
         channel_methods.insert("close".into(), (Vec::new(), Type::Void));
         self.classes.insert(
@@ -148,7 +150,7 @@ impl TypeChecker {
                 vec![Type::Class {
                     name: "List".into(),
                 }],
-                Type::Task(Box::new(Type::Class {
+                Type::Async(Box::new(Type::Class {
                     name: "List".into(),
                 })),
             ),
@@ -159,7 +161,7 @@ impl TypeChecker {
                 vec![Type::Class {
                     name: "List".into(),
                 }],
-                Type::Task(Box::new(Type::Int)),
+                Type::Async(Box::new(Type::Int)),
             ),
         );
         task_methods.insert(
@@ -168,7 +170,7 @@ impl TypeChecker {
                 vec![Type::Class {
                     name: "List".into(),
                 }],
-                Type::Task(Box::new(Type::Int)),
+                Type::Async(Box::new(Type::Int)),
             ),
         );
         task_methods.insert(
@@ -177,7 +179,7 @@ impl TypeChecker {
                 vec![Type::Class {
                     name: "List".into(),
                 }],
-                Type::Task(Box::new(Type::Class {
+                Type::Async(Box::new(Type::Class {
                     name: "TaskOutcomes".into(),
                 })),
             ),
@@ -185,9 +187,9 @@ impl TypeChecker {
         task_methods.insert("cancel".into(), (Vec::new(), Type::Bool));
 
         self.classes.insert(
-            "Task".into(),
+            "Async".into(),
             ClassInfo {
-                name: "Task".into(),
+                name: "Async".into(),
                 fields: HashMap::new(),
                 methods: task_methods,
                 param_types: Vec::new(),
@@ -1748,6 +1750,9 @@ impl TypeChecker {
                 Item::Import(_) => None,
             };
             if let Some((name, span)) = declaration {
+                if name == "Func" {
+                    self.diagnostics.push(Diagnostic::error("Func is reserved for function types", Some(span)));
+                }
                 if name.starts_with(crate::mockery::PREFIX) {
                     self.diagnostics.push(Diagnostic::error("UbeMockery_ type names are reserved for generated mocks", Some(span)));
                 }
@@ -1836,7 +1841,7 @@ impl TypeChecker {
                             .as_ref()
                             .map_or(Type::Void, |t| self.type_spec_to_type(t));
                         let return_ty = if method.is_async {
-                            Type::Task(Box::new(if return_ty == Type::Void {
+                            Type::Async(Box::new(if return_ty == Type::Void {
                                 Type::Int
                             } else {
                                 return_ty
@@ -2157,6 +2162,13 @@ impl TypeChecker {
                 }
             }
             StmtKind::Return(expr_opt) => {
+                if self.in_expression_closure {
+                    self.diagnostics.push(Diagnostic::error(
+                        "Expression closures return their expression; use yield inside an if or for expression",
+                        Some(stmt.span),
+                    ));
+                    return;
+                }
                 if let Some(expected_ret) = self.current_return_type.clone() {
                     if expected_ret == Type::Void {
                         if expr_opt.is_some() {
@@ -2169,7 +2181,8 @@ impl TypeChecker {
                         if let Some(e) = expr_opt {
                             let actual_ty = self.check_expr(cls, e);
                             if let Some(act) = actual_ty {
-                                if !self.is_assignable_to(&act, &expected_ret) && act != Type::Void {
+                                if !self.is_assignable_to(&act, &expected_ret)
+                                    && (act != Type::Void || matches!(expected_ret, Type::Function { .. })) {
                                     self.diagnostics.push(Diagnostic::error(
                                         format!(
                                             "Mismatched return type: expected '{:?}', found '{:?}'",
@@ -2346,8 +2359,8 @@ impl TypeChecker {
                         ));
                         None
                     }
-                    Type::Task(_) if member == "cancel" => Some(Type::Bool),
-                    Type::Task(_) if member == "timeout" => Some(obj_ty.clone()),
+                    Type::Async(_) if member == "cancel" => Some(Type::Bool),
+                    Type::Async(_) if member == "timeout" => Some(obj_ty.clone()),
                     Type::Channel(_) if matches!(member.as_str(), "send" | "receive" | "close") => {
                         Some(Type::Void)
                     }
@@ -2355,6 +2368,44 @@ impl TypeChecker {
                 }
             }
             ExprKind::Call { callee, args } => {
+                if !matches!(callee.kind, ExprKind::MemberAccess { .. }) {
+                    if let ExprKind::Identifier(name) = &callee.kind {
+                        if self.symbol_table.lookup(name).is_none() {
+                            self.diagnostics.push(Diagnostic::error(
+                                "Unqualified method calls require 'this.' or 'static.'; only Func values can be called directly",
+                                Some(callee.span),
+                            ));
+                            return None;
+                        }
+                    }
+                    let callee_type = self.check_expr(cls, callee)?;
+                    let Type::Function { params, return_type } = callee_type else {
+                        self.diagnostics.push(Diagnostic::error(
+                            format!("Cannot call '{}'; expected a Func value", callee_type),
+                            Some(callee.span),
+                        ));
+                        return None;
+                    };
+                    if params.len() != args.len() {
+                        self.diagnostics.push(Diagnostic::error(
+                            format!("Func expects {} arguments, found {}", params.len(), args.len()),
+                            Some(expr.span),
+                        ));
+                    }
+                    for (index, arg) in args.iter().enumerate() {
+                        if let Some(actual) = self.check_expr(cls, arg) {
+                            if let Some(expected) = params.get(index) {
+                                if actual == Type::Void || !self.is_assignable_to(&actual, expected) {
+                                    self.diagnostics.push(Diagnostic::error(
+                                        format!("Func argument {} expects '{}', found '{}'", index + 1, expected, actual),
+                                        Some(arg.span),
+                                    ));
+                                }
+                            }
+                        }
+                    }
+                    return Some(*return_type);
+                }
                 if matches!(&callee.kind, ExprKind::MemberAccess { object, member, .. } if member == "mock" && matches!(&object.kind, ExprKind::Identifier(name) if name == "Mockery" && self.symbol_table.lookup(name).is_none())) {
                     if let [Expr { kind: ExprKind::Identifier(contract), .. }] = args.as_slice() {
                         let name = crate::mockery::class_name(contract);
@@ -2472,13 +2523,13 @@ impl TypeChecker {
                                     }
                                     return Some(method.result);
                                 }
-                                if name == "Task" && ["all", "any", "race", "allSettled"].contains(&member.as_str()) {
-                                    if !class_receiver { self.diagnostics.push(Diagnostic::error("Task combinators require a class call", Some(expr.span))); }
+                                if name == "Async" && ["all", "any", "race", "allSettled"].contains(&member.as_str()) {
+                                    if !class_receiver { self.diagnostics.push(Diagnostic::error("Async combinators require a class call", Some(expr.span))); }
                                     if let Some(list) = args.first() {
                                         if let ExprKind::ListLiteral(elements) = &list.kind {
                                             for element in elements {
-                                                if !matches!(self.check_expr(cls, element), Some(Type::Task(_))) {
-                                                    self.diagnostics.push(Diagnostic::error("Task combinators accept only task elements", Some(element.span)));
+                                                if !matches!(self.check_expr(cls, element), Some(Type::Async(_))) {
+                                                    self.diagnostics.push(Diagnostic::error("Async combinators accept only task elements", Some(element.span)));
                                                 }
                                             }
                                         }
@@ -2670,19 +2721,19 @@ impl TypeChecker {
                                     }
                                 }
                             }
-                            if matches!(&obj_ty, Type::Class { name } if name == "List" || name == "Map") && arg_types.iter().any(|ty| ty.nullable_scalar_inner().is_some() || matches!(ty, Type::Task(inner) if inner.nullable_scalar_inner().is_some())) {
+                            if matches!(&obj_ty, Type::Class { name } if name == "List" || name == "Map") && arg_types.iter().any(|ty| ty.nullable_scalar_inner().is_some() || matches!(ty, Type::Async(inner) if inner.nullable_scalar_inner().is_some())) {
                                 self.diagnostics.push(Diagnostic::error("Nullable scalar values and tasks with nullable scalar results are not supported in untyped collection storage yet", Some(expr.span)));
                             }
-                            if matches!(obj_ty, Type::Task(_)) && member == "cancel" {
+                            if matches!(obj_ty, Type::Async(_)) && member == "cancel" {
                                 return Some(Type::Bool);
                             }
-                            if matches!(obj_ty, Type::Task(_)) && member == "timeout" {
+                            if matches!(obj_ty, Type::Async(_)) && member == "timeout" {
                                 let valid = args.len() == 1
                                     && arg_types.len() == 1
                                     && matches!(arg_types[0], Type::Int | Type::Long);
                                 if !valid {
                                     self.diagnostics.push(Diagnostic::error(
-                                        "Task.timeout expects one Int argument: the timeout in milliseconds",
+                                        "Async.timeout expects one Int argument: the timeout in milliseconds",
                                         Some(expr.span),
                                     ));
                                 }
@@ -2704,10 +2755,10 @@ impl TypeChecker {
                                                 Some(expr.span),
                                             ));
                                         }
-                                        Some(Type::Task(Box::new(Type::Bool)))
+                                        Some(Type::Async(Box::new(Type::Bool)))
                                     }
                                     "receive" if args.is_empty() => {
-                                        Some(Type::Task(element.clone()))
+                                        Some(Type::Async(element.clone()))
                                     }
                                     "close" if args.is_empty() => Some(Type::Void),
                                     _ => {
@@ -2720,9 +2771,9 @@ impl TypeChecker {
                                 };
                             }
                             if let Type::Class { ref name } = obj_ty {
-                                if name == "Task" && member == "async" {
+                                if name == "Async" && member == "async" {
                                     self.diagnostics.push(Diagnostic::error(
-                                        "Task.async(...) was removed; start a task with `async expr` instead",
+                                        "Async.async(...) was removed; start a task with `async expr` instead",
                                         Some(expr.span),
                                     ));
                                     return None;
@@ -2976,7 +3027,7 @@ impl TypeChecker {
                             Type::Int | Type::Long | Type::Byte | Type::Bool | Type::Decimal
                                 | Type::String
                                 | Type::Class { .. }
-                                | Type::Task(_)
+                                | Type::Async(_)
                                 | Type::Channel(_)
                                 | Type::Bytes
                                 | Type::InputStream
@@ -3074,11 +3125,11 @@ impl TypeChecker {
                     | BinaryOp::GreaterEqual => Some(Type::Bool),
                     _ => {
                         let is_concurrent = |ty: &Option<Type>| {
-                            matches!(ty, Some(Type::Task(_) | Type::Channel(_)))
+                            matches!(ty, Some(Type::Async(_) | Type::Channel(_)))
                         };
                         if is_concurrent(&l_ty) || is_concurrent(&r_ty) {
                             self.diagnostics.push(Diagnostic::error(
-                                "Cannot do arithmetic on a Task or Channel; `await` it first, or write `async (a + b)` to run the whole expression as a task",
+                                "Cannot do arithmetic on an Async or Channel; `await` it first, or write `async (a + b)` to run the whole expression as a task",
                                 Some(expr.span),
                             ));
                         }
@@ -3131,7 +3182,7 @@ impl TypeChecker {
             ExprKind::ListLiteral(elements) => {
                 for elem in elements {
                     if let Some(ty) = self.check_expr(cls, elem) {
-                        if ty.nullable_scalar_inner().is_some() || matches!(&ty, Type::Task(inner) if inner.nullable_scalar_inner().is_some()) {
+                        if ty.nullable_scalar_inner().is_some() || matches!(&ty, Type::Async(inner) if inner.nullable_scalar_inner().is_some()) {
                             self.diagnostics.push(Diagnostic::error("Nullable scalar values and tasks with nullable scalar results are not supported in untyped List storage yet", Some(elem.span)));
                         }
                     }
@@ -3144,7 +3195,7 @@ impl TypeChecker {
                 for (k, v) in pairs {
                     for value in [k, v] {
                         if let Some(ty) = self.check_expr(cls, value) {
-                            if ty.nullable_scalar_inner().is_some() || matches!(&ty, Type::Task(inner) if inner.nullable_scalar_inner().is_some()) {
+                            if ty.nullable_scalar_inner().is_some() || matches!(&ty, Type::Async(inner) if inner.nullable_scalar_inner().is_some()) {
                                 self.diagnostics.push(Diagnostic::error("Nullable scalar values and tasks with nullable scalar results are not supported in untyped Map storage yet", Some(value.span)));
                             }
                         }
@@ -3171,21 +3222,47 @@ impl TypeChecker {
                 Some(Type::Int)
             }
             ExprKind::AsyncSpawn(inner) => match self.check_expr(cls, inner) {
-                Some(result_type) => Some(Type::Task(Box::new(result_type))),
+                Some(result_type) => Some(Type::Async(Box::new(result_type))),
                 None => None,
             },
             ExprKind::Await(inner) => match self.check_expr(cls, inner) {
-                Some(Type::Task(result)) => Some(*result),
+                Some(Type::Async(result)) => Some(*result),
                 Some(other) => {
                     self.diagnostics.push(Diagnostic::error(
-                        format!("await requires a Task, found '{:?}'", other),
+                        format!(".await() requires an Async, found '{:?}'", other),
                         Some(inner.span),
                     ));
                     None
                 }
                 None => None,
             },
+            ExprKind::Closure { params, expression } => {
+                let saved_symbols = self.symbol_table.clone();
+                let saved_loop_depth = self.loop_depth;
+                let saved_closure = self.in_expression_closure;
+                self.loop_depth = 0;
+                self.in_expression_closure = true;
+                self.symbol_table.freeze_bindings();
+                self.symbol_table.push_scope();
+                let mut param_types = Vec::new();
+                for param in params {
+                    let ty = self.type_spec_to_type(&param.type_spec);
+                    if ty == Type::Void {
+                        self.diagnostics.push(Diagnostic::error("Func parameters cannot have type void", Some(param.span)));
+                    }
+                    param_types.push(ty.clone());
+                    if !self.symbol_table.insert(Symbol { name: param.name.clone(), ty, is_mutable: false }) {
+                        self.diagnostics.push(Diagnostic::error(format!("Duplicate Func parameter '{}'", param.name), Some(param.span)));
+                    }
+                }
+                let result = self.check_expr(cls, expression);
+                self.symbol_table = saved_symbols;
+                self.loop_depth = saved_loop_depth;
+                self.in_expression_closure = saved_closure;
+                result.map(|return_type| Type::Function { params: param_types, return_type: Box::new(return_type) })
+            }
             ExprKind::Lambda { parameter, body } => {
+                let outer_closure = std::mem::replace(&mut self.in_expression_closure, false);
                 let outer_return_type = self.current_return_type.clone();
                 let return_type = Type::Class {
                     name: "Response".into(),
@@ -3221,6 +3298,7 @@ impl TypeChecker {
 
                 self.symbol_table.pop_scope();
                 self.current_return_type = outer_return_type;
+                self.in_expression_closure = outer_closure;
                 Some(Type::Function {
                     params: vec![Type::Class {
                         name: "Request".into(),
@@ -3348,6 +3426,9 @@ impl TypeChecker {
     }
 
     fn is_assignable_to(&self, from: &Type, to: &Type) -> bool {
+        if matches!(to, Type::Function { .. }) {
+            return from == to;
+        }
         if from == to || from == &Type::Void {
             return true;
         }
@@ -3384,6 +3465,13 @@ impl TypeChecker {
                         name: canonical_builtin_class_name(name).unwrap_or(name).into(),
                     }
                 }
+            }
+            TypeSpec::Function { params, return_type } => Type::Function {
+                params: params.iter().map(|p| self.type_spec_to_type(p)).collect(),
+                return_type: Box::new(self.type_spec_to_type(return_type)),
+            },
+            TypeSpec::Generic(name, element) if name == "Async" => {
+                Type::Async(Box::new(self.type_spec_to_type(element)))
             }
             TypeSpec::Generic(name, element) if name == "Channel" => {
                 Type::Channel(Box::new(self.type_spec_to_type(element)))
@@ -3452,6 +3540,6 @@ impl TypeChecker {
             self.diagnostics.push(Diagnostic::error(format!("Invalid arguments for static method '{}.{}'", name, member), Some(span)));
         }
         let ty = method.return_type.as_ref().map_or(Type::Void, |t| self.type_spec_to_type(t));
-        Some(Some(if method.is_async { Type::Task(Box::new(if ty == Type::Void { Type::Int } else { ty })) } else { ty }))
+        Some(Some(if method.is_async { Type::Async(Box::new(if ty == Type::Void { Type::Int } else { ty })) } else { ty }))
     }
 }

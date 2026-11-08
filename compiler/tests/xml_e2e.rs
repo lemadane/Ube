@@ -89,8 +89,8 @@ fn expect(output: Output, expected: &str) {
 fn objects_lists_maps_and_nulls_round_trip_through_real_xml() {
     let program = Program::new(
         r#"
-    class Address(string city) {}
-    class Profile(int id,string name,bool active,int? absent,int? zero,Address address,List scores,Map settings) {}
+    class Address(string city)
+    class Profile(int id,string name,bool active,int? absent,int? zero,Address address,List scores,Map settings)
     class App {start(){
         final profile=Profile(42,'Alice <&> 世界',false,null,0,Address('東京'),[1,true,null],['theme':'dark','nested':['x':2]])
         Gc.collect()
@@ -124,7 +124,7 @@ fn objects_lists_maps_and_nulls_round_trip_through_real_xml() {
 fn options_customize_roots_attributes_namespaces_and_list_items() {
     let program = Program::new(
         r#"
-    class Profile(int id,string name,List scores) {}
+    class Profile(int id,string name,List scores)
     class App {start(){
         final options=XmlOptions().root('p:person').namespace('p','urn:people').attribute('id').rename('name','p:displayName').listItem('score')
         final value=Profile(42,'Alice & Bob',[95,88]).toXml(options)
@@ -180,8 +180,8 @@ fn document_building_and_parsing_preserve_real_content_and_namespaces() {
 fn malformed_xml_cycles_resources_and_invalid_customization_are_catchable() {
     let program = Program::new(
         r#"
-    class Node(Node? next) {}
-    class Profile(int id,string name) {}
+    class Node(Node? next)
+    class Profile(int id,string name)
     class App {start(){
         try {Xml.toObject('<root>')}catch(XmlParseError e){print('malformed')}
         try {Xml.toObject('<!DOCTYPE root [<!ENTITY x "boom">]><root>&x;</root>')}catch(XmlParseError e){print('dtd rejected')}
@@ -229,7 +229,7 @@ fn xml_signatures_receivers_and_reserved_methods_are_checked() {
         "Xml.toObject('<r/>').root().text(1)",
         "Xml.to('text',Profile)",
     ] {
-        let source = format!("class Profile(int id) {{}} class App {{start(){{{statement}}}}}");
+        let source = format!("class Profile(int id) class App {{start(){{{statement}}}}}");
         let mut parser = Parser::new(Lexer::new(&source));
         let program = parser.parse_program();
         let mut checker = TypeChecker::new();
@@ -240,7 +240,7 @@ fn xml_signatures_receivers_and_reserved_methods_are_checked() {
     }
     for source in [
         "class Bad { string toXml(){return 'bad'} }",
-        "class Bad(string toXml) {}",
+        "class Bad(string toXml)",
     ] {
         let mut parser = Parser::new(Lexer::new(source));
         let program = parser.parse_program();
@@ -256,7 +256,7 @@ fn xml_signatures_receivers_and_reserved_methods_are_checked() {
 fn xml_encoding_and_document_handles_work_across_async_calls() {
     let program = Program::new(
         r#"
-    class Profile(int id) {}
+    class Profile(int id)
     class App {
         async string encode() { return Profile(7).toXml() }
         async XmlDocument document() { return Xml.toObject('<ready>ok</ready>') }
@@ -346,8 +346,8 @@ fn shipped_xml_project_runs_and_builds_with_the_documented_output() {
 fn xml_file_round_trip_between_independent_native_processes() {
     let writer = Program::new(
         r#"
-    class Address(string city) {}
-    class Profile(long id,string name,Address address,List scores,Map metadata,int? missing) {}
+    class Address(string city)
+    class Profile(long id,string name,Address address,List scores,Map metadata,int? missing)
     class App {start(){
         final profile=Profile(9007199254740993L,'Alice <&> 世界',Address('東京'),[true,null,3],['space key':'value <&>'],null)
         final options=XmlOptions().root('p:profile').namespace('p','urn:profile').attribute('id').rename('name','p:displayName').listItem('score')
@@ -494,9 +494,9 @@ fn namespace_scopes_null_semantics_and_detached_subtrees_round_trip() {
 fn options_are_root_scoped_reusable_and_reject_ambiguous_attributes() {
     let program = Program::new(
         r#"
-    class Child(int id,string name) {}
-    class Parent(int id,string name,Child child) {}
-    class Nullable(int? id) {}
+    class Child(int id,string name)
+    class Parent(int id,string name,Child child)
+    class Nullable(int? id)
     class App {start(){
         final value=Parent(7,'outer',Child(8,'inner'))
         final options=XmlOptions().root('person').attribute('id').rename('name','label')

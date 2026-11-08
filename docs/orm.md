@@ -6,7 +6,7 @@ transactions. It is native to Ube; GORM and Hibernate are design references, not
 runtime dependencies.
 
 ```ube
-class User(long id, var string name, bool active, string? email) {}
+class User(long id, var string name, bool active, string? email)
 
 class App {
     start() {

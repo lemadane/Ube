@@ -67,8 +67,8 @@ class App {
             cache.set('count', '0', 0)
             final first = this.incrementMany(cache, 100)
             final second = this.incrementMany(cache, 100)
-            await first
-            await second
+            first.await()
+            second.await()
             Console.printLine(cache.get('count') ?? 'missing')
         } finally {
             cache.close()

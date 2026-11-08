@@ -181,7 +181,7 @@ fn thousands_of_suspended_methods_use_bounded_worker_threads() {
                 print('parked') final release = Console.readLine()
                 index = 0
                 for (index < 2048) { final sent = await gate.send(1) index = index + 1 }
-                final results = await Task.all(tasks)
+                final results = await Async.all(tasks)
                 var total = 0 index = 0
                 for (index < 2048) { total = total + results[index] index = index + 1 }
                 print(total)
@@ -234,7 +234,7 @@ fn thousands_of_suspended_methods_use_bounded_worker_threads() {
 fn suspended_references_remain_rooted_and_are_released_on_completion() {
     let program = Program::new(
         r#"
-        class Payload(int value) {}
+        class Payload(int value)
         class App(var Payload? current = null) {
             App setup() { return App(Payload(7)) }
             async int work(Channel<int> ready, Channel<int> gate) {
@@ -276,7 +276,7 @@ fn instruction_budget_allows_another_task_to_win_on_one_worker() {
             start() {
                 final ready = Channel<int>(1) final slowGate = Channel<int>(1) final fastGate = Channel<int>(1)
                 final slow = this.spin(ready, slowGate) final started = await ready.receive()
-                final quick = this.quick(fastGate) final winner = Task.race([slow, quick])
+                final quick = this.quick(fastGate) final winner = Async.race([slow, quick])
                 final startSlow = await slowGate.send(1) final startFast = await fastGate.send(1)
                 print(await winner.timeout(2000))
                 try { final value = await slow } catch (Error error) { print(error.message()) }

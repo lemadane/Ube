@@ -45,6 +45,7 @@ impl Precedence {
     }
 }
 
+#[derive(Clone)]
 pub struct Parser<'a> {
     lexer: Lexer<'a>,
     in_trait: bool,
@@ -319,6 +320,13 @@ impl<'a> Parser<'a> {
                 }
             }
             let end_tok = self.expect(&TokenKind::CloseBrace, "}")?;
+            if cases.is_empty() && static_fields.is_empty() && methods.is_empty() {
+                self.diagnostics.push(Diagnostic::error(
+                    "Empty class bodies are not allowed; omit '{}'",
+                    Some(end_tok.span),
+                ));
+                return Err(());
+            }
             Ok(ClassDecl {
                 name: class_name,
                 primary_params,
@@ -424,7 +432,7 @@ impl<'a> Parser<'a> {
 
         // Check if return type is omitted: identifier followed directly by '('
         let (return_type, method_name) = match (&self.current_token.kind, &self.peek_token.kind) {
-            (TokenKind::Identifier(name), TokenKind::OpenParen) => {
+            (TokenKind::Identifier(name), TokenKind::OpenParen) if name != "Func" => {
                 let mname = name.clone();
                 self.advance();
                 (None, mname)
@@ -502,6 +510,32 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_type_spec(&mut self) -> Result<TypeSpec, ()> {
+        if matches!(&self.current_token.kind, TokenKind::Identifier(name) if name == "Task") {
+            self.diagnostics.push(Diagnostic::error("Task has been renamed to Async; use Async<T>", Some(self.current_token.span)));
+            return Err(());
+        }
+        if matches!(&self.current_token.kind, TokenKind::Identifier(name) if name == "Func") {
+            self.advance();
+            self.expect(&TokenKind::OpenParen, "( after Func")?;
+            let mut params = Vec::new();
+            if !self.check(&TokenKind::CloseParen) {
+                loop {
+                    let param = self.parse_type_spec()?;
+                    if matches!(&param, TypeSpec::Class(name) if name == "void") {
+                        self.diagnostics.push(Diagnostic::error("Func parameters cannot have type void", Some(self.current_token.span)));
+                        return Err(());
+                    }
+                    params.push(param);
+                    if !self.match_token(&TokenKind::Comma) { break; }
+                }
+            }
+            self.expect(&TokenKind::CloseParen, ")")?;
+            self.expect(&TokenKind::Arrow, "-> after Func parameter types")?;
+            return Ok(TypeSpec::Function {
+                params,
+                return_type: Box::new(self.parse_type_spec()?),
+            });
+        }
         let tok = self.current_token.clone();
         self.advance();
         let mut base_type = match tok.kind {
@@ -778,6 +812,9 @@ impl<'a> Parser<'a> {
     }
 
     fn is_typed_decl_start(&self) -> bool {
+        if matches!(&self.current_token.kind, TokenKind::Identifier(name) if name == "Func") {
+            return true;
+        }
         if self.is_type_specifier(&self.current_token.kind) {
             if matches!(self.peek_token.kind, TokenKind::Identifier(_)) {
                 return true;
@@ -1073,10 +1110,6 @@ impl<'a> Parser<'a> {
                         );
                     }
                 }
-                if self.check(&TokenKind::OpenParen) && !name.chars().next().is_some_and(char::is_uppercase) {
-                    self.diagnostics.push(Diagnostic::error("Unqualified method calls require 'this.' or 'static.'", Some(tok.span)));
-                    return Err(());
-                }
                 if name.chars().next().map_or(false, |c| c.is_uppercase()) {
                     let generic_type = if self.match_token(&TokenKind::Less) {
                         let ty = self.parse_type_spec()?;
@@ -1123,6 +1156,20 @@ impl<'a> Parser<'a> {
                 })
             }
             TokenKind::OpenParen => {
+                // Probe only the signature: grouped expressions continue through
+                // the ordinary expression parser without losing any tokens.
+                let mut probe = self.clone();
+                if let Ok(params) = probe.parse_closure_params() {
+                    if probe.match_token(&TokenKind::Arrow) {
+                        *self = probe;
+                        let expression = self.parse_expr(Precedence::None)?;
+                        let span = Span::combine(tok.span, expression.span);
+                        return Ok(Expr {
+                            kind: ExprKind::Closure { params, expression: Box::new(expression) },
+                            span,
+                        });
+                    }
+                }
                 let expr = self.parse_expr(Precedence::None)?;
                 self.expect(&TokenKind::CloseParen, ")")?;
                 Ok(expr)
@@ -1364,11 +1411,42 @@ impl<'a> Parser<'a> {
         })
     }
 
+    fn parse_closure_params(&mut self) -> Result<Vec<Param>, ()> {
+        let mut params = Vec::new();
+        if !self.check(&TokenKind::CloseParen) {
+            loop {
+                let span = self.current_token.span;
+                let type_spec = self.parse_type_spec()?;
+                let TokenKind::Identifier(name) = self.current_token.kind.clone() else {
+                    return Err(());
+                };
+                self.advance();
+                params.push(Param { name, type_spec, span });
+                if !self.match_token(&TokenKind::Comma) { break; }
+            }
+        }
+        self.expect(&TokenKind::CloseParen, ")")?;
+        Ok(params)
+    }
+
     fn parse_infix(&mut self, left: Expr) -> Result<Expr, ()> {
         let tok = self.current_token.clone();
         let prec = Precedence::from_token(&tok.kind);
 
         match tok.kind {
+            TokenKind::OpenParen => {
+                self.advance();
+                let mut args = Vec::new();
+                if !self.check(&TokenKind::CloseParen) {
+                    loop {
+                        args.push(self.parse_expr(Precedence::None)?);
+                        if !self.match_token(&TokenKind::Comma) { break; }
+                    }
+                }
+                let end = self.expect(&TokenKind::CloseParen, ")")?;
+                let span = Span::combine(left.span, end.span);
+                Ok(Expr { kind: ExprKind::Call { callee: Box::new(left), args }, span })
+            }
             TokenKind::Equal => {
                 self.advance();
                 let value = self.parse_expr(Precedence::Assignment)?;
@@ -1396,6 +1474,16 @@ impl<'a> Parser<'a> {
             TokenKind::Dot | TokenKind::QuestionDot => {
                 let is_optional = tok.kind == TokenKind::QuestionDot;
                 self.advance();
+                if self.match_token(&TokenKind::Await) {
+                    if is_optional {
+                        self.diagnostics.push(Diagnostic::error("Use .await() on a non-null Async value", Some(tok.span)));
+                        return Err(());
+                    }
+                    self.expect(&TokenKind::OpenParen, "( after .await")?;
+                    let end = self.expect(&TokenKind::CloseParen, ".await() takes no arguments")?;
+                    let span = Span::combine(left.span, end.span);
+                    return Ok(Expr { kind: ExprKind::Await(Box::new(left)), span });
+                }
                 let member_name = match self.current_token.kind.clone() {
                     TokenKind::Identifier(m) => {
                         self.advance();

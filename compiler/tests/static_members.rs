@@ -139,7 +139,7 @@ fn shared_fields_and_explicit_receivers() {
 fn initialization_once_defaults_and_factories() {
     runs(
         r#"
-    class Item(int value) {}
+    class Item(int value)
     class State {
         static var int count
         static final Item item = static.make()
@@ -159,7 +159,7 @@ fn initialization_once_defaults_and_factories() {
 fn reference_slots_survive_collection_and_replacement() {
     runs(
         r#"
-    class Item(string value) {}
+    class Item(string value)
     class State {
         static var Item? item = Item('first')
         static set() { static.item = Item('second') }
@@ -325,7 +325,7 @@ fn static_fields_work_across_native_async_suspension() {
 fn concurrent_static_reference_replacement_and_collection() {
     runs(
         r#"
-    class Item(int value) {}
+    class Item(int value)
     class State {
         static var Item item = Item(0)
         static async int write() {
@@ -361,7 +361,7 @@ fn concurrent_static_reference_replacement_and_collection() {
 fn replacing_a_static_reference_releases_its_gc_root() {
     runs(
         r#"
-    class Item(int value) {}
+    class Item(int value)
     class State {
         static var Item item = Item(1)
         static replace() { static.item = Item(2) }

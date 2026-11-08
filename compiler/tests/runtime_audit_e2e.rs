@@ -436,8 +436,8 @@ fn generated_objects_keep_live_graphs_and_reclaim_unreachable_cycles() {
     expect_output(
         run_ube(
             r#"
-        class Node(var Node? next = null, int value = 0) {}
-        class Mixed(bool active, int count, Node child, bool flag) {}
+        class Node(var Node? next = null, int value = 0)
+        class Mixed(bool active, int count, Node child, bool flag)
         class App {
             Node make(int value) {
                 try { return Node(null, value) }
@@ -482,7 +482,7 @@ fn generated_tracing_heap_survives_parallel_collection_and_async_object_handoffs
     expect_output(
         run_ube(
             r#"
-        class Node(var Node? next = null, int value = 0) {}
+        class Node(var Node? next = null, int value = 0)
         class App {
             async int work(int seed) {
                 var iteration = 0
@@ -503,7 +503,7 @@ fn generated_tracing_heap_survives_parallel_collection_and_async_object_handoffs
                 final two = this.work(2000)
                 final three = this.work(3000)
                 final four = this.work(4000)
-                final outcomes = await Task.all([one, two, three, four])
+                final outcomes = await Async.all([one, two, three, four])
                 print(outcomes[0])
                 print(outcomes[1])
                 print(outcomes[2])
@@ -553,7 +553,7 @@ fn generated_temporary_objects_are_collected_automatically() {
     expect_output(
         run_ube(
             r#"
-        class Entry(int value) {}
+        class Entry(int value)
         class App {
             int read(int value) { final entry = Entry(value) return entry.value() }
             start() {
@@ -587,7 +587,7 @@ fn concurrent_collection_mutations_are_memory_safe_and_keep_all_entries() {
                 final a = this.fill(values, start, 0)
                 final b = this.fill(values, start, 10000)
                 final one = await start.send(1) final two = await start.send(1)
-                final done = await Task.all([a, b])
+                final done = await Async.all([a, b])
                 print(values.len())
             }
         }
@@ -600,9 +600,9 @@ fn task_lists_reject_non_task_payloads_without_dereferencing_them() {
         class App {
             start() {
                 final invalid = [1]
-                try { final result = await Task.all(invalid) }
+                try { final result = await Async.all(invalid) }
                 catch (Error err) { print(err.message()) }
-                try { final result = await Task.race(invalid) }
+                try { final result = await Async.race(invalid) }
                 catch (Error err) { print(err.message()) }
                 print('alive')
             }
@@ -613,16 +613,16 @@ fn task_lists_reject_non_task_payloads_without_dereferencing_them() {
 #[test]
 fn settled_outcomes_preserve_zero_and_original_typed_failures() {
     expect_output(run_ube(r#"
-        class WorkError(string message, int code) {}
+        class WorkError(string message, int code)
         class App {
             async int fail() { throw WorkError('failed work', 73) }
             start() {
-                final results = await Task.allSettled([this.fail(), async 0])
+                final results = await Async.allSettled([this.fail(), async 0])
                 print(results.len()) print(results[0].succeeded()) print(results[1].succeeded())
                 print(results[1].value()) print(results[1].error() == null)
                 try { final value = results[0].value() }
                 catch (WorkError err) { print(err.message()) print(err.code()) }
-                final scalars = await Task.allSettled([async false, async 0.5, async 'hello'])
+                final scalars = await Async.allSettled([async false, async 0.5, async 'hello'])
                 print(scalars[0].boolValue()) print(scalars[1].decimalValue()) print(scalars[2].stringValue())
                 try { final wrong = scalars[0].value() } catch (Error err) { print('type checked') }
                 try { final invalid = results[2] }
@@ -644,12 +644,12 @@ fn combinator_deadline_joins_child_cleanup_and_cancels_pending_receives() {
                 final ready = Channel<int>(1) final blocked = Channel<int>(1) final done = Channel<int>(1)
                 final child = this.child(ready, blocked, done)
                 final started = await ready.receive()
-                try { final results = await Task.all([child]).timeout(5) }
+                try { final results = await Async.all([child]).timeout(5) }
                 catch (Error err) { print(err.message()) }
                 print(await done.receive().timeout(1000))
                 try { final result = await child } catch (Error err) { print(err.message()) }
                 final receiver = blocked.receive()
-                try { final result = await Task.race([receiver]).timeout(5) }
+                try { final result = await Async.race([receiver]).timeout(5) }
                 catch (Error err) { print(err.message()) }
                 final sent = await blocked.send(42)
                 try { print(await receiver) } catch (Error err) { print(err.message()) }
@@ -684,7 +684,7 @@ fn parent_completion_cancels_and_joins_unawaited_children() {
 #[test]
 fn deadline_and_cancellation_preserve_typed_cleanup_failures() {
     expect_output(run_ube(r#"
-        class CleanupError(string message, int code) {}
+        class CleanupError(string message, int code)
         class App {
             async int work(Channel<int> ready, Channel<int> blocked) {
                 try { final sent = await ready.send(1) return await blocked.receive() }
@@ -709,7 +709,7 @@ fn deadline_and_cancellation_preserve_typed_cleanup_failures() {
 #[test]
 fn shared_nullable_fields_remain_coherent_between_generated_workers() {
     expect_output(run_ube(r#"
-        class Shared(var int? number = null) {}
+        class Shared(var int? number = null)
         class App {
             async write(Shared state) {
                 var i = 0
@@ -726,7 +726,7 @@ fn shared_nullable_fields_remain_coherent_between_generated_workers() {
             start() {
                 final state = Shared(null)
                 final tasks = [this.write(state), this.read(state)]
-                final done = await Task.all(tasks)
+                final done = await Async.all(tasks)
                 print('fields stable')
             }
         }

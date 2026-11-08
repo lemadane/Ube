@@ -195,7 +195,7 @@ fn orm_cli_class_mapping_queries_transactions_and_persistence() {
         &directory.0,
         "orm-writer",
         r#"
-class User(long id, var string name, var bool active, int? age, long? serial, decimal? score, bool? verified, string? email) {}
+class User(long id, var string name, var bool active, int? age, long? serial, decimal? score, bool? verified, string? email)
 class App {
     long countUsers(OrmModel<User> users) {
         final query = users.query()
@@ -275,7 +275,7 @@ class App {
         &directory.0,
         "orm-reader",
         r#"
-class User(long id, string name, bool active, int? age, long? serial, decimal? score, bool? verified, string? email) {}
+class User(long id, string name, bool active, int? age, long? serial, decimal? score, bool? verified, string? email)
 class App {
     start() {
         final db = SQL.open('sqlite://orm.db?mode=ro')
@@ -319,9 +319,9 @@ fn orm_cli_inner_left_and_self_joins_keep_typed_results_and_transactions() {
         &directory.0,
         "joins",
         r#"
-class User(long id, string name, long? managerId) {}
-class Order(long id, long userId, string status) {}
-class Line(long id, long orderId) {}
+class User(long id, string name, long? managerId)
+class Order(long id, long userId, string status)
+class Line(long id, long orderId)
 class App {
     start() {
         final db = SQL.open('sqlite::memory:')
@@ -493,8 +493,8 @@ fn query_builder_signatures_reject_invalid_calls() {
 fn orm_groups_projections_and_aggregates_execute_with_typed_queries() {
     let directory = Directory::new();
     let executable = compile(&directory.0, "orm-extended", r#"
-class User(long id, string name, bool active, decimal? score, string? email) {}
-class Order(long id, long userId, decimal amount) {}
+class User(long id, string name, bool active, decimal? score, string? email)
+class Order(long id, long userId, decimal amount)
 class App {
     OrmProjection<User> names(OrmQuery<User> query) { return query.select('name') }
     start() {
@@ -610,7 +610,7 @@ fn orm_rejects_invalid_projection_group_and_aggregate_types() {
         "final User value = query.select('name').first()",
         "this.useLong(query.max('id'))",
     ] {
-        let source = format!("class User(long id, string name, bool active) {{}} class App {{ useLong(long value) {{}} start() {{ final db = SQL.open('sqlite::memory:') final users = Orm.model(db, User, 'users') final query = users.query() {statement} }} }}");
+        let source = format!("class User(long id, string name, bool active) class App {{ useLong(long value) {{}} start() {{ final db = SQL.open('sqlite::memory:') final users = Orm.model(db, User, 'users') final query = users.query() {statement} }} }}");
         let mut parser = Parser::new(Lexer::new(&source));
         let program = parser.parse_program();
         assert!(parser.diagnostics.is_empty(), "{statement}: {:?}", parser.diagnostics);

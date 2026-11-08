@@ -1,2 +1,2 @@
-class User(long id, string name, var bool active, string? email) {}
+class User(long id, string name, var bool active, string? email)
 

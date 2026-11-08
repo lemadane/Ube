@@ -24,6 +24,15 @@ impl SymbolTable {
         self.scopes.push(HashMap::new());
     }
 
+    /// Closure captures are immutable snapshots of the enclosing bindings.
+    pub fn freeze_bindings(&mut self) {
+        for scope in &mut self.scopes {
+            for symbol in scope.values_mut() {
+                symbol.is_mutable = false;
+            }
+        }
+    }
+
     pub fn pop_scope(&mut self) {
         self.scopes.pop();
     }

@@ -43,6 +43,7 @@ pub struct IrBuilder {
     generated_functions: Vec<IrFunction>,
     generated_classes: Vec<IrClass>,
     next_server_handler: usize,
+    next_closure: usize,
     pub diagnostics: Vec<Diagnostic>,
 }
 
@@ -75,17 +76,14 @@ impl IrBuilder {
             generated_functions: Vec::new(),
             generated_classes: Vec::new(),
             next_server_handler: 0,
+            next_closure: 0,
             diagnostics: Vec::new(),
         }
     }
 
     fn build_server_handler(&mut self, lambda: &Expr) -> Option<(String, IrOperand)> {
         let ExprKind::Lambda { parameter, body } = &lambda.kind else {
-            self.diagnostics.push(Diagnostic::error(
-                "Server routes require a `{ request -> Response(...) }` handler",
-                Some(lambda.span),
-            ));
-            return None;
+            return self.build_function_handler(lambda);
         };
         let Some((context_slot, context_ty)) = self.lookup_var("this") else {
             self.diagnostics.push(Diagnostic::error(
@@ -153,6 +151,7 @@ impl IrBuilder {
         handler_builder.loop_cleanup_depths.clear();
         handler_builder.yield_target_stack.clear();
         handler_builder.generated_functions.clear();
+        handler_builder.generated_classes.clear();
         handler_builder.current_method_async = false;
         let return_type = Type::Class {
             name: "Response".into(),
@@ -255,6 +254,10 @@ impl IrBuilder {
         handler_builder.finish_block(last_block);
         handler_builder.pop_var_scope();
 
+        self.next_closure = handler_builder.next_closure;
+        self.next_async_thunk = handler_builder.next_async_thunk;
+        self.next_server_handler = handler_builder.next_server_handler;
+        self.generated_classes.extend(std::mem::take(&mut handler_builder.generated_classes));
         self.generated_functions
             .extend(std::mem::take(&mut handler_builder.generated_functions));
         self.generated_functions.push(IrFunction {
@@ -294,6 +297,13 @@ impl IrBuilder {
                         name: canonical_builtin_class_name(n).unwrap_or(n).into(),
                     }
                 }
+            }
+            TypeSpec::Function { params, return_type } => Type::Function {
+                params: params.iter().map(|p| self.type_spec_to_type(p)).collect(),
+                return_type: Box::new(self.type_spec_to_type(return_type)),
+            },
+            TypeSpec::Generic(name, element) if name == "Async" => {
+                Type::Async(Box::new(self.type_spec_to_type(element)))
             }
             TypeSpec::Generic(name, element) if name == "Channel" => {
                 Type::Channel(Box::new(self.type_spec_to_type(element)))
@@ -599,6 +609,7 @@ impl IrBuilder {
         deferred.loop_cleanup_depths.clear();
         deferred.yield_target_stack.clear();
         deferred.generated_functions.clear();
+        deferred.generated_classes.clear();
         deferred.current_method_async = true;
         // The result type is only known after lowering; early failure returns
         // are emitted valueless and patched below.
@@ -629,7 +640,11 @@ impl IrBuilder {
         }
 
         let value = deferred.build_expr(expression);
-        let result_ty = value.get_type();
+        let result_ty = if matches!(value, IrOperand::Null) && !matches!(expression.kind, ExprKind::NullLiteral) {
+            Type::Void
+        } else {
+            value.get_type()
+        };
         if result_ty != Type::Void {
             for block in &mut deferred.blocks {
                 for instruction in &mut block.instructions {
@@ -641,10 +656,13 @@ impl IrBuilder {
                 }
             }
         }
-        deferred.emit(IrInstruction::Return { val: Some(value) });
+        deferred.emit(IrInstruction::Return { val: (result_ty != Type::Void).then_some(value) });
         let last_block = deferred.current_block_id.unwrap_or(entry);
         deferred.finish_block(last_block);
         self.next_async_thunk = deferred.next_async_thunk;
+        self.next_closure = deferred.next_closure;
+        self.next_server_handler = deferred.next_server_handler;
+        self.generated_classes.extend(std::mem::take(&mut deferred.generated_classes));
         let known_diagnostics = self.diagnostics.len();
         self.diagnostics
             .extend(deferred.diagnostics.drain(known_diagnostics..));
@@ -670,7 +688,7 @@ impl IrBuilder {
             captures: capture_values,
             result_ty: result_ty.clone(),
         });
-        IrOperand::Register(dest, Type::Task(Box::new(result_ty)))
+        IrOperand::Register(dest, Type::Async(Box::new(result_ty)))
     }
 
     fn push_var_scope(&mut self) {
@@ -768,7 +786,7 @@ impl IrBuilder {
             | Type::InputStream
             | Type::OutputStream
             | Type::FileStream
-            | Type::Task(_)
+            | Type::Async(_)
             | Type::Channel(_) => IrOperand::NullOf(ty.clone()),
             Type::Nullable(_) => IrOperand::NullOf(ty.clone()),
             _ => IrOperand::Null,
@@ -1920,6 +1938,9 @@ impl IrBuilder {
                 }
             }
             ExprKind::Call { callee, args } => {
+                if !matches!(callee.kind, ExprKind::MemberAccess { .. }) {
+                    return self.build_function_call(callee, args);
+                }
                 if let ExprKind::MemberAccess { object, member, .. } = &callee.kind {
                     if let Some(class_name) = self.static_class(object) {
                         if let Some(method) = self.class_decls.get(&class_name).and_then(|c| c.methods.iter().find(|m| m.is_static && m.name == *member)).cloned() {
@@ -1935,7 +1956,7 @@ impl IrBuilder {
                                 let callback = format!("ube_async_thunk_{}", self.next_async_thunk);
                                 self.next_async_thunk += 1;
                                 self.emit(IrInstruction::SpawnAsyncCall { dest, callback, class_name, method_name: member.clone(), receiver, args, result_ty: result_ty.clone() });
-                                return IrOperand::Register(dest, Type::Task(Box::new(result_ty)));
+                                return IrOperand::Register(dest, Type::Async(Box::new(result_ty)));
                             }
                             self.emit(IrInstruction::CallMethod { dest: (result_ty != Type::Void).then_some(dest), class_name, method_name: member.clone(), receiver, args, ret_ty: result_ty.clone() });
                             return if result_ty == Type::Void { IrOperand::Null } else { IrOperand::Register(dest, result_ty) };
@@ -2227,7 +2248,7 @@ impl IrBuilder {
                                 args: arg_ops,
                                 result_ty: result_ty.clone(),
                             });
-                            return IrOperand::Register(dest, Type::Task(Box::new(result_ty)));
+                            return IrOperand::Register(dest, Type::Async(Box::new(result_ty)));
                         }
 
                         let setter_field = self.class_decls.get(&class_name)
@@ -2336,10 +2357,10 @@ impl IrBuilder {
                             let mut call_args = vec![obj_op];
                             call_args.extend(arg_ops);
                             let ret_ty = match member.as_str() {
-                                "send" => Type::Task(Box::new(Type::Bool)),
+                                "send" => Type::Async(Box::new(Type::Bool)),
                                 "receive" => match call_args[0].get_type() {
-                                    Type::Channel(element) => Type::Task(element),
-                                    _ => Type::Task(Box::new(Type::Int)),
+                                    Type::Channel(element) => Type::Async(element),
+                                    _ => Type::Async(Box::new(Type::Int)),
                                 },
                                 _ => Type::Void,
                             };
@@ -2359,7 +2380,7 @@ impl IrBuilder {
                                 IrOperand::Register(dest, ret_ty)
                             };
                         }
-                        if class_name == "Task" || matches!(obj_op.get_type(), Type::Task(_)) {
+                        if class_name == "Async" || matches!(obj_op.get_type(), Type::Async(_)) {
                             let symbol = match member.as_str() {
                                 "timeout" => "ube_task_timeout",
                                 "all" => "ube_task_all_async",
@@ -2372,13 +2393,13 @@ impl IrBuilder {
                             let dest = self.fresh_reg();
                             let ret_ty = match member.as_str() {
                                 "timeout" => match obj_op.get_type() {
-                                    Type::Task(result) => Type::Task(result),
-                                    _ => Type::Task(Box::new(Type::Int)),
+                                    Type::Async(result) => Type::Async(result),
+                                    _ => Type::Async(Box::new(Type::Int)),
                                 },
-                                "all" => Type::Task(Box::new(Type::Class { name: "List".into() })),
-                                "allSettled" => Type::Task(Box::new(Type::Class { name: "TaskOutcomes".into() })),
+                                "all" => Type::Async(Box::new(Type::Class { name: "List".into() })),
+                                "allSettled" => Type::Async(Box::new(Type::Class { name: "TaskOutcomes".into() })),
                                 "cancel" => Type::Bool,
-                                _ => Type::Task(Box::new(Type::Int)),
+                                _ => Type::Async(Box::new(Type::Int)),
                             };
                             let mut call_args = Vec::new();
                             if member == "cancel" || member == "timeout" {
@@ -3924,7 +3945,7 @@ impl IrBuilder {
                 let dest = self.fresh_reg();
                 let error_dest = self.fresh_reg();
                 let result_ty = match task_op.get_type() {
-                    Type::Task(result) => *result,
+                    Type::Async(result) => *result,
                     _ => Type::Int,
                 };
                 self.emit(IrInstruction::AwaitTask {
@@ -3934,8 +3955,9 @@ impl IrBuilder {
                     result_ty: result_ty.clone(),
                 });
                 self.route_await_error(error_dest);
-                IrOperand::Register(dest, result_ty)
+                if result_ty == Type::Void { IrOperand::Null } else { IrOperand::Register(dest, result_ty) }
             }
+            ExprKind::Closure { params, expression } => self.build_closure(params, expression),
             ExprKind::Lambda { .. } => {
                 self.diagnostics.push(Diagnostic::error(
                     "Lambda expressions are currently supported only as server route handlers",
@@ -4116,3 +4138,5 @@ impl IrBuilder {
         Some((format!("{}.{}", class, member), self.type_spec_to_type(&field.type_spec)))
     }
 }
+
+include!("closures.rs");

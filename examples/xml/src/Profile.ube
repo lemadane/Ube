@@ -1,1 +1,1 @@
-class Profile(int id, string name, List scores) {}
+class Profile(int id, string name, List scores)

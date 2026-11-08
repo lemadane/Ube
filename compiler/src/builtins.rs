@@ -21,6 +21,7 @@ const BUILTIN_CLASS_NAMES: &[&str] = &[
     "FileError",
     "FileInfo",
     "FileNotFoundError",
+    "Func",
     "GenericError",
     "Gc",
     "GeoBounds",
@@ -83,7 +84,7 @@ const BUILTIN_CLASS_NAMES: &[&str] = &[
     "SQLiteResult",
     "SQLiteStatement",
     "SQLiteError",
-    "Task",
+    "Async",
     "TaskOutcome",
     "TaskOutcomes",
     "WebSocket",
@@ -496,12 +497,15 @@ mod capitalization_tests {
             let lower = name.to_ascii_lowercase();
             for source in [
                 format!("class App {{ start() {{ final value = {lower}() }} }}"),
-                format!("class App({lower} value) {{}}"),
+                format!("class App({lower} value)"),
             ] {
                 let mut parser = Parser::new(Lexer::new(&source));
                 parser.parse_program();
                 if name == "Log" && source.contains("log()") {
                     assert!(parser.diagnostics.is_empty(), "{source}: {:?}", parser.diagnostics);
+                } else if name == "Async" {
+                    // Lowercase async is the expression keyword, not an identifier.
+                    assert!(!parser.diagnostics.is_empty(), "accepted {source}");
                 } else {
                     assert!(parser.diagnostics.iter().any(|d| d.message.contains("capitalization")), "{source}: {:?}", parser.diagnostics);
                 }
@@ -509,6 +513,10 @@ mod capitalization_tests {
             let source = format!("class App {{ start() {{ {lower}.method() }} }}");
             let mut parser = Parser::new(Lexer::new(&source));
             let program = parser.parse_program();
+            if name == "Async" {
+                assert!(!parser.diagnostics.is_empty(), "accepted {source}");
+                continue;
+            }
             assert!(parser.diagnostics.is_empty(), "{source}: {:?}", parser.diagnostics);
             let mut checker = TypeChecker::new();
             assert!(!checker.check_program(&program), "accepted {source}");

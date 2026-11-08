@@ -59,8 +59,8 @@ fn expect(output: Output, expected: &str) {
 fn native_object_json_and_store_round_trip_are_real() {
     let program = Program::new(
         r#"
-    class Address(string city) {}
-    class Profile(int id,string name,long large,decimal ratio,bool active,int? absent,int? zero,Address address) {}
+    class Address(string city)
+    class Profile(int id,string name,long large,decimal ratio,bool active,int? absent,int? zero,Address address)
     class App {start(){
         final store=KeyValueStore.open(Console.args()[0])
         final profile=Profile(-123,'Alice 世界 "quoted"',9007199254740993L,0.25,true,null,0,Address('東京'))
@@ -104,9 +104,9 @@ fn native_object_json_and_store_round_trip_are_real() {
 fn serialization_rejects_cycles_resources_and_nonfinite_values_without_losing_state() {
     let program = Program::new(
         r#"
-    class Node(var Node? next,string label) {}
-    class Pair(Node left,Node right) {}
-    class Resource(Cache cache) {}
+    class Node(var Node? next,string label)
+    class Pair(Node left,Node right)
+    class Resource(Cache cache)
     class App {start(){
         final node=Node(null,'leaf')
         final shared=Pair(node,node).toJson()
@@ -150,8 +150,8 @@ fn serialization_rejects_cycles_resources_and_nonfinite_values_without_losing_st
     );
 }
 const STRESS: &str = r#"
-class Address(string city) {}
-class Payload(int id,string text,long wide,decimal ratio,bool active,int? absent,Address address) {}
+class Address(string city)
+class Payload(int id,string text,long wide,decimal ratio,bool active,int? absent,Address address)
 class App {
     string payload(int id){return Payload(id,'quotes " slash \\ newline\n 世界',9007199254740993L,0.25,true,null,Address('東京')).toJson()}
     async int work(KeyValueStore store,int worker){
@@ -300,7 +300,7 @@ fn automatic_json_and_store_signatures_are_checked() {
 fn native_nullable_scalars_and_injected_storage_failures_preserve_records() {
     let program = Program::new(
         r#"
-    class Scalars(byte code,bool? flag,decimal? ratio,long? counter,byte? absent) {}
+    class Scalars(byte code,bool? flag,decimal? ratio,long? counter,byte? absent)
     class App {start(){
         byte zero
         Console.printLine(Scalars(zero,false,0.0,0L,null).toJson())
@@ -357,8 +357,8 @@ fn native_nullable_scalars_and_injected_storage_failures_preserve_records() {
 #[test]
 fn native_lists_serialize_scalars_objects_nested_lists_and_reject_cycles() {
     let program = Program::new(r#"
-    class Person(int id,string name) {}
-    class Group(List people) {}
+    class Person(int id,string name)
+    class Group(List people)
     class App {start(){
         Console.printLine([].toJson())
         Console.printLine([1,-2,9007199254740993L,true,false,0.25,'世界 \"quoted\"',null].toJson())
@@ -399,8 +399,8 @@ fn native_lists_serialize_scalars_objects_nested_lists_and_reject_cycles() {
 #[test]
 fn native_maps_serialize_nested_values_and_validate_keys() {
     let program = Program::new(r#"
-    class Person(int id,string name) {}
-    class Record(Map data) {}
+    class Person(int id,string name)
+    class Record(Map data)
     class App {start(){
         final data=['person':Person(42,'世界'),'values':[1,true,null],'nested':['ok':false],'large':9007199254740993L,'ratio':0.25]
         Gc.collect()

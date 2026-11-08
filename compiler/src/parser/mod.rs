@@ -10,6 +10,27 @@ mod tests {
     use crate::lexer::Lexer;
 
     #[test]
+    fn empty_classes_require_omitting_braces() {
+        for declaration in ["class Address(string city)", "class Empty", "class Empty()"] {
+            for suffix in ["", "\nclass App { start() {} }"] {
+                let source = format!("{declaration}{suffix}");
+                let mut parser = Parser::new(Lexer::new(&source));
+                let program = parser.parse_program();
+                assert!(parser.diagnostics.is_empty(), "{source}: {:?}", parser.diagnostics);
+                assert_eq!(program.items.len(), if suffix.is_empty() { 1 } else { 2 });
+            }
+            for body in [" {}", " {\n}", " { // no members\n}"] {
+                let source = format!("{declaration}{body}");
+                let mut parser = Parser::new(Lexer::new(&source));
+                parser.parse_program();
+                assert!(parser.diagnostics.iter().any(|diagnostic|
+                    diagnostic.message == "Empty class bodies are not allowed; omit '{}'"
+                ), "Missing empty class diagnostic for {source}: {:?}", parser.diagnostics);
+            }
+        }
+    }
+
+    #[test]
     fn semicolons_are_rejected_in_statements_and_declarations() {
         for source in [
             "; class App { start() {} }",
