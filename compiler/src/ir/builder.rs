@@ -4043,6 +4043,13 @@ impl IrBuilder {
                 self.route_await_error(error_dest);
                 if result_ty == Type::Void { IrOperand::Null } else { IrOperand::Register(dest, result_ty) }
             }
+            ExprKind::BlockClosure { params, body, return_type } => {
+                let Some(return_type) = return_type.borrow().clone() else {
+                    self.diagnostics.push(Diagnostic::error("Block lambda requires semantic checking before lowering", Some(expr.span)));
+                    return IrOperand::Null;
+                };
+                self.build_function_closure(params, None, body, Some(return_type))
+            }
             ExprKind::Closure { params, expression } => self.build_closure(params, expression),
             ExprKind::Lambda { .. } => {
                 self.diagnostics.push(Diagnostic::error(

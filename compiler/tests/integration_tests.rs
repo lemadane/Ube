@@ -3183,12 +3183,12 @@ fn test_server_route_registration_and_response_factories_typecheck() {
         class App {
             start() {
                 final server = Server()
-                server.get('/users') { request ->
+                server.get('/users', (Request request) -> {
                     return Response.ok('User list')
-                }
-                server.post('/users') { request ->
+                })
+                server.post('/users', (Request request) -> {
                     return Response.created('User created')
-                }
+                })
                 Console.printLine(server.port())
             }
         }
@@ -3218,14 +3218,14 @@ fn test_server_request_path_query_headers_typecheck() {
         class App {
             start() {
                 final server = Server()
-                server.get('/users/{id}') { request ->
+                server.get('/users/{id}', (Request request) -> {
                     final id = request.pathLong('id')
                     final auth = request.header('Authorization')
                     if (id == 0) {
                         return Response.notFound('User not found')
                     }
                     return Response.json('{"id": 1, "name": "Alice"}')
-                }
+                })
             }
         }
     "#;
@@ -3249,18 +3249,13 @@ fn test_server_request_path_query_headers_typecheck() {
 }
 
 #[test]
-fn test_server_middleware_and_try_syntax_typecheck() {
+fn test_server_java_handler_and_try_syntax_typecheck() {
     let source_code = r#"
         
         class App {
             start() {
                 final server = Server()
-                server.use('/api') { request ->
-                    if (not request.hasBearerToken()) {
-                        raise(GenericError('Unauthorized'))
-                    }
-                }
-                server.get('/api/data') { request ->
+                server.get('/api/data', (Request request) -> {
                     try {
                         final val = request.query('search')
                         Console.printLine(val)
@@ -3270,8 +3265,8 @@ fn test_server_middleware_and_try_syntax_typecheck() {
                             Console.printLine(err.message())
                         }
                     }
-                    Response.text('Request processed')
-                }
+                    return Response.text('Request processed')
+                })
             }
         }
     "#;
@@ -3282,30 +3277,25 @@ fn test_server_middleware_and_try_syntax_typecheck() {
 
     assert!(
         parser.diagnostics.is_empty(),
-        "Parsing Server middleware failed: {:?}",
+        "Parsing Java-style route handler failed: {:?}",
         parser.diagnostics
     );
 
     let mut checker = TypeChecker::new();
     assert!(
         checker.check_program(&program),
-        "Type checking Server middleware failed: {:?}",
+        "Type checking Java-style route handler failed: {:?}",
         checker.diagnostics
     );
 }
 
 #[test]
-fn test_server_websocket_and_tls_syntax_typecheck() {
+fn test_server_tls_and_lifecycle_syntax_typecheck() {
     let source_code = r#"
         class App {
             start() {
                 final server = Server()
                 server.tls('cert.pem', 'key.pem')
-                server.websocket('/chat') { socket ->
-                    socket.onMessage { msg ->
-                        socket.send('Echo: ${msg}')
-                    }
-                }
                 server.start(8080)
                 server.stop()
             }
@@ -3318,14 +3308,14 @@ fn test_server_websocket_and_tls_syntax_typecheck() {
 
     assert!(
         parser.diagnostics.is_empty(),
-        "Parsing Server WebSocket and TLS failed: {:?}",
+        "Parsing Server TLS and lifecycle failed: {:?}",
         parser.diagnostics
     );
 
     let mut checker = TypeChecker::new();
     assert!(
         checker.check_program(&program),
-        "Type checking Server WebSocket and TLS failed: {:?}",
+        "Type checking Server TLS and lifecycle failed: {:?}",
         checker.diagnostics
     );
 }
@@ -3338,11 +3328,11 @@ fn test_server_http_protocol_versions_syntax_typecheck() {
                 final server = Server()
                 server.enableHttp2()
                 server.enableHttp3(443)
-                server.get('/protocol') { request ->
+                server.get('/protocol', (Request request) -> {
                     Console.printLine(request.protocol())
                     Console.printLine(request.isHttp3())
                     return Response.ok('Protocol: ${request.protocol()}')
-                }
+                })
             }
         }
     "#;

@@ -1036,7 +1036,7 @@ fn session_api_validates_instances_types_arity_and_construction() {
         "regenerate(1)",
         "destroy(1)",
     ] {
-        rejects(&format!("class App {{ start() {{ final server = Server() server.get('/') {{ request -> request.session().{call} return Response.ok('ok') }} }} }}"), "expects");
+        rejects(&format!("class App {{ start() {{ final server = Server() server.get('/', (Request request) -> {{ request.session().{call} return Response.ok('ok') }}) }} }}"), "expects");
     }
     for call in [
         "get(1)",
@@ -1044,9 +1044,9 @@ fn session_api_validates_instances_types_arity_and_construction() {
         "set('key', 42)",
         "remove(true)",
     ] {
-        rejects(&format!("class App {{ start() {{ final server = Server() server.get('/') {{ request -> request.session().{call} return Response.ok('ok') }} }} }}"), "non-null strings");
+        rejects(&format!("class App {{ start() {{ final server = Server() server.get('/', (Request request) -> {{ request.session().{call} return Response.ok('ok') }}) }} }}"), "non-null strings");
     }
-    rejects("class App { start() { final server = Server() server.get('/') { request -> request.session(1) return Response.ok('ok') } } }", "expects 0 arguments");
+    rejects("class App { start() { final server = Server() server.get('/', (Request request) -> { request.session(1) return Response.ok('ok') }) } }", "expects 0 arguments");
 }
 
 #[test]

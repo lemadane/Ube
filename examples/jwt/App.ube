@@ -4,10 +4,20 @@ class App {
         final key = File.read('jwt-secret.txt')
         final expires = DateTime.now().timestamp() + 3600L
         final payload = '{"sub":"user-123","iss":"ube-example","aud":"ube-api","exp":${expires}}'
-        final token = Jwt.sign(payload, key, 'HS256')
-        final claims = Jwt.verify(token, key, 'HS256', 'ube-example', 'ube-api')
+        final token = Jwt.sign(
+          payload,
+          key,
+          'HS256')
+        final claims = Jwt.verify(
+          token,
+          key,
+          'HS256',
+          'ube-example',
+          'ube-api')
         try {
-            print(claims.get('sub') ?? 'missing subject')
+            print(
+              claims.get('sub')
+                ?? 'missing subject')
         } finally {
             claims.close()
         }

@@ -11,7 +11,9 @@ trait UserLookup {
 }
 
 class Profile(UserLookup users) {
-    string title(int id) { return this._users.name(id) }
+    string title(int id) {
+        return this._users.name(id)
+    }
 }
 
 class ProfileTests {

@@ -2,25 +2,52 @@ import orm_types.User
 class App {
     start() {
         final db = SQL.open('sqlite::memory:')
-        final users = Orm.model(db, User, 'users')
+        final users = Orm.model(
+          db,
+          User,
+          'users')
         try {
             users.migrate()
-            users.create(User(1L, 'Ada', true, null))
+            users.create(
+              User(
+                1L,
+                'Ada',
+                true,
+                null))
             final user = users.get(1L)
-            print(user.name())
+            print(
+              user.name())
             user.active(false)
             users.save(user)
-            final query = users.query().where('active', '=', false).orderBy('id', 'asc').limit(10)
+            final query = users.query()
+              .where(
+                'active',
+                '=',
+                false)
+              .orderBy(
+                'id',
+                'asc')
+              .limit(10)
             try {
                 final rows = query.all()
                 try {
                     for (rows.next()) {
                         final found = rows.get()
-                        print(found.name())
-                        print(found.email() ?? 'no email')
+                        print(
+                          found.name())
+                        print(
+                          found.email()
+                            ?? 'no email')
                     }
-                } finally { rows.close() }
-            } finally { query.close() }
-        } finally { users.close() db.close() }
+                } finally {
+                    rows.close()
+                }
+            } finally {
+                query.close()
+            }
+        } finally {
+            users.close()
+            db.close()
+        }
     }
 }

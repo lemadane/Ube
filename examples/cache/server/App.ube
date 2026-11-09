@@ -5,10 +5,15 @@ class App {
             Console.printLine('Usage: server <database-path>')
             return
         }
-        final address = Env.get('UBE_CACHE_ADDRESS') ?? '127.0.0.1:6380'
-        final cache = Cache.open(args[0], 67108864)
+        final address = Env.get('UBE_CACHE_ADDRESS')
+          ?? '127.0.0.1:6380'
+        final cache = Cache.open(
+          args[0],
+          67108864)
         try {
-            cache.listen(address, Env.require('UBE_CACHE_TOKEN'))
+            cache.listen(
+              address,
+              Env.require('UBE_CACHE_TOKEN'))
             Observability.start(9090)
             Health.ready(true)
             Console.printLine('Cache listening; press Enter to stop')

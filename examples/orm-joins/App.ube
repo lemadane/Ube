@@ -3,25 +3,56 @@ import orm_joins_types.Order
 class App {
     start() {
         final db = SQL.open('sqlite::memory:')
-        final users = Orm.model(db, User, 'users')
-        final orders = Orm.model(db, Order, 'orders')
+        final users = Orm.model(
+          db,
+          User,
+          'users')
+        final orders = Orm.model(
+          db,
+          Order,
+          'orders')
         try {
             users.migrate()
             orders.migrate()
-            users.create(User(1L, 'Ada'))
-            orders.create(Order(10L, 1L, 'paid'))
+            users.create(
+              User(
+                1L,
+                'Ada'))
+            orders.create(
+              Order(
+                10L,
+                1L,
+                'paid'))
             final base = users.query()
             // INNER JOIN orders AS o ON base.id = o.userId
-            final paid = base.join(orders, 'o', 'id', 'userId').where('o.status', '=', 'paid')
+            final paid = base.join(
+              orders,
+              'o',
+              'id',
+              'userId')
+              .where(
+                'o.status',
+                '=',
+                'paid')
             try {
                 final rows = paid.all()
                 try {
                     for (rows.next()) {
                         final user = rows.get()
-                        print(user.name())
+                        print(
+                          user.name())
                     }
-                } finally { rows.close() }
-            } finally { paid.close() base.close() }
-        } finally { orders.close() users.close() db.close() }
+                } finally {
+                    rows.close()
+                }
+            } finally {
+                paid.close()
+                base.close()
+            }
+        } finally {
+            orders.close()
+            users.close()
+            db.close()
+        }
     }
 }

@@ -1,12 +1,18 @@
 class App {
     start() {
-        Log.put('requestId', 'req-42')
+        Log.put(
+          'requestId',
+          'req-42')
         try {
             log('Processing request')
             string? requestId = Log.get('requestId')
-            Console.printLine(requestId ?? 'unknown')
+            Console.printLine(
+              requestId
+                ?? 'unknown')
 
-            Log.put('user', 'alice')
+            Log.put(
+              'user',
+              'alice')
             Log.warn('Retrying operation')
             Log.remove('user')
         } finally {

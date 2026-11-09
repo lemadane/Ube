@@ -1,1 +1,3 @@
-class User(long id, string name)
+class User(
+  long id,
+  string name)

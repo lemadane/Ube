@@ -81,7 +81,7 @@ fn expressions(expr: &Expr, requested: &mut HashSet<String>) {
             visit(target);
             visit(index);
         }
-        ExprKind::Lambda { body, .. } => statements(body, requested),
+        ExprKind::Lambda { body, .. } | ExprKind::BlockClosure { body, .. } => statements(body, requested),
         ExprKind::If {
             condition,
             then_branch,

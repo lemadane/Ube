@@ -8,18 +8,18 @@ HTTPS. No session middleware or explicit response-cookie calls are required.
 class App {
     start() {
         final server = Server()
-        server.get('/') { request ->
+        server.get('/', (Request request) -> {
             final theme = request.session().get('theme') ?? 'light'
             return Response.ok('Theme: ${theme}')
-        }
-        server.post('/theme') { request ->
+        })
+        server.post('/theme', (Request request) -> {
             request.session().set('theme', 'dark')
             return Response.ok('Theme saved')
-        }
-        server.post('/logout') { request ->
+        })
+        server.post('/logout', (Request request) -> {
             request.session().destroy()
             return Response.ok('Session deleted')
-        }
+        })
         server.start(8080)
     }
 }

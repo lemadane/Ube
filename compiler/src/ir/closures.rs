@@ -1,10 +1,17 @@
 // First-class functions use traced objects and the existing structural call ABI.
 impl IrBuilder {
     fn build_closure(&mut self, params: &[Param], expression: &Expr) -> IrOperand {
+        self.build_function_closure(params, Some(expression), &[], None)
+    }
+
+    fn build_function_closure(&mut self, params: &[Param], expression: Option<&Expr>, statements: &[Stmt], checked_return_type: Option<Type>) -> IrOperand {
         let class_name = format!("__ube.closure.{}", self.next_closure);
         self.next_closure += 1;
         let mut references = std::collections::HashSet::new();
-        closure_references(expression, &mut references);
+        if let Some(expression) = expression {
+            closure_references(expression, &mut references);
+        }
+        closure_statement_references(statements, &mut references);
         let mut captures = std::collections::BTreeMap::new();
         for scope in &self.var_pointers {
             for (name, value) in scope {
@@ -42,7 +49,7 @@ impl IrBuilder {
         body.generated_classes.clear();
         body.in_cleanup = false;
         body.current_method_async = false;
-        body.current_method_return_type = Type::Void;
+        body.current_method_return_type = checked_return_type.clone().unwrap_or(Type::Void);
         body.diagnostics.clear();
         let entry = body.fresh_block();
         body.current_block_id = Some(entry);
@@ -85,14 +92,23 @@ impl IrBuilder {
             });
             body.insert_var(param.name.clone(), slot, ty.clone());
         }
-        let result = body.build_expr(expression);
-        let return_type = if matches!(result, IrOperand::Null)
-            && !matches!(expression.kind, ExprKind::NullLiteral)
-        {
-            Type::Void
+        let result = if let Some(expression) = expression {
+            body.build_expr(expression)
         } else {
-            result.get_type()
+            for statement in statements {
+                if body.is_current_terminated() { break; }
+                body.build_stmt(statement);
+            }
+            IrOperand::Null
         };
+        let return_type = checked_return_type.unwrap_or_else(|| {
+            if matches!(result, IrOperand::Null)
+                && !expression.is_some_and(|expr| matches!(expr.kind, ExprKind::NullLiteral)) {
+                Type::Void
+            } else {
+                result.get_type()
+            }
+        });
         // Exception exits were built before the inferred return type was known.
         if return_type != Type::Void {
             for block in &mut body.blocks {
@@ -107,7 +123,10 @@ impl IrBuilder {
         }
         if !body.is_current_terminated() {
             body.emit(IrInstruction::Return {
-                val: (return_type != Type::Void).then_some(result),
+                // Control-flow lowering can leave an unreachable merge block.
+                val: (return_type != Type::Void).then(|| {
+                    if expression.is_some() { result } else { Self::default_operand_for_type(&return_type) }
+                }),
             });
         }
         body.end_block();
@@ -242,6 +261,12 @@ impl IrBuilder {
 fn closure_references(expr: &Expr, names: &mut std::collections::HashSet<String>) {
     let mut visit = |expr: &Expr| closure_references(expr, names);
     match &expr.kind {
+        ExprKind::BlockClosure { params, body, .. } => {
+            let mut nested = std::collections::HashSet::new();
+            closure_statement_references(body, &mut nested);
+            for param in params { nested.remove(&param.name); }
+            names.extend(nested);
+        }
         ExprKind::Closure { params, expression } => {
             let mut nested = std::collections::HashSet::new();
             closure_references(expression, &mut nested);

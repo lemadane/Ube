@@ -68,56 +68,21 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn parse_lambda_block(&mut self) -> Result<Expr, ()> {
-        let start = self.expect(&TokenKind::OpenBrace, "{")?.span;
-        let parameter = match self.current_token.kind.clone() {
-            TokenKind::Identifier(name) => {
-                self.advance();
-                name
-            }
-            _ => {
+    fn reject_kotlin_lambda(&mut self) -> Result<(), ()> {
+        if self.check(&TokenKind::OpenBrace) {
+            let mut probe = self.clone();
+            probe.advance();
+            if matches!(probe.current_token.kind, TokenKind::Identifier(_))
+                && probe.peek_token.kind == TokenKind::Arrow
+            {
                 self.diagnostics.push(Diagnostic::error(
-                    "Expected a lambda parameter before '->'",
+                    "Kotlin-style lambdas are not supported; pass a Java-style lambda inside the argument list: server.get('/', (Request request) -> { return Response.ok('hello') })",
                     Some(self.current_token.span),
                 ));
                 return Err(());
             }
-        };
-        self.expect(&TokenKind::Arrow, "->")?;
-
-        let mut body = Vec::new();
-        while !self.check(&TokenKind::CloseBrace) && !self.check(&TokenKind::Eof) {
-            body.push(self.parse_stmt()?);
         }
-        let end = self.expect(&TokenKind::CloseBrace, "}")?.span;
-        Ok(Expr {
-            kind: ExprKind::Lambda { parameter, body },
-            span: Span::combine(start, end),
-        })
-    }
-
-    fn skip_trailing_block(&mut self) -> Result<Span, ()> {
-        let start = self.expect(&TokenKind::OpenBrace, "{")?.span;
-        let mut depth = 1;
-        let mut end = start;
-        while depth > 0 && !self.check(&TokenKind::Eof) {
-            if self.check(&TokenKind::OpenBrace) {
-                depth += 1;
-                self.advance();
-            } else if self.check(&TokenKind::CloseBrace) {
-                depth -= 1;
-                end = self.current_token.span;
-                self.advance();
-            } else {
-                self.advance();
-            }
-        }
-        if depth != 0 {
-            self.diagnostics
-                .push(Diagnostic::error("Unclosed trailing block", Some(start)));
-            return Err(());
-        }
-        Ok(Span::combine(start, end))
+        Ok(())
     }
 
     fn read_token(lexer: &mut Lexer<'a>, diagnostics: &mut Vec<Diagnostic>) -> Token {
@@ -510,6 +475,11 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_type_spec(&mut self) -> Result<TypeSpec, ()> {
+        if self.match_token(&TokenKind::OpenParen) {
+            let ty = self.parse_type_spec()?;
+            self.expect(&TokenKind::CloseParen, ") after grouped type")?;
+            return Ok(ty);
+        }
         if matches!(&self.current_token.kind, TokenKind::Identifier(name) if name == "Task") {
             self.diagnostics.push(Diagnostic::error("Task has been renamed to Async; use Async<T>", Some(self.current_token.span)));
             return Err(());
@@ -1057,10 +1027,12 @@ impl<'a> Parser<'a> {
             left = self.parse_infix(left)?;
         }
 
+        self.reject_kotlin_lambda()?;
         Ok(left)
     }
 
     fn parse_prefix(&mut self) -> Result<Expr, ()> {
+        self.reject_kotlin_lambda()?;
         let tok = self.current_token.clone();
         self.advance();
 
@@ -1210,6 +1182,17 @@ impl<'a> Parser<'a> {
                 if let Ok(params) = probe.parse_closure_params() {
                     if probe.match_token(&TokenKind::Arrow) {
                         *self = probe;
+                        if self.match_token(&TokenKind::OpenBrace) {
+                            let mut body = Vec::new();
+                            while !self.check(&TokenKind::CloseBrace) && !self.check(&TokenKind::Eof) {
+                                body.push(self.parse_stmt()?);
+                            }
+                            let end = self.expect(&TokenKind::CloseBrace, "} after lambda body")?.span;
+                            return Ok(Expr {
+                                kind: ExprKind::BlockClosure { params, body, return_type: Default::default() },
+                                span: Span::combine(tok.span, end),
+                            });
+                        }
                         let expression = self.parse_expr(Precedence::None)?;
                         let span = Span::combine(tok.span, expression.span);
                         return Ok(Expr {
@@ -1579,10 +1562,6 @@ impl<'a> Parser<'a> {
                     }
                 };
 
-                let has_response_handler = matches!(
-                    member_name.as_str(),
-                    "get" | "post" | "put" | "patch" | "delete" | "options" | "head"
-                );
                 let member_expr = Expr {
                     kind: ExprKind::MemberAccess {
                         object: Box::new(left.clone()),
@@ -1604,46 +1583,11 @@ impl<'a> Parser<'a> {
                         }
                     }
                     let end_tok = self.expect(&TokenKind::CloseParen, ")")?;
-                    let mut end_span = end_tok.span;
-                    if self.check(&TokenKind::OpenBrace) {
-                        if has_response_handler {
-                            let lambda = self.parse_lambda_block()?;
-                            end_span = lambda.span;
-                            args.push(lambda);
-                        } else {
-                            end_span = self.skip_trailing_block()?;
-                            args.push(Expr {
-                                kind: ExprKind::IntLiteral(0),
-                                span: end_span,
-                            });
-                        }
-                    }
+                    let end_span = end_tok.span;
                     Ok(Expr {
                         kind: ExprKind::Call {
                             callee: Box::new(member_expr),
                             args,
-                        },
-                        span: Span::combine(left.span, end_span),
-                    })
-                } else if self.check(&TokenKind::OpenBrace) {
-                    let (handler, end_span) = if has_response_handler {
-                        let lambda = self.parse_lambda_block()?;
-                        let span = lambda.span;
-                        (lambda, span)
-                    } else {
-                        let span = self.skip_trailing_block()?;
-                        (
-                            Expr {
-                                kind: ExprKind::IntLiteral(0),
-                                span,
-                            },
-                            span,
-                        )
-                    };
-                    Ok(Expr {
-                        kind: ExprKind::Call {
-                            callee: Box::new(member_expr),
-                            args: vec![handler],
                         },
                         span: Span::combine(left.span, end_span),
                     })

@@ -7,8 +7,12 @@ class App {
             try {
                 db.begin()
                 try {
-                    insert.bindInt(insert.parameterIndex(':id'), 1)
-                    insert.bindString(insert.parameterIndex(':name'), 'Ube')
+                    insert.bindInt(
+                      insert.parameterIndex(':id'),
+                      1)
+                    insert.bindString(
+                      insert.parameterIndex(':name'),
+                      'Ube')
                     insert.execute()
                     db.commit()
                 } catch (SQLiteError err) {
@@ -21,8 +25,10 @@ class App {
             final rows = db.query('SELECT id, name FROM items ORDER BY id')
             try {
                 for (rows.next()) {
-                    log(rows.getLong(0))
-                    log(rows.getString(1))
+                    log(
+                      rows.getLong(0))
+                    log(
+                      rows.getString(1))
                 }
             } finally {
                 rows.close()

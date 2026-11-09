@@ -202,6 +202,12 @@ pub enum ExprKind {
         parameter: String,
         body: Vec<Stmt>,
     },
+    BlockClosure {
+        params: Vec<Param>,
+        body: Vec<Stmt>,
+        // Shared across AST normalization clones; filled by semantic checking before lowering.
+        return_type: std::rc::Rc<std::cell::RefCell<Option<crate::types::Type>>>,
+    },
     Closure {
         params: Vec<Param>,
         expression: Box<Expr>,

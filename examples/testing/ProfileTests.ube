@@ -1,12 +1,22 @@
 import profile_test_types.UserLookup
 import profile_test_types.Profile
+
 class ProfileTests {
     testTitle() {
         final users = Mockery.mock(UserLookup)
         try {
-            Mockery.returns(users, 'name', 'Ada')
-            Testicle.equal('Ada', Profile(users).title(42))
-            Mockery.verify(users, 'name', 1)
+            Mockery.returns(
+              users,
+              'name',
+              'Ada')
+            Testicle.equal(
+              'Ada',
+              Profile(users)
+                .title(42))
+            Mockery.verify(
+              users,
+              'name',
+              1)
         } finally {
             Mockery.dispose(users)
         }

@@ -5,13 +5,20 @@ class App {
             Console.printLine('Usage: ttl <database-path> <set|get>')
             return
         }
-        final cache = Cache.open(args[0], 4096)
+        final cache = Cache.open(
+          args[0],
+          4096)
         try {
             if (args[1] == 'set') {
-                cache.set('short', 'temporary', 2000)
+                cache.set(
+                  'short',
+                  'temporary',
+                  2000)
                 Console.printLine('saved for two seconds')
             } else if (args[1] == 'get') {
-                Console.printLine(cache.get('short') ?? 'expired or missing')
+                Console.printLine(
+                  cache.get('short')
+                    ?? 'expired or missing')
             } else {
                 Console.printLine('Expected set or get')
             }

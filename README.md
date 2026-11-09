@@ -471,7 +471,7 @@ See the [runnable context example](examples/log_context/App.ube).
 - **Directories & Paths**: `Directory.create('logs')`, `Path.join('src', 'main.Ube')`.
 
 ### 21. Web Server Standard Library (`Server`, `Request`, `Response`)
-- **Lambda and route syntax**: Inline handler arguments are supported, for example `server.get('/', request -> Response.ok('hello'))`. The original trailing-lambda form remains supported.
+- **Lambda and route syntax**: Use Java-style lambdas inside the argument list: `server.get('/', (Request request) -> { return Response.ok('hello') })`. Expression bodies such as `(Request request) -> Response.ok('hello')` also work. Kotlin-style trailing handler blocks are rejected.
 - **Built-in naming**: Built-in classes require their canonical capitalized names, such as `Server`, `Request`, `Response`, `Json`, and `SQLite`. Lowercase class aliases are not supported. Instance variables such as `server` and `request` may still be lowercase.
 - **Express / Ktor Ergonomics**: Fluent routing with `server.get()`, `server.post()`, `server.put()`, `server.delete()`, `server.use()` (middleware), `server.static()`, `server.websocket()`, and `server.start(8080)`.
 - **OAuth 2.0 & JWT**: `OAuth2.create(...)` supports external authorization-code providers with session-bound state, S256 PKCE, and refresh tokens. `Jwt.sign(...)` and `Jwt.verify(...)` support HS256/RS256 with explicit issuer, audience, and expiration validation. See [authentication setup and API](docs/authentication.md), [the OAuth example](examples/oauth2/App.ube), and [the JWT example](examples/jwt/App.ube).
@@ -554,7 +554,7 @@ To include a backtick in a one-line string, write it between single quotes. Doub
 
 ## VS Code Extension & Syntax Highlighting
 
-Ube includes an official VS Code extension in [`editors/vscode`](editors/vscode) providing `.ube` file recognition, syntax highlighting, bracket matching, string interpolation highlighting, code folding, and document formatting. Use **Format Document** (Shift+Alt+F on Linux/Windows, Shift+Option+F on macOS) to apply the initial two-space indentation and multiline call-argument rules in [`FORMATTER.md`](editors/vscode/FORMATTER.md).
+Ube includes an official VS Code extension in [`editors/vscode`](editors/vscode) providing `.ube` file recognition, syntax highlighting, bracket matching, string interpolation highlighting, code folding, and document formatting. Use **Format Document** (Shift+Alt+F on Linux/Windows, Shift+Option+F on macOS) to apply the structural indentation and multiline parameter and argument rules in [`FORMATTER.md`](editors/vscode/FORMATTER.md). Multiline closing parentheses stay after the final value, while structural closing braces remain on their own lines.
 
 ### Installation Options:
 
@@ -602,11 +602,13 @@ class User(
 
 #### Function values
 
-Use `Func(parameterTypes) -> returnType` for a function value. Expression closures have typed parameters and an inferred result:
+Use `Func(parameterTypes) -> returnType` for a function value. Lambdas have typed parameters and an inferred result. Use an expression body or a Java-style block with explicit `return`:
 
 ```ube
 Func(int) -> int makeAdder(int amount) {
-    return (int value) -> value + amount
+    return (int value) -> {
+        return value + amount
+    }
 }
 ```
 
@@ -1692,7 +1694,8 @@ class App {
         final cache = Cache.memory(67108864)
         try {
             cache.set('greeting', 'hello', 60000)
-            Console.printLine(cache.get('greeting') ?? 'missing')
+            Console.printLine(
+              cache.get('greeting') ?? 'missing')
             cache.add('visits', '0', 0)
             Console.printLine(cache.increment('visits', 1))
             Console.printLine(cache.delete('greeting'))

@@ -1,9 +1,12 @@
 const vscode = require("vscode");
-const { formatUbeDocument } = require("./formatter");
 
 function activate(context) {
   const provider = vscode.languages.registerDocumentFormattingEditProvider("ube", {
     provideDocumentFormattingEdits(document) {
+      // Pick up local formatter updates without restarting the extension host.
+      const formatterPath = require.resolve("./formatter");
+      delete require.cache[formatterPath];
+      const { formatUbeDocument } = require(formatterPath);
       const source = document.getText();
       const formatted = formatUbeDocument(source);
       if (formatted === source) {

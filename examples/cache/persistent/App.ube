@@ -2,18 +2,27 @@ class App {
     start() {
         final args = Console.args()
         if (args.len() != 2) {
-            Console.printLine('Usage: persistent <database-path> <set|get|delete>')
+            Console.printLine(
+              'Usage: persistent <database-path> <set|get|delete>')
             return
         }
-        final cache = Cache.open(args[0], 67108864)
+        final cache = Cache.open(
+          args[0],
+          67108864)
         try {
             if (args[1] == 'set') {
-                cache.set('greeting', 'hello from disk', 0)
+                cache.set(
+                  'greeting',
+                  'hello from disk',
+                  0)
                 Console.printLine('saved')
             } else if (args[1] == 'get') {
-                Console.printLine(cache.get('greeting') ?? 'missing')
+                Console.printLine(
+                  cache.get('greeting')
+                    ?? 'missing')
             } else if (args[1] == 'delete') {
-                Console.printLine(cache.delete('greeting'))
+                Console.printLine(
+                  cache.delete('greeting'))
             } else {
                 Console.printLine('Expected set, get, or delete')
             }

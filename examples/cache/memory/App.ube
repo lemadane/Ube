@@ -3,15 +3,38 @@ class App {
         // Each one-byte key/value pair accounts for 66 bytes.
         final cache = Cache.memory(132)
         try {
-            Console.printLine(cache.add('a', '1', 0))
-            Console.printLine(cache.add('a', '9', 0))
-            cache.set('b', '2', 0)
-            Console.printLine(cache.get('a') ?? 'missing')
-            cache.set('c', '3', 0) // Evicts b, the least recently used key.
-            Console.printLine(cache.get('b') ?? 'missing')
-            Console.printLine(cache.increment('a', 2))
-            Console.printLine(cache.delete('a'))
-            Console.printLine(cache.delete('a'))
+            Console.printLine(
+              cache.add(
+                'a',
+                '1',
+                0))
+            Console.printLine(
+              cache.add(
+                'a',
+                '9',
+                0))
+            cache.set(
+              'b',
+              '2',
+              0)
+            Console.printLine(
+              cache.get('a')
+                ?? 'missing')
+            cache.set(
+              'c',
+              '3',
+              0) // Evicts b, the least recently used key.
+            Console.printLine(
+              cache.get('b')
+                ?? 'missing')
+            Console.printLine(
+              cache.increment(
+                'a',
+                2))
+            Console.printLine(
+              cache.delete('a'))
+            Console.printLine(
+              cache.delete('a'))
         } finally {
             cache.close()
         }

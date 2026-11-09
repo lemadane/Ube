@@ -1,10 +1,17 @@
 class App {
     start() {
-        final address = Env.get('UBE_CACHE_ADDRESS') ?? '127.0.0.1:6380'
-        final cache = Cache.connect(address, Env.require('UBE_CACHE_TOKEN'))
+        final address = Env.get('UBE_CACHE_ADDRESS')
+          ?? '127.0.0.1:6380'
+        final cache = Cache.connect(
+          address,
+          Env.require('UBE_CACHE_TOKEN'))
         try {
-            Console.printLine(cache.get('shared:greeting') ?? 'missing')
-            Console.printLine(cache.get('shared:visits') ?? 'missing')
+            Console.printLine(
+              cache.get('shared:greeting')
+                ?? 'missing')
+            Console.printLine(
+              cache.get('shared:visits')
+                ?? 'missing')
         } finally {
             cache.close()
         }

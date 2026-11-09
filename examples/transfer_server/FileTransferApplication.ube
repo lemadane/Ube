@@ -8,109 +8,138 @@ class FileTransferApplication {
 
         // 1. Configure TLS 1.3 encryption (Mandatory for QUIC)
         server.tls(
-            'cert.pem',
-            'key.pem'
-        )
+          'cert.pem',
+          'key.pem')
 
         // 2. Enable Native HTTP/3 over QUIC on UDP port 443
         server.enableHttp3(443)
 
         // 3. Upload File Endpoint (POST /files/:name)
         // Streams incoming QUIC payload directly to disk without loading full file into memory.
-        server.post('/files/:name') { request ->
-            final name = request.path('name')
-            final destPath = 'uploads/${name}'
-
-            final destination = File.openWrite(destPath)
-            
-            // Pipe binary stream chunks with zero buffer allocation bloat
-            request.body().pipeTo(destination)
-
-            final hash = File.sha256(destPath)
-            final info = File.info(destPath)
-
-            Response.json({
-                success: true,
-                file: name,
-                size: info.size(),
-                sha256: hash,
-                protocol: request.protocol()
-            })
-        }
+        server.post(
+          '/files/:name',
+          (Request request) -> {
+              final name = request.path('name')
+              final destPath = 'uploads/${name}'
+              
+              final destination = File.openWrite(destPath)
+              
+              // Pipe binary stream chunks with zero buffer allocation bloat
+              request.body()
+                .pipeTo(destination)
+              
+              final hash = File.sha256(destPath)
+              final info = File.info(destPath)
+              
+              return Response.json(
+                {
+                    success: true,
+                    file: name,
+                    size: info.size(),
+                    sha256: hash,
+                    protocol: request.protocol()
+                })
+          })
 
         // 4. Download File Endpoint (GET /files/:name)
         // Supports Range requests (Range: bytes=104857600-) for resumable downloads.
-        server.get('/files/:name') { request ->
-            final name = request.path('name')
-            final filePath = 'uploads/${name}'
-
-            if (!File.exists(filePath)) {
-                Response.status(404).json({
-                    error: 'File not found',
-                    file: name
-                })
-            }
-
-            final rangeHeader = request.header('Range')
-            final stream = File.openRead(filePath)
-
-            Response.header('Accept-Ranges', 'bytes')
-            Response.header('X-SHA256', File.sha256(filePath))
-
-            if (rangeHeader != '') {
-                // Return 206 Partial Content for range resumption
-                Response.status(206).stream(stream)
-            } else {
-                Response.stream(stream)
-            }
-        }
+        server.get(
+          '/files/:name',
+          (Request request) -> {
+              final name = request.path('name')
+              final filePath = 'uploads/${name}'
+              
+              if (!File.exists(filePath)) {
+                  return Response.status(404)
+                    .json(
+                      {
+                          error: 'File not found',
+                          file: name
+                      })
+              }
+              
+              final rangeHeader = request.header('Range')
+              final stream = File.openRead(filePath)
+              
+              Response.header(
+                'Accept-Ranges',
+                'bytes')
+              Response.header(
+                'X-SHA256',
+                File.sha256(filePath))
+              
+              if (rangeHeader != '') {
+                  // Return 206 Partial Content for range resumption
+                  return Response.status(206)
+                    .stream(stream)
+              } else {
+                  return Response.stream(stream)
+              }
+          })
 
         // 5. File Metadata & Integrity Verification (HEAD /files/:name)
-        server.head('/files/:name') { request ->
-            final name = request.path('name')
-            final filePath = 'uploads/${name}'
-
-            if (!File.exists(filePath)) {
-                Response.status(404)
-            }
-
-            final info = File.info(filePath)
-            final sha256 = File.sha256(filePath)
-
-            Response.header('Content-Length', info.size().toString())
-            Response.header('X-SHA256', sha256)
-            Response.header('Accept-Ranges', 'bytes')
-            Response.ok()
-        }
+        server.head(
+          '/files/:name',
+          (Request request) -> {
+              final name = request.path('name')
+              final filePath = 'uploads/${name}'
+              
+              if (!File.exists(filePath)) {
+                  return Response.status(404)
+              }
+              
+              final info = File.info(filePath)
+              final sha256 = File.sha256(filePath)
+              
+              Response.header(
+                'Content-Length',
+                info.size()
+                  .toString())
+              Response.header(
+                'X-SHA256',
+                sha256)
+              Response.header(
+                'Accept-Ranges',
+                'bytes')
+              return Response.ok()
+          })
 
         // 6. List Files Endpoint (GET /files)
-        server.get('/files') { request ->
-            final files = Directory.list('uploads')
-            
-            Response.json({
-                directory: 'uploads',
-                count: files.length(),
-                files: files
-            })
-        }
+        server.get(
+          '/files',
+          (Request request) -> {
+              final files = Directory.list('uploads')
+              
+              return Response.json(
+                {
+                    directory: 'uploads',
+                    count: files.length(),
+                    files: files
+                })
+          })
 
         // 7. Delete File Endpoint (DELETE /files/:name)
-        server.delete('/files/:name') { request ->
-            final name = request.path('name')
-            final filePath = 'uploads/${name}'
-
-            if (File.exists(filePath)) {
-                File.delete(filePath)
-                Response.json({
-                    success: true,
-                    deleted: name
-                })
-            } else {
-                Response.status(404).json({
-                    error: 'File not found'
-                })
-            }
-        }
+        server.delete(
+          '/files/:name',
+          (Request request) -> {
+              final name = request.path('name')
+              final filePath = 'uploads/${name}'
+              
+              if (File.exists(filePath)) {
+                  File.delete(filePath)
+                  return Response.json(
+                    {
+                        success: true,
+                        deleted: name
+                    })
+              } else {
+                  return Response.status(404)
+                    .json(
+                      {
+                          error: 'File not found'
+                      })
+              }
+          })
 
         // Start HTTP/3 Server on UDP 443
         server.start(443)

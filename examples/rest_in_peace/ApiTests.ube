@@ -1,14 +1,22 @@
 class ApiTests {
     testEcho() {
         final request = RestInPeace.at('http://127.0.0.1:3000')
-            .accept('application/json')
-            .timeout(3000)
+          .accept('application/json')
+          .timeout(3000)
         try {
-            final response = request.json(`{"name":"Ada"}`).post('/echo')
+            final response = request.json(`{"name":"Ada"}`)
+              .post('/echo')
             try {
-                response.expectStatus(200).expectJsonString('/name', 'Ada')
-                Testicle.equal('Ada', response.jsonString('/name'))
-                Testicle.equal(200, response.status())
+                response.expectStatus(200)
+                  .expectJsonString(
+                    '/name',
+                    'Ada')
+                Testicle.equal(
+                  'Ada',
+                  response.jsonString('/name'))
+                Testicle.equal(
+                  200,
+                  response.status())
             } finally {
                 response.close()
             }
@@ -21,8 +29,13 @@ class ApiTests {
         final request = RestInPeace.at('http://127.0.0.1:3000')
         try {
             final response = request.get('/health')
-            try { response.expectStatus(200).expectBody('ready') }
-            finally { response.close() }
-        } finally { request.close() }
+            try { response.expectStatus(200)
+                  .expectBody('ready') }
+            finally {
+                response.close()
+            }
+        } finally {
+            request.close()
+        }
     }
 }

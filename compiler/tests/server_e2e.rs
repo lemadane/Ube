@@ -218,10 +218,10 @@ fn compiled_ube_server_serves_http2_and_reports_actual_protocol() {
                 final server = Server()
                 server.enableHttp2()
                 server.get('/protocol', request -> Response.ok('${{request.protocol()}} ${{request.isHttp3()}}'))
-                server.get('/stop') {{ request ->
+                server.get('/stop', (Request request) -> {{
                     server.stop()
                     return Response.ok('stopped')
-                }}
+                }})
                 server.start({port})
             }}
         }}
@@ -346,25 +346,25 @@ fn compiled_sessions_work_across_http1_and_http2() {
                 final server = Server()
                 server.enableHttp2()
                 server.get('/get', request -> Response.ok(this.readUser(request.session())))
-                server.get('/set') {{ request ->
+                server.get('/set', (Request request) -> {{
                     final session = request.session()
                     session.set('userId', '123')
                     this._saved = session
                     return Response.ok(request.session().get('userId') ?? 'missing')
-                }}
-                server.get('/rotate') {{ request ->
+                }})
+                server.get('/rotate', (Request request) -> {{
                     final session = request.session()
                     session.regenerate()
                     return Response.ok(session.get('userId') ?? 'anonymous')
-                }}
-                server.get('/remove') {{ request ->
+                }})
+                server.get('/remove', (Request request) -> {{
                     request.session().remove('userId')
                     return Response.ok(request.session().get('userId') ?? 'anonymous')
-                }}
-                server.get('/logout') {{ request ->
+                }})
+                server.get('/logout', (Request request) -> {{
                     request.session().destroy()
                     return Response.ok(request.session().get('userId') ?? 'anonymous')
-                }}
+                }})
                 server.get('/stale', request -> Response.ok(this.checkStale(request)))
                 server.start({port})
             }}
@@ -538,10 +538,10 @@ fn compiled_oauth_redirect_pkce_callback_and_session_work() {
                 server.get('/login', request -> Response.redirect(client.authorize(request.session(), 'read')))
                 server.get('/callback', request -> this.callback(client, request))
                 server.get('/profile', request -> Response.ok(request.session().get('accessToken') ?? 'anonymous'))
-                server.get('/headers') {{ request ->
+                server.get('/headers', (Request request) -> {{
                     final authorization = request.header('Authorization')
                     return Response.ok('${{authorization}} ${{request.hasBearerToken()}}')
-                }}
+                }})
                 server.start({port})
             }}
         }}
@@ -714,11 +714,11 @@ fn compiled_http3_server_serves_quic_with_shared_sessions_and_stops() {
             server.enableHttp3(0)
             server.get('/ports', request -> Response.ok('${{server.port()}} ${{server.http3Port()}}'))
             server.get('/protocol', request -> Response.ok('${{request.protocol()}} ${{request.isHttp3()}}'))
-            server.get('/set') {{ request -> request.session().set('user', '123') return Response.ok('set') }}
+            server.get('/set', (Request request) -> {{ request.session().set('user', '123') return Response.ok('set') }})
             server.get('/get', request -> Response.ok(request.session().get('user') ?? 'anonymous'))
             server.get('/echo', request -> Response.ok(request.query('q')))
             server.get('/redirect', request -> Response.redirect('/protocol'))
-            server.get('/stop') {{ request -> server.stop() return Response.ok('stopped') }}
+            server.get('/stop', (Request request) -> {{ server.stop() return Response.ok('stopped') }})
             server.start({port})
         }} }}
     "#,

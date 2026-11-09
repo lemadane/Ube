@@ -4,9 +4,10 @@ class App {
         server.enableHttp2()
         // For HTTPS with ALPN, configure a PEM certificate chain and private key:
         // server.tls('cert.pem', 'key.pem')
-        server.get('/',
-            request -> Response.ok(
-                'Hello over ${request.protocol()}'))
+        server.get(
+          '/',
+          request -> Response.ok(
+            'Hello over ${request.protocol()}'))
         server.start(8080)
     }
 }

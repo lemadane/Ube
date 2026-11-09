@@ -39,13 +39,13 @@ fn runs(source: &str, expected: &str) {
 fn returned_functions_capture_values_and_support_higher_order_calls() {
     runs(
         r#"
-class Boxed(Func(int) -> int transform)
+class Boxed((Func(int) -> int) transform)
 class App {
-    Func(int) -> int makeAdder(int amount) {
+    (Func(int) -> int) makeAdder(int amount) {
         return (int value) -> value + amount
     }
-    int apply(Func(int) -> int operation, int value) { return operation(value) }
-    Func(int) -> Func(int) -> int curried() {
+    int apply((Func(int) -> int) operation, int value) { return operation(value) }
+    (Func(int) -> (Func(int) -> int)) curried() {
         return (int first) -> (int second) -> first + second
     }
     static Func(decimal) -> decimal scale(decimal factor) {
@@ -336,5 +336,96 @@ fn async_await_methods_reject_invalid_receivers_and_arguments() {
             errors.iter().any(|error| error.message.contains(expected)),
             "{source}: {errors:?}"
         );
+    }
+}
+
+#[test]
+fn java_style_block_lambdas_capture_return_and_run_as_tasks() {
+    runs(r#"
+class App {
+    (Func(int) -> int) makeAdder(int amount) {
+        return (int value) -> {
+            final result = value + amount
+            return result
+        }
+    }
+    start() {
+        var offset = 3
+        final calculate = (int value) -> {
+            var result = value + offset
+            if (value < 0) { return 0 }
+            result = result * 2
+            return result
+        }
+        offset = 100
+        Gc.collect()
+        Console.printLine(calculate(4))
+        Console.printLine(calculate(-1))
+        Console.printLine(this.makeAdder(5)(10))
+        final nested = (int first) -> {
+            return (int second) -> { return first + second }
+        }
+        Console.printLine(nested(7)(8))
+        final output = (string text) -> { Console.printLine(text) return }
+        output('void')
+        final cleanup = () -> {
+            try { return 42 } finally { Console.printLine('cleanup') }
+        }
+        Console.printLine(cleanup())
+        final failure = () -> { throw 'block failure' }
+        try { failure() } catch (Error error) { Console.printLine(error.message()) }
+        Console.printLine(Async.start(() -> { final value = 6 return value * 7 }).await())
+        final choose = (bool enabled) -> {
+            if (enabled) { return 'yes' } else { return 'no' }
+        }
+        Console.printLine(choose(false))
+    }
+}
+"#, "14\n0\n15\n15\nvoid\ncleanup\n42\nblock failure\n42\nno\n");
+}
+
+#[test]
+fn java_style_block_lambdas_reject_invalid_returns_and_scope_escapes() {
+    for (body, expected) in [
+        ("final f = (bool flag) -> { if (flag) { return 1 } }", "every path"),
+        ("final f = (bool flag) -> { if (flag) { return 1 } return 'no' }", "same type"),
+        ("final f = (bool flag) -> { if (flag) { return 1 } return }", "same type"),
+        ("final f = (int x, int x) -> { return x }", "Duplicate Func parameter"),
+        ("var x = 1 final f = () -> { x = 2 }", "immutable"),
+        ("final f = () -> { break }", "inside a loop"),
+        ("final f = () -> { return unknown }", "Undeclared"),
+        ("final f = () -> { return Console.printLine('no') }", "bare return"),
+        ("final f = (int x) -> { x = 2 return x }", "immutable"),
+    ] {
+        let source = format!("class App {{ start() {{ {body} }} }}");
+        let mut parser = Parser::new(Lexer::new(&source));
+        let program = parser.parse_program();
+        assert!(parser.diagnostics.is_empty(), "{:?}", parser.diagnostics);
+        let mut checker = TypeChecker::new();
+        checker.check_program(&program);
+        assert!(checker.diagnostics.iter().any(|error| error.message.contains(expected)),
+            "{source}: {:?}", checker.diagnostics);
+    }
+}
+
+#[test]
+fn kotlin_style_lambdas_are_rejected_with_migration_guidance() {
+    for statement in [
+        "server.get('/') { request -> return Response.ok('old') }",
+        "server.get('/')\n{ request -> return Response.ok('old') }",
+        "server.get { request -> return Response.ok('old') }",
+        "server.use('/api') { request -> Console.printLine('old') }",
+        "server.websocket('/chat') { socket -> socket.close() }",
+        "socket.onMessage { message -> Console.printLine(message) }",
+        "callback() { value -> Console.printLine(value) }",
+        "server.get('/', { request -> return Response.ok('old') })",
+    ] {
+        let source = format!("class App {{ start() {{ {statement} }} }}");
+        let mut parser = Parser::new(Lexer::new(&source));
+        parser.parse_program();
+        assert!(parser.diagnostics.iter().any(|error|
+            error.message.contains("Kotlin-style lambdas are not supported")
+                && error.message.contains("(Request request) ->")),
+            "{statement}: {:?}", parser.diagnostics);
     }
 }

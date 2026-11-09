@@ -29,6 +29,7 @@ pub struct TypeChecker {
     current_class: Option<String>,
     current_return_type: Option<Type>,
     in_expression_closure: bool,
+    closure_returns: Option<Vec<Type>>,
     in_static_context: bool,
     orm_declarations: HashMap<String, ClassDecl>,
     zero_init_classes: std::collections::HashSet<String>,
@@ -45,6 +46,7 @@ impl TypeChecker {
             current_class: None,
             current_return_type: None,
             in_expression_closure: false,
+            closure_returns: None,
             in_static_context: false,
             orm_declarations: HashMap::new(),
             zero_init_classes: Default::default(),
@@ -2169,6 +2171,19 @@ impl TypeChecker {
                     ));
                     return;
                 }
+                if self.closure_returns.is_some() {
+                    let ty = match expr_opt {
+                        Some(expr) => self.check_expr(cls, expr),
+                        None => Some(Type::Void),
+                    };
+                    if let Some(ty) = ty {
+                        if ty == Type::Void && expr_opt.is_some() {
+                            self.diagnostics.push(Diagnostic::error("Use a bare return after a void expression in a block lambda", Some(stmt.span)));
+                        }
+                        self.closure_returns.as_mut().unwrap().push(ty);
+                    }
+                    return;
+                }
                 if let Some(expected_ret) = self.current_return_type.clone() {
                     if expected_ret == Type::Void {
                         if expr_opt.is_some() {
@@ -3288,6 +3303,44 @@ impl TypeChecker {
                 }
                 None => None,
             },
+            ExprKind::BlockClosure { params, body, return_type } => {
+                let saved_symbols = self.symbol_table.clone();
+                let saved_loop_depth = std::mem::replace(&mut self.loop_depth, 0);
+                let saved_expression = std::mem::replace(&mut self.in_expression_closure, false);
+                let saved_returns = self.closure_returns.replace(Vec::new());
+                let saved_return_type = self.current_return_type.take();
+                self.symbol_table.freeze_bindings();
+                self.symbol_table.push_scope();
+                let mut param_types = Vec::new();
+                for param in params {
+                    let ty = self.type_spec_to_type(&param.type_spec);
+                    if ty == Type::Void {
+                        self.diagnostics.push(Diagnostic::error("Func parameters cannot have type void", Some(param.span)));
+                    }
+                    param_types.push(ty.clone());
+                    if !self.symbol_table.insert(Symbol { name: param.name.clone(), ty, is_mutable: false }) {
+                        self.diagnostics.push(Diagnostic::error(format!("Duplicate Func parameter '{}'", param.name), Some(param.span)));
+                    }
+                }
+                for statement in body {
+                    self.check_stmt(cls, statement);
+                }
+                let returns = self.closure_returns.take().unwrap();
+                let inferred = returns.first().cloned().unwrap_or(Type::Void);
+                if returns.iter().any(|ty| ty != &inferred) {
+                    self.diagnostics.push(Diagnostic::error("Block lambda returns must have the same type", Some(expr.span)));
+                }
+                if inferred != Type::Void && !body.iter().any(block_statement_returns) {
+                    self.diagnostics.push(Diagnostic::error("Block lambda must return a value on every path", Some(expr.span)));
+                }
+                *return_type.borrow_mut() = Some(inferred.clone());
+                self.symbol_table = saved_symbols;
+                self.loop_depth = saved_loop_depth;
+                self.in_expression_closure = saved_expression;
+                self.closure_returns = saved_returns;
+                self.current_return_type = saved_return_type;
+                Some(Type::Function { params: param_types, return_type: Box::new(inferred) })
+            }
             ExprKind::Closure { params, expression } => {
                 let saved_symbols = self.symbol_table.clone();
                 let saved_loop_depth = self.loop_depth;
@@ -3315,6 +3368,7 @@ impl TypeChecker {
             }
             ExprKind::Lambda { parameter, body } => {
                 let outer_closure = std::mem::replace(&mut self.in_expression_closure, false);
+                let saved_returns = self.closure_returns.take();
                 let outer_return_type = self.current_return_type.clone();
                 let return_type = Type::Class {
                     name: "Response".into(),
@@ -3351,6 +3405,7 @@ impl TypeChecker {
                 self.symbol_table.pop_scope();
                 self.current_return_type = outer_return_type;
                 self.in_expression_closure = outer_closure;
+                self.closure_returns = saved_returns;
                 Some(Type::Function {
                     params: vec![Type::Class {
                         name: "Request".into(),
@@ -3593,5 +3648,22 @@ impl TypeChecker {
         }
         let ty = method.return_type.as_ref().map_or(Type::Void, |t| self.type_spec_to_type(t));
         Some(Some(if method.is_async { Type::Async(Box::new(if ty == Type::Void { Type::Int } else { ty })) } else { ty }))
+    }
+}
+
+// Yield produces an expression value; it does not exit a block lambda.
+fn block_statement_returns(stmt: &Stmt) -> bool {
+    match &stmt.kind {
+        StmtKind::Return(_) | StmtKind::Throw(_) => true,
+        StmtKind::If { then_branch, else_branch, .. } => {
+            then_branch.iter().any(block_statement_returns)
+                && else_branch.as_ref().is_some_and(|body| body.iter().any(block_statement_returns))
+        }
+        StmtKind::Try { body, catches, finally_body } => {
+            finally_body.as_ref().is_some_and(|body| body.iter().any(block_statement_returns))
+                || (body.iter().any(block_statement_returns)
+                    && catches.iter().all(|catch| catch.body.iter().any(block_statement_returns)))
+        }
+        _ => false,
     }
 }

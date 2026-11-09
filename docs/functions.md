@@ -51,7 +51,23 @@ class App {
 
 Functions can be passed as arguments, stored in constructor fields, and returned by other functions. A function-valued constructor field follows the usual accessor rules: `box.operation()` retrieves the function, and `box.operation()(value)` calls it.
 
-The supported general closure form has one expression. For a body with several statements, define a method and return a closure that calls it. Existing server handler blocks keep their syntax. Servers also accept values of type `Func(Request) -> Response`, including returned functions.
+Lambdas use Java-style typed parameters and `->`. An expression body returns its expression; a block body contains statements and uses explicit `return`:
+
+```ube
+final add = (int left, int right) -> {
+    final result = left + right
+    return result
+}
+
+server.get('/', (Request request) -> {
+    final theme = request.session().get('theme') ?? 'light'
+    return Response.ok('Theme: ${theme}')
+})
+```
+
+Block return types are inferred. All returns must have the same type, and value-returning blocks must return or throw on every path. A block with no value returns is `Func(...) -> void`. Use `()` for no parameters. Blocks support local variables, conditionals, loops, and exception handling. Captures follow the same rules as expression lambdas.
+
+Pass route lambdas inside the call parentheses, like any other argument. Servers accept `Func(Request) -> Response`, including stored or returned functions. Kotlin-style trailing blocks such as `server.get('/') { request -> ... }` are rejected; put `(Request request) -> { ... }` inside the call parentheses instead.
 
 ## Captures and lifetime
 
@@ -85,7 +101,7 @@ final secondResult = secondTask.await()
 
 ```ube
 Func() -> Async<int> makeIncrement(Cache cache, int count) {
-    return () -> this.incrementMany(cache, count)
+    return () -> Async.start(() -> this.incrementMany(cache, count))
 }
 ```
 
