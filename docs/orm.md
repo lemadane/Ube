@@ -6,20 +6,42 @@ transactions. It is native to Ube; GORM and Hibernate are design references, not
 runtime dependencies.
 
 ```ube
-class User(long id, var string name, bool active, string? email)
+// User.ube
+class User(
+  long id,
+  var string name,
+  bool active,
+  string? email)
+```
+
+```ube
+// App.ube
+import User
 
 class App {
     start() {
         final db = SQL.open('sqlite::memory:')
-        final users = Orm.model(db, User, 'users')
+        final users = Orm.model(
+          db,
+          User,
+          'users')
         try {
             users.migrate()
-            users.create(User(1L, 'Ada', true, null))
+            users.create(
+              User(
+                1L,
+                'Ada',
+                true,
+                null))
             final user = users.get(1L)
             user.name('Ada Lovelace')
             users.save(user)
-            print(user.name())
-        } finally { users.close() db.close() }
+            print(
+              user.name())
+        } finally {
+            users.close()
+            db.close()
+        }
     }
 }
 ```
@@ -69,7 +91,12 @@ not provided by Ube's floating-point `decimal` type.
 For an optional lookup, use the nullable result explicitly:
 
 ```ube
-final user = users.find(7L) ?? User(0L, 'Guest', false, null)
+final user = users.find(7L)
+  ?? User(
+    0L,
+    'Guest',
+    false,
+    null)
 ```
 
 The compiler preserves the model through `OrmModel<User>`, `OrmQuery<User>`, and
@@ -81,16 +108,31 @@ read produces a fresh object; objects do not have a hidden persistence context.
 ## Fluent queries
 
 ```ube
-final query = users.query().where('active', '=', true).whereNull('email').orderBy('id', 'desc').limit(20).offset(0)
+final query = users.query()
+  .where(
+    'active',
+    '=',
+    true)
+  .whereNull('email')
+  .orderBy(
+    'id',
+    'desc')
+  .limit(20)
+  .offset(0)
 try {
     final rows = query.all()
     try {
         for (rows.next()) {
             final user = rows.get()
-            print(user.name())
+            print(
+              user.name())
         }
-    } finally { rows.close() }
-} finally { query.close() }
+    } finally {
+        rows.close()
+    }
+} finally {
+    query.close()
+}
 ```
 
 | Query method | Behavior |
@@ -140,12 +182,29 @@ active underlying connection or transaction to execute.
 ## Parenthesized OR groups
 
 ```ube
-final names = users.query().where('name', '=', 'Ada').orWhere('name', '=', 'Grace')
-final active = users.query().where('active', '=', true).whereGroup(names)
+final names = users.query()
+  .where(
+    'name',
+    '=',
+    'Ada')
+  .orWhere(
+    'name',
+    '=',
+    'Grace')
+final active = users.query()
+  .where(
+    'active',
+    '=',
+    true)
+  .whereGroup(names)
 try {
     // WHERE active = ? AND (name = ? OR name = ?)
-    print(active.count())
-} finally { active.close() names.close() }
+    print(
+      active.count())
+} finally {
+    active.close()
+    names.close()
+}
 ```
 
 `orWhere`, `orWhereNull`, and `orWhereNotNull` use normal SQL AND/OR precedence.
@@ -163,17 +222,34 @@ destination unchanged. Keep both handles and close them independently.
 ## Projections and aggregate values
 
 ```ube
-final base = users.query().where('active', '=', true).orderBy('id', 'asc')
-final selected = base.select('name').select('email')
+final base = users.query()
+  .where(
+    'active',
+    '=',
+    true)
+  .orderBy(
+    'id',
+    'asc')
+final selected = base.select('name')
+  .select('email')
 try {
     final rows = selected.all()
     try {
         for (rows.next()) {
-            print(rows.getString(rows.columnIndex('name')))
-            print(rows.isNull(rows.columnIndex('email')))
+            print(
+              rows.getString(
+                rows.columnIndex('name')))
+            print(
+              rows.isNull(
+                rows.columnIndex('email')))
         }
-    } finally { rows.close() }
-} finally { selected.close() base.close() }
+    } finally {
+        rows.close()
+    }
+} finally {
+    selected.close()
+    base.close()
+}
 ```
 
 The first `select(column)` on an `OrmQuery<Model>` creates a new
@@ -220,13 +296,28 @@ See [the runnable example](../examples/orm-queries/App.ube).
 
 ```ube
 final base = users.query()
-final paid = base.join(orders, 'o', 'id', 'userId').where('o.status', '=', 'paid')
+final paid = base.join(
+  orders,
+  'o',
+  'id',
+  'userId')
+  .where(
+    'o.status',
+    '=',
+    'paid')
 try {
     final rows = paid.all()
     try {
-        for (rows.next()) { print(rows.get().name()) }
-    } finally { rows.close() }
-} finally { paid.close() base.close() }
+        for (rows.next()) { print(
+              rows.get()
+                .name()) }
+    } finally {
+        rows.close()
+    }
+} finally {
+    paid.close()
+    base.close()
+}
 ```
 
 `join(repository, alias, sourceColumn, targetColumn)` creates an INNER JOIN;
@@ -272,7 +363,12 @@ See [the runnable join example](../examples/orm-joins/App.ube).
 final tx = db.begin()
 final transactionalUsers = users.using(tx)
 try {
-    transactionalUsers.create(User(2L, 'Grace', true, null))
+    transactionalUsers.create(
+      User(
+        2L,
+        'Grace',
+        true,
+        null))
     // tx.execute(sql, params) uses this same reserved connection.
     tx.commit()
 } finally {

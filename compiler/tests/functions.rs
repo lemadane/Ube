@@ -96,12 +96,12 @@ fn returned_functions_defer_tasks_and_preserve_errors_and_captures() {
     runs(
         r#"
 class App(var int calls) {
-    async int incrementMany(Cache cache, int count) {
+    int incrementMany(Cache cache, int count) {
         cache.increment('count', count)
         return count
     }
     Func() -> Async<int> makeIncrement(Cache cache, int count) {
-        return () -> this.incrementMany(cache, count)
+        return () -> Async.start(() -> this.incrementMany(cache, count))
     }
     int fail() { throw 'closure failure' }
     Func() -> int failure() { return () -> this.fail() }
@@ -115,20 +115,20 @@ class App(var int calls) {
         final first = this.makeIncrement(cache, 100)
         final second = this.makeIncrement(cache, 100)
         Console.printLine(cache.get('count') ?? 'missing')
-        Console.printLine(await first())
-        Console.printLine(await second())
-        Console.printLine(await first())
+        Console.printLine(first().await())
+        Console.printLine(second().await())
+        Console.printLine(first().await())
         Console.printLine(cache.get('count') ?? 'missing')
         final read = this.capturedObject()
         Gc.collect()
         Console.printLine(read())
         final fail = this.failure()
         try { fail() } catch (Error error) { Console.printLine(error.message()) }
-        final deferred = async (() -> 7)
-        final seven = await deferred
+        final deferred = Async.start(() -> (() -> 7))
+        final seven = deferred.await()
         Console.printLine(seven())
-        Func() -> Async<void> deferredOutput = () -> async Console.printLine('async void')
-        await deferredOutput()
+        Func() -> Async<void> deferredOutput = () -> Async.start(() -> Console.printLine('async void'))
+        deferredOutput().await()
         cache.close()
     }
 }
@@ -228,7 +228,7 @@ fn invalid_function_signatures_and_calls_are_diagnosed() {
         ("class Func", "reserved for function types"),
         ("class App { Func() -> int wrong() { return Console.printLine('wrong') } }", "Mismatched return type"),
         ("class App { start() { thisMissing() } }", "Unqualified method calls require"),
-        ("class App { async int work() { return 1 } start() { final pending = this.work() pending() } }", "expected a Func value"),
+        ("class App { int work() { return 1 } start() { final pending = Async.start(() -> this.work()) pending() } }", "expected a Func value"),
     ] {
         let mut parser = Parser::new(Lexer::new(source));
         let program = parser.parse_program();
@@ -275,7 +275,7 @@ fn documented_function_example_runs() {
 }
 
 #[test]
-fn async_await_methods_preserve_eager_execution_types_and_failures() {
+fn legacy_async_methods_preserve_eager_execution_types_and_failures() {
     runs(
         r#"
 class App {

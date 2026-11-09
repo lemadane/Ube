@@ -1,4 +1,4 @@
-# Ube Language Specification Baseline (Draft v0.5.0)
+# Ube Language Specification Baseline (Draft v0.6.0)
 
 ```text
 Name: Ube Programming Language
@@ -17,7 +17,7 @@ Ube is positioned between Go and Java:
 * Class-based programming model with instance members and explicitly declared static members; no free functions.
 * Static declarations and qualification follow [static members](docs/static-members.md): `static.name` inside the owning class and `ClassName.name` outside it.
 * Built-in `Log` for severity-filtered diagnostics on stderr and `Console` for plain stdout output.
-* Implicit void return types: methods without an explicit return type default to void. The `void` keyword does not exist in Ube.
+* Implicit void return types: methods without an explicit return type default to void. Use `void` for function result types such as `Func() -> void`; method declarations omit the return type for no result.
 * Immutable by default (fields, parameters, local variables).
 * No semicolons in code: statement terminators and separators using `;` are compile errors. Semicolons inside literals and comments are permitted. A return value must begin on the same line as `return`; a newline ends a bare return.
 * Garbage-collected runtime with zero manual memory management boilerplate.
@@ -86,7 +86,7 @@ NULL equals only NULL, not an empty string.
 
 ## 3. Basic Data Types & Semantics
 
-Ube provides exactly six primitive data types (the `void` keyword does not exist):
+Ube provides exactly six primitive data types (plus `void` as a no-result function type):
 
 | Type Specifier | Native Representation | Description | Default Value |
 | :--- | :--- | :--- | :--- |
@@ -102,14 +102,13 @@ Ube provides exactly six primitive data types (the `void` keyword does not exist
 
 ## 4. Unified Class Model & Implicit Void Methods
 
-Every user-defined type in Ube is declared using the `class` keyword. Methods without an explicit return type are **implicitly void** (no `void` keyword).
+Every user-defined type in Ube is declared using the `class` keyword. Methods without an explicit return type are **implicitly void**. Function types spell that result as `void`, such as `Func() -> void`.
 
-```java
+```ube
 class User(
-    long id,
-    string name,
-    var int age = 0
-) {
+  long id,
+  string name,
+  var int age = 0) {
     birthday() {
         this._age = this._age + 1
     }
@@ -170,7 +169,8 @@ Ube-managed build output and preserves dependency snapshots and lockfiles.
 
 Abstraction and behavior reuse in Ube are defined using **`trait`**. Classes satisfy traits **implicitly** based on method signatures without needing an `implements` keyword:
 
-```java
+```ube
+// Printable.ube
 trait Printable {
     // Abstract method signature
     printDetails()
@@ -182,27 +182,50 @@ trait Printable {
 }
 
 // Class definitions — NO 'implements' keyword needed!
-class User(long id, string name) {
+```
+
+```ube
+// User.ube
+class User(
+  long id,
+  string name) {
     printDetails() {
         log('User #${this._id}: ${this._name}')
     }
 }
+```
 
-class Invoice(long id, decimal total) {
+```ube
+// Invoice.ube
+class Invoice(
+  long id,
+  decimal total) {
     printDetails() {
         log('Invoice #${this._id}: \$${this._total}')
     }
 }
+```
+
+```ube
+// App.ube
+import Printable
+import User
+import Invoice
 
 class App {
     render(Printable item) {
-        log(item.getHeader())
+        log(
+          item.getHeader())
         item.printDetails()
     }
 
     start() {
-        final user = User(1000L, 'Lem')
-        final invoice = Invoice(5001L, 199.99)
+        final user = User(
+          1000L,
+          'Lem')
+        final invoice = Invoice(
+          5001L,
+          199.99)
 
         this.render(user)
         this.render(invoice)
@@ -216,18 +239,30 @@ class App {
 
 Create shared objects explicitly inside `App.start()` and inject them through primary constructors. Sharing is a lifetime convention, not an enforced singleton: other instances remain legal, and there is no singleton marker or registry.
 
-```java
+```ube
+// DatabaseConnection.ube
 class DatabaseConnection(string url) {
     query(string sql) {
         log('Querying ${this._url}: ${sql}')
     }
 }
+```
+
+```ube
+// UserService.ube
+import DatabaseConnection
 
 class UserService(DatabaseConnection db) {
     findUser(long id) {
         this._db.query('SELECT * FROM users WHERE id = ${id}')
     }
 }
+```
+
+```ube
+// App.ube
+import DatabaseConnection
+import UserService
 
 class App {
     start() {
@@ -242,61 +277,86 @@ class App {
 
 ---
 
-## 7. Concurrency (`async`, `await`, `Task<T>`, `Channel<T>`)
+## 7. Concurrency (`Async<T>` and `Channel<T>`)
 
-Ube concurrency follows one rule: **if it waits, you `await` it.** Anything that can take time — an `async` method call, an `async` expression, a channel `send`/`receive`, a combinator, or a timeout — immediately returns a `Task<T>`; `await` gets its value.
+Start work with `Async.start(() -> expression)` and retrieve its result with
+`task.await()`. Ordinary methods remain synchronous until explicitly submitted
+inside a zero-argument function. The task starts immediately; creating a function
+alone does not execute it. Captures retain the current local values and shared
+object references.
 
-- There is exactly one way to start work: call an `async` method, or write `async expr`. `async` binds like `await` (to the operand right after it), so write `async (a + b)` to run a whole expression. `async expr` captures visible locals at submission and evaluates the expression on a worker. (`Task.async(...)` was removed.)
-- Calls to methods declared `async` are submitted to the runtime's multithreaded worker pool. The receiver and arguments are captured at submission.
-- `await` blocks the current Ube thread until its task completes; it is not a non-blocking suspension of the current method.
+Channel operations, combinators, and timeouts also return `Async<T>` values.
+Awaiting blocks a synchronous caller. Eligible task bodies use native resumable
+poll functions; bodies with ordinary method calls or other potentially blocking
+operations use the blocking pool. See [concurrency](docs/concurrency.md) for the
+backend limits and ownership rules.
 
-```java
+Each class belongs in its matching source file:
+
+```ube
+// Calculator.ube
 class Calculator {
-    async compute(int value) {
+    int compute(int value) {
         return value * 2
     }
 }
+```
+
+```ube
+// App.ube
+import Calculator
 
 class App {
     start() {
         final calculator = Calculator()
-        final first = calculator.compute(10)
-        final second = calculator.compute(20)
-        final result = await Task.all([first, second])
+        final first = Async.start(
+          () -> calculator.compute(10))
+        final second = Async.start(
+          () -> calculator.compute(20))
+        final result = Async.all([first, second])
+          .await()
         log(result[0] + result[1])
     }
 }
 ```
 
-`Task.all`, `Task.any`, `Task.race`, and `Task.allSettled` return tasks and coordinate based on completion. `all` preserves input order and fails fast; `any` returns the first successful result; `race` returns the first completed outcome; `allSettled` waits for every task. Empty `any`/`race` inputs fail.
+`Async.all`, `Async.any`, `Async.race`, and `Async.allSettled` return tasks and coordinate based on completion. `all` preserves input order and fails fast; `any` returns the first successful result; `race` returns the first completed outcome; `allSettled` waits for every task. Empty `any`/`race` inputs fail.
 
-Channels declare an element type and optional positive capacity. `send(value)` returns `Task<bool>` that completes once capacity is available — `true` when queued, `false` if the channel is closed. `receive()` returns `Task<T>`; after buffered values are drained from a closed channel it fails with `channel is closed`. `close()` wakes every waiting operation.
+Channels declare an element type and optional positive capacity. `send(value)` returns `Async<bool>` that completes once capacity is available — `true` when queued, `false` if the channel is closed. `receive()` returns `Async<T>`; after buffered values are drained from a closed channel it fails with `channel is closed`. `close()` wakes every waiting operation.
 
-```java
+```ube
 final events = Channel<string>(16)
-final accepted = await events.send('ready')
-final event = await events.receive()
+final accepted = events.send('ready')
+  .await()
+final event = events.receive()
+  .await()
 events.close()
 ```
 
 **Timeouts.** `task.timeout(ms)` returns a new task that fails with `task timed out` (and cancels the original) if it does not finish in time. It works on any task, so channel timeouts need no extra API:
 
-```java
+```ube
 try {
-    final message = await inbox.receive().timeout(1000)
+    final message = inbox.receive()
+      .timeout(1000)
+      .await()
     log(message)
 } catch (Error err) {
-    log(err.message())   // "task timed out"
+    log(
+      err.message())   // "task timed out"
 }
 ```
 
-**Waiting on several sources.** There is no `select` statement; `await Task.race([a.receive(), b.receive()])` returns whichever completes first.
+**Waiting on several sources.** There is no `select` statement; `Async.race([a.receive(), b.receive()]).await()` returns whichever completes first.
 
-**Failures.** An awaited failure (a `throw` inside an async method, a timeout, a closed-channel receive) is routed to the enclosing `try`/`catch`. Without a matching `catch`, inside an `async` method or `async` expression the failure propagates to whoever awaits that task; anywhere else the program stops with `Ube error: unhandled exception ...` and exit code 1. Failures are never silently turned into zero values.
+**Failures.** A task failure, timeout, or closed-channel receive propagates
+from `.await()` into the enclosing `try`/`catch`. An unhandled failure inside
+a task propagates to its awaiter; an unhandled application failure exits with
+status 1. Failures are never silently turned into zero values.
 
-A worker receives its cancellation request once, whether at a cancellation poll or during `await`. After delivery, subsequent awaits, including `finally` cleanup, wait normally. This does not suppress failures or timeouts from the awaited operations.
+A worker receives its cancellation request once, whether at a cancellation poll or during `.await()`. After delivery, subsequent awaits, including `finally` cleanup, wait normally. This does not suppress failures or timeouts from the awaited operations.
 
-**Limits.** Cancellation is cooperative: generated async code checks for cancellation at basic-block boundaries, so an indivisible operation already in progress (for example a blocking native call) runs to completion. Task and channel payloads use a two-word ABI value: a 64-bit payload and presence metadata. Nullable scalars (`int?`, `long?`, `byte?`, `bool?`, `decimal?`) retain null independently of zero/false through calls, fields, captures, awaited results, and channel operations. Errors and channel closure remain separate exceptions. Arithmetic directly on a `Task` or `Channel` is a type error. Untyped collections cannot store nullable scalars or tasks returning nullable scalars; these cases receive diagnostics, including nullable task-combinator inputs. Compiler and runtime must be rebuilt together.
+**Limits.** Cancellation is cooperative: generated async code checks for cancellation at basic-block boundaries, so an indivisible operation already in progress (for example a blocking native call) runs to completion. Task and channel payloads use a two-word ABI value: a 64-bit payload and presence metadata. Nullable scalars (`int?`, `long?`, `byte?`, `bool?`, `decimal?`) retain null independently of zero/false through calls, fields, captures, awaited results, and channel operations. Errors and channel closure remain separate exceptions. Arithmetic directly on an `Async` or `Channel` is a type error. Untyped collections cannot store nullable scalars or tasks returning nullable scalars; these cases receive diagnostics, including nullable task-combinator inputs. Compiler and runtime must be rebuilt together.
 
 ---
 
@@ -304,13 +364,17 @@ A worker receives its cancellation request once, whether at a cancellation poll 
 
 Ube has **no class inheritance** (`extends` is prohibited). Code reuse and polymorphism are achieved through **Primary Constructor Composition & Delegation**:
 
-```java
+```ube
+// Engine.ube
 class Engine(int horsepower) {
     start() {
         log('Engine started (${this._horsepower} HP)')
     }
 }
+```
 
+```ube
+// Logger.ube
 class Logger(string prefix) {
     info(string message) {
         log('[${this._prefix}] ${message}')
@@ -318,18 +382,38 @@ class Logger(string prefix) {
 }
 
 // Composition via Primary Constructor fields
-class Car(string model, Engine engine, Logger logger) {
+```
+
+```ube
+// Car.ube
+import Engine
+import Logger
+
+class Car(
+  string model,
+  Engine engine,
+  Logger logger) {
     startCar() {
         this._logger.info('Starting vehicle ${this._model}...')
         this._engine.start() // Delegation forwarding
     }
 }
+```
+
+```ube
+// App.ube
+import Engine
+import Logger
+import Car
 
 class App {
     start() {
         final logger = Logger('APP')
         final engine = Engine(400)
-        final car = Car('Mustang', engine, logger)
+        final car = Car(
+          'Mustang',
+          engine,
+          logger)
         car.startCar()
     }
 }
@@ -337,61 +421,20 @@ class App {
 
 ---
 
-## 9. All Enum Use Cases via Sum Classes
+## 9. Sum Classes: Current Limits
 
-In Ube, enumerations and tagged algebraic variants are declared using **Sum Classes** (cases defined directly inside a `class`).
+Sum-class declarations are parsed and type-checked, but variant construction,
+pattern matching, and exhaustive native dispatch are not a complete implemented
+feature. Do not use the older `switch` examples as runnable Ube programs. Use
+ordinary classes and explicit `if`/`else` branches for executable code.
 
-```java
-// Use Case 1: Simple Unit Enumeration
+```ube
+// Direction.ube — declaration syntax only
 class Direction {
     case North
     case South
     case East
     case West
-}
-
-// Use Case 2: Positional Payload Variant
-class OrderStatus {
-    case Pending
-    case Approved(long orderId, decimal amount)
-    case Rejected(string reason)
-}
-
-// Use Case 3: Named Field Payload Variant
-class NetworkEvent {
-    case Connected(string ip, int port)
-    case Disconnected(int code)
-    case DataReceived(string payload)
-}
-
-// Use Case 4: Enum Methods & Behavior
-class LogLevel {
-    case Debug
-    case Info
-    case Warning
-    case Error
-
-    bool isCritical() {
-        return switch (this) {
-            case Error -> true
-            default -> false
-        }
-    }
-}
-
-class App {
-    start() {
-        final status = OrderStatus.Approved(10042L, 199.99)
-
-        // Pattern matching via switch (exhaustive compile-time check)
-        final message = switch (status) {
-            case Pending -> 'Order is waiting for approval'
-            case Approved(orderId, amount) -> 'Order #${orderId} approved for \$${amount}!'
-            case Rejected(reason) -> 'Order rejected: ${reason}'
-        }
-
-        log(message)
-    }
 }
 ```
 
@@ -424,20 +467,24 @@ class App {
 Loop `else` does not test whether a search found a match. Use an explicit flag and a separate `if` for that purpose. See the [worked examples and output](README.md#zero-iteration-fallback).
 
 
-```java
+```ube
 class App {
     start() {
         // 1. Infinite Loop (Replaces while(true))
         var counter = 0
         for {
             counter = counter + 1
-            if (counter == 2) { continue }
-            if (counter > 4) { break }
+            if (counter == 2) {
+                continue
+            }
+            if (counter > 4) {
+                break
+            }
         }
 
         // 2. Conditional Condition Loop (Replaces while(condition))
         var remaining = 3
-        for (remaining) {
+        for (remaining > 0) {
             remaining = remaining - 1
         }
 
@@ -468,51 +515,26 @@ class App {
 
 ---
 
-## 11. All Pattern-Matching `switch` Use Cases
+## 11. Conditional Dispatch
 
-In Ube, `switch` is a first-class expression and statement without fall-through:
+`switch` expressions and statements are not currently accepted by the parser.
+Use `if`/`else if`/`else` with explicit conditions:
 
-```java
+```ube
 class App {
+    string grade(int score) {
+        if (score >= 90) {
+            return 'Grade A'
+        } else if (score >= 80) {
+            return 'Grade B'
+        } else {
+            return 'Grade F'
+        }
+    }
+
     start() {
-        // 1. Constant Value Matching
-        final statusText = switch (200) {
-            case 200 -> 'OK'
-            default -> 'Unknown'
-        }
-
-        // 2. Variant Matching with Payload Destructuring
-        final orderMessage = switch (OrderStatus.Approved(10042L, 99.99)) {
-            case Pending -> 'Waiting'
-            case Approved(id, amt) -> 'Approved ID: ${id}'
-            case Rejected(r) -> 'Rejected: ${r}'
-        }
-
-        // 3. Type Pattern Matching ('is')
-        final Object val = 'Hello'
-        final typeDesc = switch (val) {
-            case is string -> 'String'
-            default -> 'Other'
-        }
-
-        // 4. Guard Clauses ('if' guards)
-        final grade = switch (85) {
-            case s if (s >= 90) -> 'Grade A'
-            case s if (s >= 80) -> 'Grade B'
-            default -> 'Grade F'
-        }
-
-        // 5. Multiple Value Or-Patterns
-        final isWeekend = switch ('Saturday') {
-            case 'Saturday', 'Sunday' -> true
-            default -> false
-        }
-
-        // 6. Anonymous Object Structural Matching
-        final accessLevel = switch ({ id: 1000, role: 'Admin' }) {
-            case { role: 'Admin' } -> 'Admin Access'
-            default -> 'Guest Access'
-        }
+        Console.printLine(
+          this.grade(85))
     }
 }
 ```
@@ -523,8 +545,10 @@ class App {
 
 Inside any instance method of a class, every access to an instance field or instance method **must** be explicitly qualified with `this.`.
 
-```java
-class Account(long id, var decimal balance) {
+```ube
+class Account(
+  long id,
+  var decimal balance) {
     deposit(decimal amount) {
         this._balance = this._balance + amount
     }
@@ -544,22 +568,24 @@ class Account(long id, var decimal balance) {
 
 Ube uses word-based logical operators: `not`, `and`, `or`. Symbol `!` is prohibited.
 
-Falsy values: `false`, `null`, `0`, `0.0`, `-0.0`, `''`. All other values are truthy.
+Boolean conditions work directly; reference and nullable conditions test presence.
+Non-null numbers and strings require explicit comparisons such as `count != 0`
+and `text != ''` in `if` and `for` conditions.
 
-```java
+```ube
 class App {
     start() {
-        final bool isConnected = false
-        final string input = ''
-        final Object data = 42
+        final isConnected = false
+        final input = ''
+        final data = 42
 
         // 1. Logical negation of boolean
         if (not isConnected) {
             log('System disconnected')
         }
 
-        // 2. Falsiness check
-        if (not input) {
+        // 2. Explicit empty-string check
+        if (input == '') {
             log('No input provided')
         }
 
@@ -582,7 +608,14 @@ The entry-point application instance uses the same zero-initialization path as l
 Non-nullable class cycles are rejected during zero initialization; use nullable references to break them. Runtime-only types (including servers and channels) and traits require explicit initializers unless declared nullable. Zero initialization never invokes their creation APIs.
 
 ```ube
-class User(string name = 'Guest') {}
+// User.ube
+class User(string name = 'Guest')
+```
+
+```ube
+// App.ube
+import User
+
 class App {
     start() {
         User zero                 // zero.name() is ''

@@ -6,23 +6,44 @@ constructor or method parameters. No inheritance, proxies, or runtime code
 generation are required.
 
 ```ube
+// UserLookup.ube
 trait UserLookup {
     string name(int id)
 }
+```
+
+```ube
+// Profile.ube
+import UserLookup
 
 class Profile(UserLookup users) {
     string title(int id) {
         return this._users.name(id)
     }
 }
+```
+
+```ube
+// ProfileTests.ube
+import UserLookup
+import Profile
 
 class ProfileTests {
     testTitle() {
         final users = Mockery.mock(UserLookup)
         try {
-            Mockery.returns(users, 'name', 'Ada')
-            Testicle.equal('Ada', Profile(users).title(42))
-            Mockery.verify(users, 'name', 1)
+            Mockery.returns(
+              users,
+              'name',
+              'Ada')
+            Testicle.equal(
+              'Ada',
+              Profile(users)
+                .title(42))
+            Mockery.verify(
+              users,
+              'name',
+              1)
         } finally {
             Mockery.dispose(users)
         }
@@ -72,15 +93,26 @@ verify which ID was passed.
 ```ube
 testFailure() {
     final users = Mockery.mock(UserLookup)
-    Mockery.throws(users, 'name', 'database offline')
+    Mockery.throws(
+      users,
+      'name',
+      'database offline')
     var caught = false
-    try { Profile(users).title(42) }
+    try {
+        Profile(users)
+          .title(42)
+    }
     catch (MockeryError error) {
         caught = true
-        Testicle.equal('database offline', error.message())
+        Testicle.equal(
+          'database offline',
+          error.message())
     }
     Testicle.isTrue(caught)
-    Mockery.verify(users, 'name', 1)
+    Mockery.verify(
+      users,
+      'name',
+      1)
     Mockery.dispose(users)
 }
 ```

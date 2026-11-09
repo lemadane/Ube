@@ -414,7 +414,8 @@ log('yes')
     start() {
         if (ready(
           1,
-          2) and allowed(
+          2)
+          and allowed(
           3,
           4)) {
             log('yes')
@@ -522,6 +523,49 @@ test("groups single function parameters and preserves grouped static return type
   }
 });
 
+test("splits if conditions and expands all branches", () => {
+  const source = "if (value != 'true' and value != 'false') { throw ApiError(400, '${field} must be a boolean.') }";
+  const expected = `if (value != 'true'
+  and value != 'false') {
+    throw ApiError(
+      400,
+      '\${field} must be a boolean.')
+}
+`;
+  assert.equal(formatUbeDocument(source), expected);
+  assert.equal(formatUbeDocument(expected), expected);
+  const branches = `if (a
+  and (b
+  or c)) {
+    yes()
+} else if (d
+  or e) {
+    no()
+} else {
+    other()
+}
+`;
+  assert.equal(formatUbeDocument("if (a and (b or c)) { yes() } else if (d or e) { no() } else { other() }"), branches);
+  assert.equal(formatUbeDocument(branches), branches);
+});
+
+test("preserves condition comments, literals, calls and nested indentation", () => {
+  for (const source of [
+    "if (a // first condition\n and b) { go() }",
+    "if (check(a and b, c) or ready()) { go() }",
+    "if (a /* and ignored */ and b) { go() }",
+    "class App {\n    start() {\n        if (a and b) { go() }\n    }\n}",
+    "server.get('/', (Request request) -> { if (a and b) { return Response.ok('yes') } else { return Response.ok('no') } })",
+  ]) {
+    const result = formatUbeDocument(source);
+    assert.equal(formatUbeDocument(result), result);
+  }
+  const source = "// if (a and b) { go() }\nlog('if (a and b) { go() }')\n";
+  assert.equal(formatUbeDocument(source), source);
+  assert.equal(formatUbeDocument("if (value == 'and or') { go() }"),
+    "if (value == 'and or') {\n    go()\n}\n");
+});
+
 test("expands finally cleanup blocks and remains idempotent", () => {
   for (const [body, expectedBody] of [
     ['users.close() db.close()', '    users.close()\n    db.close()'],
@@ -536,6 +580,35 @@ test("expands finally cleanup blocks and remains idempotent", () => {
     assert.equal(formatUbeDocument(source), expected);
     assert.equal(formatUbeDocument(expected), expected);
   }
+});
+
+test("expands try calls and return statements without changing nested arguments", () => {
+  const source = `string quote(string value) {
+    final params = SQLParams.create()
+    try { params.addString(value) return this.scalar(
+          'SELECT json_quote(?)',
+          params) }
+    finally {
+        params.close()
+    }
+}`;
+  const expected = `string quote(string value) {
+    final params = SQLParams.create()
+    try {
+        params.addString(value)
+        return this.scalar(
+          'SELECT json_quote(?)',
+          params)
+    }
+    finally {
+        params.close()
+    }
+}
+`;
+  assert.equal(formatUbeDocument(source), expected);
+  assert.equal(formatUbeDocument(expected), expected);
+  const untouched = "// try { first() return second() }\nlog('try { first() return second() }')\n";
+  assert.equal(formatUbeDocument(untouched), untouched);
 });
 
 test("does not expand finally text inside comments or literals", () => {

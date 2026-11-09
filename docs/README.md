@@ -12,6 +12,9 @@ Start with the [project README](../README.md) for language syntax, toolchain set
 
 ## Runtime and application services
 
+- [Function values](functions.md): typed functions, captures, block lambdas, and `Async.start`
+- [Static members](static-members.md): fields, methods, qualification, and initialization
+
 - [Error stack traces](stacktraces.md): captured call frames, task submission/await chains, readable diagnostics, and rethrows
 - [Concurrency](concurrency.md): tasks, channels, cancellation, cleanup, yielding, and backend limits
 - [Observability](observability.md): health, readiness, metrics, and cache measurements

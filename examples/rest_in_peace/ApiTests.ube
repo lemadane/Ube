@@ -29,8 +29,10 @@ class ApiTests {
         final request = RestInPeace.at('http://127.0.0.1:3000')
         try {
             final response = request.get('/health')
-            try { response.expectStatus(200)
-                  .expectBody('ready') }
+            try {
+                response.expectStatus(200)
+                  .expectBody('ready')
+            }
             finally {
                 response.close()
             }

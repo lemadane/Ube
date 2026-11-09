@@ -4,17 +4,24 @@ Objects, lists, maps, and supported scalar values provide `.toXml()`. `Xml.toObj
 
 ```ube
 // Profile.ube
-class Profile(int id, string name)
+class Profile(
+  int id,
+  string name)
 ```
 
 ```ube
 // Inside a method importing Profile:
-final profile = Profile(42, 'Alice & Bob')
+final profile = Profile(
+  42,
+  'Alice & Bob')
 final xml = profile.toXml()
 // <Profile><id>42</id><name>Alice &amp; Bob</name></Profile>
 
 final document = Xml.toObject(xml)
-Console.printLine(document.root().child('name').text())
+Console.printLine(
+  document.root()
+    .child('name')
+    .text())
 // Alice & Bob
 ```
 
@@ -36,10 +43,12 @@ See the [runnable example](../examples/xml/README.md).
 For example:
 
 ```ube
-Console.printLine([1, 'two', false].toXml())
+Console.printLine(
+  [1, 'two', false].toXml())
 // <list><item>1</item><item>two</item><item>false</item></list>
 
-Console.printLine(['display name': 'Alice'].toXml())
+Console.printLine(
+  ['display name': 'Alice'].toXml())
 // <map><entry key="display name">Alice</entry></map>
 ```
 
@@ -55,12 +64,19 @@ Create reusable `XmlOptions` and pass them to `.toXml(options)`:
 
 ```ube
 final options = XmlOptions()
-    .root('p:person')
-    .namespace('p', 'urn:example:people')
-    .attribute('id')
-    .rename('name', 'p:displayName')
+  .root('p:person')
+  .namespace(
+    'p',
+    'urn:example:people')
+  .attribute('id')
+  .rename(
+    'name',
+    'p:displayName')
 
-final xml = Profile(42, 'Alice').toXml(options)
+final xml = Profile(
+  42,
+  'Alice')
+  .toXml(options)
 ```
 
 This produces a namespaced `p:person` root, an unqualified `id="42"` attribute, and a `p:displayName` child containing `Alice`.
@@ -84,11 +100,19 @@ Unprefixed elements inherit the default namespace. Unprefixed attributes have no
 ## Parsing and traversal
 
 ```ube
-final document = Xml.toObject('<users><user id="42">Alice</user><user id="7">Bob</user></users>')
+final document = Xml.toObject(
+  '<users><user id="42">Alice</user><user id="7">Bob</user></users>')
 final root = document.root()
-Console.printLine(root.childCount('user'))         // 2
-Console.printLine(root.childAt('user', 1).text())   // Bob
-Console.printLine(root.child('user').getAttribute('id')) // 42
+Console.printLine(
+  root.childCount('user'))         // 2
+Console.printLine(
+  root.childAt(
+    'user',
+    1)
+    .text())   // Bob
+Console.printLine(
+  root.child('user')
+    .getAttribute('id')) // 42
 ```
 
 `Xml.toObject` accepts one non-null UTF-8 string and returns an `XmlDocument`. Parsed values are document/element handles, not reconstructed Ube objects, lists, or maps. Construct application classes explicitly from the document when needed.
@@ -119,9 +143,16 @@ Document and element handles accept `.toXml()` with no options. Use document edi
 ```ube
 final document = Xml.create('p:user')
 final root = document.root()
-root.namespace('p', 'urn:example:people').attribute('id', '42')
-root.element('p:name').text('Alice & Bob')
-Console.printLine(document.toXml())
+root.namespace(
+  'p',
+  'urn:example:people')
+  .attribute(
+    'id',
+    '42')
+root.element('p:name')
+  .text('Alice & Bob')
+Console.printLine(
+  document.toXml())
 ```
 
 `element(name)` appends a child, `text(value)` replaces an element's content, `attribute(name, value)` sets/replaces an attribute, and `namespace(prefix, uri)` sets a namespace declaration. These methods return element handles for chaining. Bind all prefixes before serializing; malformed namespace combinations are rejected by serialization.

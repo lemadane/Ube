@@ -3,10 +3,10 @@ class App {
         final server = Server()
         server.get(
           '/health',
-          request -> Response.ok('ready'))
+          (Request request) -> Response.ok('ready'))
         server.post(
           '/echo',
-          request -> Response.json(
+          (Request request) -> Response.json(
             request.body()))
         server.start(3000)
     }

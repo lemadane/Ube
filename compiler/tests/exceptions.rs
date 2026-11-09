@@ -177,31 +177,31 @@ fn throwing_catch_condition_propagates_after_cleanup() {
 #[test]
 fn async_failures_keep_type_fields_causes_and_finally_order() {
     runs(r#"class DbError(string message, int code)
-      class App { async int fail() { try { throw DbError('db', 99) } finally { Console.printLine('worker cleanup') } }
-        async int relay() { return await this.fail() }
-        start() { try { final value = await this.relay() } catch (DbError err) { Console.printLine(err.message()) Console.printLine(err.code()) } finally { Console.printLine('awaiter cleanup') } }
+      class App {  int fail() { try { throw DbError('db', 99) } finally { Console.printLine('worker cleanup') } }
+        int relay() { return Async.start(() -> this.fail()).await() }
+        start() { try { final value = Async.start(() -> this.relay()).await() } catch (DbError err) { Console.printLine(err.message()) Console.printLine(err.code()) } finally { Console.printLine('awaiter cleanup') } }
       }"#, "worker cleanup\ndb\n99\nawaiter cleanup\n");
 }
 #[test]
 fn timeout_and_closed_channel_failures_are_generic_errors() {
     runs(r#"class App { start() {
       final ch = Channel<int>(1)
-      try { final value = await ch.receive().timeout(5) } catch (GenericError err) { Console.printLine(err.message()) }
+      try { final value = ch.receive().timeout(5).await() } catch (GenericError err) { Console.printLine(err.message()) }
       ch.close()
-      try { final value = await ch.receive() } catch (Error err) { Console.printLine(err.message()) }
+      try { final value = ch.receive().await() } catch (Error err) { Console.printLine(err.message()) }
     } }"#, "task timed out\nchannel is closed\n");
 }
 #[test]
 fn cancellation_unblocks_await_and_runs_worker_cleanup() {
     runs(r#"class App {
-      async wait(Channel<int> ready, Channel<int> blocked) {
-        try { final sent = await ready.send(1) final value = await blocked.receive() }
+      wait(Channel<int> ready, Channel<int> blocked) {
+        try { final sent = ready.send(1).await() final value = blocked.receive().await() }
         finally { Console.printLine('worker cleanup') }
       }
       start() { final ready = Channel<int>(1) final blocked = Channel<int>(1)
-        final task = this.wait(ready, blocked) final started = await ready.receive()
+        final task = Async.start(() -> this.wait(ready, blocked)) final started = ready.receive().await()
         final cancelled = task.cancel()
-        try { final value = await task } catch (Error err) { Console.printLine(err.message()) }
+        try { final value = task.await() } catch (Error err) { Console.printLine(err.message()) }
       }
     }"#, "worker cleanup\ntask was cancelled\n");
 }
@@ -209,15 +209,15 @@ fn cancellation_unblocks_await_and_runs_worker_cleanup() {
 #[test]
 fn cancellation_allows_async_cleanup_and_preserves_original_failure() {
     runs(r#"class App {
-      async work(Channel<int> ready, Channel<int> blocked, Channel<int> completed) {
+      work(Channel<int> ready, Channel<int> blocked, Channel<int> completed) {
         try {
-          final sent = await ready.send(1)
-          final value = await blocked.receive()
+          final sent = ready.send(1).await()
+          final value = blocked.receive().await()
         } finally {
           Console.printLine('cleanup started')
-          try { final value = await blocked.receive().timeout(5) }
+          try { final value = blocked.receive().timeout(5).await() }
           catch (Error err) { Console.printLine(err.message()) }
-          final sent = await completed.send(7)
+          final sent = completed.send(7).await()
           Console.printLine('cleanup completed')
         }
       }
@@ -225,12 +225,12 @@ fn cancellation_allows_async_cleanup_and_preserves_original_failure() {
         final ready = Channel<int>(1)
         final blocked = Channel<int>(1)
         final completed = Channel<int>(1)
-        final task = this.work(ready, blocked, completed)
-        final started = await ready.receive()
+        final task = Async.start(() -> this.work(ready, blocked, completed))
+        final started = ready.receive().await()
         final cancelled = task.cancel()
-        try { final value = await task }
+        try { final value = task.await() }
         catch (Error err) { Console.printLine(err.message()) }
-        Console.printLine(await completed.receive().timeout(1000))
+        Console.printLine(completed.receive().timeout(1000).await())
       }
     }"#, "cleanup started\ntask timed out\ncleanup completed\ntask was cancelled\n7\n");
 }
@@ -238,7 +238,7 @@ fn cancellation_allows_async_cleanup_and_preserves_original_failure() {
 #[test]
 fn unhandled_sync_and_async_errors_exit_unsuccessfully() {
     for source in [r#"class App { start() { throw 'sync' } }"#,
-      r#"class App { async fail() { throw 'async' } start() { final value = await this.fail() } }"#] {
+      r#"class App {  fail() { throw 'async' } start() { final value = Async.start(() -> this.fail()).await() } }"#] {
         let output = native(source);
         assert_eq!(output.status.code(), Some(1));
         assert!(String::from_utf8_lossy(&output.stderr).contains("unhandled exception GenericError"));
@@ -564,22 +564,22 @@ fn double_quotes_are_reserved_and_single_quotes_cannot_span_lines() {
 #[test]
 fn nullable_scalars_survive_tasks_channels_and_captures() {
     runs(r#"class App {
-      async int? score(int? value) { return value }
+      int? score(int? value) { return value }
       start() {
         final ch = Channel<int?>(2)
-        int? missing = await this.score(null)
-        int? zero = await this.score(0)
+        int? missing = Async.start(() -> this.score(null)).await()
+        int? zero = Async.start(() -> this.score(0)).await()
         Console.printLine(missing == null)
         Console.printLine(zero == null)
         Console.printLine(zero ?? 99)
-        await ch.send(missing)
-        await ch.send(zero)
-        int? first = await ch.receive()
-        int? second = await ch.receive()
+        ch.send(missing).await()
+        ch.send(zero).await()
+        int? first = ch.receive().await()
+        int? second = ch.receive().await()
         Console.printLine(first == null)
         Console.printLine(second ?? 99)
-        final task = async (missing)
-        int? captured = await task
+        final task = Async.start(() -> (missing))
+        int? captured = task.await()
         Console.printLine(captured == null)
       }
     }"#, "true\nfalse\n0\ntrue\n0\ntrue\n");
@@ -588,22 +588,22 @@ fn nullable_scalars_survive_tasks_channels_and_captures() {
 #[test]
 fn nullable_false_and_decimal_zero_are_present() {
     runs(r#"class App {
-      async bool? truth(bool? value) { return value }
-      async decimal? amount(decimal? value) { return value }
+      bool? truth(bool? value) { return value }
+      decimal? amount(decimal? value) { return value }
       start() {
         final ch = Channel<bool?>(2)
-        await ch.send(null)
-        await ch.send(await this.truth(false))
-        bool? missing = await ch.receive()
-        bool? present = await ch.receive()
+        ch.send(null).await()
+        ch.send(Async.start(() -> this.truth(false)).await()).await()
+        bool? missing = ch.receive().await()
+        bool? present = ch.receive().await()
         Console.printLine(missing == null)
         Console.printLine(present == null)
         Console.printLine(present ?? true)
         final amounts = Channel<decimal?>(2)
-        await amounts.send(await this.amount(null))
-        await amounts.send(await this.amount(0.0))
-        decimal? a = await amounts.receive()
-        decimal? b = await amounts.receive()
+        amounts.send(Async.start(() -> this.amount(null)).await()).await()
+        amounts.send(Async.start(() -> this.amount(0.0)).await()).await()
+        decimal? a = amounts.receive().await()
+        decimal? b = amounts.receive().await()
         Console.printLine(a == null)
         Console.printLine(b == null)
         Console.printLine(b ?? 99.0)
@@ -616,7 +616,7 @@ fn nullable_fields_calls_and_presence_conditions_work_natively() {
     runs(r#"class User(var int? age)
       class App {
         int? echo(int? value) { return value }
-        async long? wide(long? value) { return value }
+        long? wide(long? value) { return value }
         start() {
           final user = User(null)
           Console.printLine(user.age())
@@ -629,18 +629,18 @@ fn nullable_fields_calls_and_presence_conditions_work_natively() {
           if (zero) { Console.printLine('present') }
           Console.printLine(this.echo(null))
           final wide = Channel<long?>(2)
-          await wide.send(await this.wide(null))
-          await wide.send(await this.wide(9223372036854775807L))
-          long? a = await wide.receive()
-          long? b = await wide.receive()
+          wide.send(Async.start(() -> this.wide(null)).await()).await()
+          wide.send(Async.start(() -> this.wide(9223372036854775807L)).await()).await()
+          long? a = wide.receive().await()
+          long? b = wide.receive().await()
           Console.printLine(a)
           Console.printLine(b)
           final bytes = Channel<byte?>(2)
           byte value
-          await bytes.send(null)
-          await bytes.send(value)
-          byte? c = await bytes.receive()
-          byte? d = await bytes.receive()
+          bytes.send(null).await()
+          bytes.send(value).await()
+          byte? c = bytes.receive().await()
+          byte? d = bytes.receive().await()
           Console.printLine(c)
           Console.printLine(d)
         }
@@ -650,21 +650,21 @@ fn nullable_fields_calls_and_presence_conditions_work_natively() {
 #[test]
 fn nullable_payloads_do_not_hide_closure_failure_or_repeat_awaits() {
     runs(r#"class App {
-      async int? absent() { return null }
-      async int? fail() { throw 'failed' }
+      int? absent() { return null }
+      int? fail() { throw 'failed' }
       start() {
         final ch = Channel<int?>(1)
-        await ch.send(null)
+        ch.send(null).await()
         ch.close()
-        int? value = await ch.receive()
+        int? value = ch.receive().await()
         Console.printLine(value == null)
-        try { int? closed = await ch.receive() Console.printLine('wrong') }
+        try { int? closed = ch.receive().await() Console.printLine('wrong') }
         catch (Error err) { Console.printLine('closed') }
-        try { int? failed = await this.fail() Console.printLine('wrong') }
+        try { int? failed = Async.start(() -> this.fail()).await() Console.printLine('wrong') }
         catch (Error err) { Console.printLine(err.message()) }
-        final task = this.absent().timeout(1000)
-        int? first = await task
-        int? second = await task
+        final task = Async.start(() -> this.absent()).timeout(1000)
+        int? first = task.await()
+        int? second = task.await()
         Console.printLine(first == null)
         Console.printLine(second == null)
       }
@@ -674,7 +674,7 @@ fn nullable_payloads_do_not_hide_closure_failure_or_repeat_awaits() {
 #[test]
 fn untyped_collections_diagnose_nullable_scalar_storage() {
     rejects("class App { start() { int? value = null final values = [value] } }", "untyped List storage");
-    rejects("class App { async int? absent() { return null } start() { final tasks = [this.absent()] } }", "untyped List storage");
+    rejects("class App { int? absent() { return null } start() { final tasks = [Async.start(() -> this.absent())] } }", "untyped List storage");
 }
 
 #[test]
@@ -860,11 +860,11 @@ fn log_checks_arity_types_and_capitalization() {
 fn log_threshold_is_shared_with_tasks_and_filtering_keeps_argument_evaluation() {
     let output = native(r#"class App(var int calls = 0) {
         int next() { this._calls = this._calls + 1 return this._calls }
-        async worker() { Log.debug('from worker') }
+        worker() { Log.debug('from worker') }
         start() {
             Log.setLevel('off') log(this.next())
             Console.printLine(this.calls())
-            Log.setLevel('debug') await this.worker()
+            Log.setLevel('debug') Async.start(() -> this.worker()).await()
         }
     }"#);
     assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
@@ -898,29 +898,29 @@ fn log_context_values_records_and_cleanup() {
 #[test]
 fn log_context_task_snapshots_and_sibling_isolation() {
     let output = native(r#"class App {
-        async string child(string name, Channel<int> ready, Channel<int> release) {
+        string child(string name, Channel<int> ready, Channel<int> release) {
             if (Log.get('request') != 'parent') { throw 'missing inherited context' }
             Log.put('request', name)
-            await ready.send(1)
-            await release.receive()
+            ready.send(1).await()
+            release.receive().await()
             log('child')
             return Log.get('request') ?? 'missing'
         }
-        async fail() { Log.put('request', 'failed task') throw 'failure' }
+       fail() { Log.put('request', 'failed task') throw 'failure' }
         start() {
             Log.put('request', 'parent')
             final ready = Channel<int>(2) final release = Channel<int>(2)
-            final first = this.child('A', ready, release)
-            final second = this.child('B', ready, release)
-            await ready.receive() await ready.receive()
+            final first = Async.start(() -> this.child('A', ready, release))
+            final second = Async.start(() -> this.child('B', ready, release))
+            ready.receive().await() ready.receive().await()
             Log.put('request', 'changed parent')
-            await release.send(1) await release.send(1)
-            Console.printLine(await first) Console.printLine(await second)
+            release.send(1).await() release.send(1).await()
+            Console.printLine(first.await()) Console.printLine(second.await())
             Console.printLine(Log.get('request'))
-            try { await this.fail() } catch (Error err) { Console.printLine(Log.get('request')) }
+            try { Async.start(() -> this.fail()).await() } catch (Error err) { Console.printLine(Log.get('request')) }
             Log.clear()
-            final inherited = async Log.get('request')
-            Console.printLine(await inherited == null)
+            final inherited = Async.start(() -> Log.get('request'))
+            Console.printLine(inherited.await() == null)
         }
     }"#);
     assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
@@ -1280,7 +1280,7 @@ fn money_currency_mismatch_is_catchable_and_runs_finally() {
     runs(r#"
         class App {
             Money subtract() { return Money.php(10.0).subtract(Money.usd(5.0)) }
-            async Money failAsync() { return this.subtract() }
+            Money failAsync() { return this.subtract() }
             start() {
                 final original = Money.php(10.0)
                 try { print(original.add(Money.usd(5.0)).amount()) }
@@ -1289,7 +1289,7 @@ fn money_currency_mismatch_is_catchable_and_runs_finally() {
                 try { print(this.subtract().amount()) }
                 catch (CurrencyMismatchError error) { print(error.message()) }
                 finally { print('subtract cleanup') }
-                try { final value = await this.failAsync() }
+                try { final value = Async.start(() -> this.failAsync()).await() }
                 catch (CurrencyMismatchError error) { print('async recovered') }
                 try { original.add(Money.eur(5.0)) }
                 catch (Error error) { print(error.message()) }
@@ -1342,11 +1342,11 @@ fn gc_api_requires_static_calls_and_no_arguments() {
 #[test]
 fn task_combinators_check_literal_elements_and_outcome_calls() {
     for method in ["all", "any", "race", "allSettled"] {
-        rejects(&format!("class App {{ start() {{ final result = await Async.{method}([1]) }} }}"), "only task elements");
+        rejects(&format!("class App {{ start() {{ final result = Async.{method}([1]).await() }} }}"), "only task elements");
     }
-    rejects("class App { start() { final results = await Async.allSettled([async 1]) final result = results['bad'] } }", "index must be int");
+    rejects("class App { start() { final results = Async.allSettled([Async.start(() -> 1)]).await() final result = results['bad'] } }", "index must be int");
     rejects("class App { start() { TaskOutcome() } }", "does not create instances");
-    rejects("class App { start() { final results = await Async.allSettled([async 1]) final result = results.get('bad') } }", "Invalid task outcome method call");
+    rejects("class App { start() { final results = Async.allSettled([Async.start(() -> 1)]).await() final result = results.get('bad') } }", "Invalid task outcome method call");
 }
 
 #[test]
@@ -1400,10 +1400,10 @@ fn stacktrace_captures_runtime_errors_and_unhandled_output() {
 #[test]
 fn async_stacktrace_retains_throwing_task_without_stale_frames() {
     let output=native(r#"class App {
-    async fail() { throw 'async boom' }
+    fail() { throw 'async boom' }
     done() { return }
     start() {
-        try { await this.fail() } catch(Error error) { Console.printLine(error.stacktrace()) }
+        try { Async.start(() -> this.fail()).await() } catch(Error error) { Console.printLine(error.stacktrace()) }
         this.done()
         try { throw 'later' } catch(Error error) { Console.printLine(error.stacktrace()) }
     }

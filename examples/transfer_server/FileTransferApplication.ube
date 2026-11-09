@@ -1,147 +1,69 @@
-// Ube Transfer - High-Performance HTTP/3 + QUIC Native File Transfer App
-// Zero-dependency single-binary file server supporting parallel transfers, range resumption, and SHA-256 verification.
-
+// Bounded UTF-8 file transfer using the currently implemented HTTP APIs.
+// Run in a private directory. See README.md for TLS setup and current limits.
 class FileTransferApplication {
-
     start() {
         final server = Server()
+        Directory.create('uploads')
+        final filePath = 'uploads/example.txt'
 
-        // 1. Configure TLS 1.3 encryption (Mandatory for QUIC)
-        server.tls(
-          'cert.pem',
-          'key.pem')
+        if (File.exists('cert.pem')
+          and File.exists('key.pem')) {
+            server.tls(
+              'cert.pem',
+              'key.pem')
+            server.enableHttp2()
+            server.enableHttp3(8443)
+        }
 
-        // 2. Enable Native HTTP/3 over QUIC on UDP port 443
-        server.enableHttp3(443)
-
-        // 3. Upload File Endpoint (POST /files/:name)
-        // Streams incoming QUIC payload directly to disk without loading full file into memory.
         server.post(
-          '/files/:name',
+          '/files/example.txt',
           (Request request) -> {
-              final name = request.path('name')
-              final destPath = 'uploads/${name}'
-              
-              final destination = File.openWrite(destPath)
-              
-              // Pipe binary stream chunks with zero buffer allocation bloat
-              request.body()
-                .pipeTo(destination)
-              
-              final hash = File.sha256(destPath)
-              final info = File.info(destPath)
-              
+              File.write(
+                filePath,
+                request.body())
               return Response.json(
-                {
-                    success: true,
-                    file: name,
-                    size: info.size(),
-                    sha256: hash,
-                    protocol: request.protocol()
-                })
+                [
+                'success': true,
+                'file': 'example.txt',
+                'size': File.info(filePath)
+                  .size(),
+                'protocol': request.protocol()
+                ].toJson())
           })
 
-        // 4. Download File Endpoint (GET /files/:name)
-        // Supports Range requests (Range: bytes=104857600-) for resumable downloads.
         server.get(
-          '/files/:name',
+          '/files/example.txt',
           (Request request) -> {
-              final name = request.path('name')
-              final filePath = 'uploads/${name}'
-              
-              if (!File.exists(filePath)) {
-                  return Response.status(404)
-                    .json(
-                      {
-                          error: 'File not found',
-                          file: name
-                      })
+              if (not File.exists(filePath)) {
+                  return Response.notFound('File not found')
               }
-              
-              final rangeHeader = request.header('Range')
-              final stream = File.openRead(filePath)
-              
-              Response.header(
-                'Accept-Ranges',
-                'bytes')
-              Response.header(
-                'X-SHA256',
-                File.sha256(filePath))
-              
-              if (rangeHeader != '') {
-                  // Return 206 Partial Content for range resumption
-                  return Response.status(206)
-                    .stream(stream)
-              } else {
-                  return Response.stream(stream)
-              }
+              return Response.text(
+                File.read(filePath))
           })
 
-        // 5. File Metadata & Integrity Verification (HEAD /files/:name)
-        server.head(
-          '/files/:name',
-          (Request request) -> {
-              final name = request.path('name')
-              final filePath = 'uploads/${name}'
-              
-              if (!File.exists(filePath)) {
-                  return Response.status(404)
-              }
-              
-              final info = File.info(filePath)
-              final sha256 = File.sha256(filePath)
-              
-              Response.header(
-                'Content-Length',
-                info.size()
-                  .toString())
-              Response.header(
-                'X-SHA256',
-                sha256)
-              Response.header(
-                'Accept-Ranges',
-                'bytes')
-              return Response.ok()
-          })
-
-        // 6. List Files Endpoint (GET /files)
         server.get(
-          '/files',
+          '/files/example.txt/info',
           (Request request) -> {
-              final files = Directory.list('uploads')
-              
+              if (not File.exists(filePath)) {
+                  return Response.notFound('File not found')
+              }
               return Response.json(
-                {
-                    directory: 'uploads',
-                    count: files.length(),
-                    files: files
-                })
+                [
+                'file': 'example.txt',
+                'size': File.info(filePath)
+                  .size()
+                ].toJson())
           })
 
-        // 7. Delete File Endpoint (DELETE /files/:name)
         server.delete(
-          '/files/:name',
+          '/files/example.txt',
           (Request request) -> {
-              final name = request.path('name')
-              final filePath = 'uploads/${name}'
-              
-              if (File.exists(filePath)) {
-                  File.delete(filePath)
-                  return Response.json(
-                    {
-                        success: true,
-                        deleted: name
-                    })
-              } else {
-                  return Response.status(404)
-                    .json(
-                      {
-                          error: 'File not found'
-                      })
+              if (not File.exists(filePath)) {
+                  return Response.notFound('File not found')
               }
+              File.delete(filePath)
+              return Response.ok('Deleted example.txt')
           })
-
-        // Start HTTP/3 Server on UDP 443
-        server.start(443)
+        server.start(8443)
     }
 }

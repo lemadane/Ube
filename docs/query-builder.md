@@ -6,13 +6,27 @@ parameter bindings, driver dialect, errors, and materialized `SQLResult` rows.
 Use `tx.table(name)` to execute on an existing transaction's reserved connection.
 
 ```ube
-final query = db.table('users').select('name').where('active', '=', true).orderBy('name', 'asc').limit(20)
+final query = db.table('users')
+  .select('name')
+  .where(
+    'active',
+    '=',
+    true)
+  .orderBy(
+    'name',
+    'asc')
+  .limit(20)
 try {
     final rows = query.all()
     try {
-        for (rows.next()) { print(rows.getString(0)) }
-    } finally { rows.close() }
-} finally { query.close() }
+        for (rows.next()) { print(
+              rows.getString(0)) }
+    } finally {
+        rows.close()
+    }
+} finally {
+    query.close()
+}
 ```
 
 The connection must refer to a database with the requested table. Unlike
@@ -66,12 +80,20 @@ Close cursors and builders explicitly in `finally` blocks.
 
 ```ube
 final tx = db.begin()
-final query = tx.table('users').where('active', '=', true)
+final query = tx.table('users')
+  .where(
+    'active',
+    '=',
+    true)
 try {
     // Raw SQL and ORM repositories using this tx share the same connection.
-    print(query.count())
+    print(
+      query.count())
     tx.commit()
-} finally { query.close() tx.close() }
+} finally {
+    query.close()
+    tx.close()
+}
 ```
 
 Queries cannot execute after their connection closes or their transaction ends.

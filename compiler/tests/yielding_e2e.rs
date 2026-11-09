@@ -1,3 +1,5 @@
+//! Backend regression fixtures intentionally retain legacy async method declarations.
+//! They exercise resumable method frames; ordinary Async.start method calls use the blocking pool.
 //! Real native continuations, including thread-count checks above the old pool limit.
 #![cfg(unix)]
 mod support;
@@ -77,7 +79,7 @@ fn native_frame_keeps_locals_loops_branches_and_multiple_awaits() {
             async int receive(Channel<int> inbox, int offset) {
                 var sum = offset var index = 0
                 for (index < 3) {
-                    final value = await inbox.receive()
+                    final value = inbox.receive().await()
                     if (value > 0) { sum = sum + value } else { sum = sum - value }
                     index = index + 1
                 }
@@ -85,8 +87,8 @@ fn native_frame_keeps_locals_loops_branches_and_multiple_awaits() {
             }
             start() {
                 final inbox = Channel<int>(3) final task = this.receive(inbox, 10)
-                final a = await inbox.send(1) final b = await inbox.send(-2) final c = await inbox.send(3)
-                print(await task)
+                final a = inbox.send(1).await() final b = inbox.send(-2).await() final c = inbox.send(3).await()
+                print(task.await())
             }
         }
     "#,
@@ -104,15 +106,15 @@ fn native_frame_cancellation_runs_yielding_finally_before_completion() {
         r#"
         class App {
             async int work(Channel<int> ready, Channel<int> blocked, Channel<int> done) {
-                try { final sent = await ready.send(1) return await blocked.receive() }
-                finally { final sent = await done.send(7) }
+                try { final sent = ready.send(1).await() return blocked.receive().await() }
+                finally { final sent = done.send(7).await() }
             }
             start() {
                 final ready = Channel<int>(1) final blocked = Channel<int>(1) final done = Channel<int>(1)
-                final task = this.work(ready, blocked, done) final started = await ready.receive()
+                final task = this.work(ready, blocked, done) final started = ready.receive().await()
                 final cancelled = task.cancel()
-                try { final value = await task } catch (Error error) { print(error.message()) }
-                print(await done.receive().timeout(1000))
+                try { final value = task.await() } catch (Error error) { print(error.message()) }
+                print(done.receive().timeout(1000).await())
             }
         }
     "#,
@@ -128,8 +130,8 @@ fn blocking_calls_keep_the_legacy_backend() {
     let program = Program::new(
         r#"
         class App {
-            async int work(Channel<int> inbox) { final value = await inbox.receive() print(value) return value + 1 }
-            start() { final inbox = Channel<int>(1) final task = this.work(inbox) final sent = await inbox.send(41) print(await task) }
+            async int work(Channel<int> inbox) { final value = inbox.receive().await() print(value) return value + 1 }
+            start() { final inbox = Channel<int>(1) final task = this.work(inbox) final sent = inbox.send(41).await() print(task.await()) }
         }
     "#,
     );
@@ -165,23 +167,23 @@ fn thousands_of_suspended_methods_use_bounded_worker_threads() {
         r#"
         class App {
             async int work(Channel<int> ready, Channel<int> gate) {
-                final sent = await ready.send(1)
-                final value = await gate.receive()
+                final sent = ready.send(1).await()
+                final value = gate.receive().await()
                 return value + 1
             }
             start() {
                 final ready = Channel<int>(2048) final gate = Channel<int>(2048)
-                final warm = this.work(ready, gate) final started = await ready.receive()
-                final sent = await gate.send(1) final warmed = await warm
+                final warm = this.work(ready, gate) final started = ready.receive().await()
+                final sent = gate.send(1).await() final warmed = warm.await()
                 print('warm') final begin = Console.readLine()
                 final tasks = [] var index = 0
                 for (index < 2048) { tasks.add(this.work(ready, gate)) index = index + 1 }
                 index = 0
-                for (index < 2048) { final started = await ready.receive() index = index + 1 }
+                for (index < 2048) { final started = ready.receive().await() index = index + 1 }
                 print('parked') final release = Console.readLine()
                 index = 0
-                for (index < 2048) { final sent = await gate.send(1) index = index + 1 }
-                final results = await Async.all(tasks)
+                for (index < 2048) { final sent = gate.send(1).await() index = index + 1 }
+                final results = Async.all(tasks).await()
                 var total = 0 index = 0
                 for (index < 2048) { total = total + results[index] index = index + 1 }
                 print(total)
@@ -239,18 +241,18 @@ fn suspended_references_remain_rooted_and_are_released_on_completion() {
             App setup() { return App(Payload(7)) }
             async int work(Channel<int> ready, Channel<int> gate) {
                 final saved = this._current
-                final sent = await ready.send(1)
-                final released = await gate.receive()
+                final sent = ready.send(1).await()
+                final released = gate.receive().await()
                 if (saved != null) { return 1 } return 0
             }
             start() {
                 final holder = this.setup()
                 final ready = Channel<int>(1) final gate = Channel<int>(1)
-                final task = holder.work(ready, gate) final started = await ready.receive()
+                final task = holder.work(ready, gate) final started = ready.receive().await()
                 final before = Gc.objects()
                 holder.current(null) Gc.collect()
                 print(Gc.objects() == before)
-                final released = await gate.send(1) print(await task)
+                final released = gate.send(1).await() print(task.await())
                 Gc.collect() print(Gc.objects() == before - 1)
             }
         }
@@ -268,18 +270,18 @@ fn instruction_budget_allows_another_task_to_win_on_one_worker() {
         r#"
         class App {
             async int spin(Channel<int> ready, Channel<int> gate) {
-                final sent = await ready.send(1) final started = await gate.receive()
+                final sent = ready.send(1).await() final started = gate.receive().await()
                 var index = 0 for (index < 100000) { index = index + 1 }
                 return index
             }
-            async int quick(Channel<int> gate) { final started = await gate.receive() return 7 }
+            async int quick(Channel<int> gate) { final started = gate.receive().await() return 7 }
             start() {
                 final ready = Channel<int>(1) final slowGate = Channel<int>(1) final fastGate = Channel<int>(1)
-                final slow = this.spin(ready, slowGate) final started = await ready.receive()
+                final slow = this.spin(ready, slowGate) final started = ready.receive().await()
                 final quick = this.quick(fastGate) final winner = Async.race([slow, quick])
-                final startSlow = await slowGate.send(1) final startFast = await fastGate.send(1)
-                print(await winner.timeout(2000))
-                try { final value = await slow } catch (Error error) { print(error.message()) }
+                final startSlow = slowGate.send(1).await() final startFast = fastGate.send(1).await()
+                print(winner.timeout(2000).await())
+                try { final value = slow.await() } catch (Error error) { print(error.message()) }
             }
         }
     "#,
@@ -295,15 +297,15 @@ fn nullable_results_and_closed_channel_handlers_resume_correctly() {
     let program = Program::new(
         r#"
         class App {
-            async int? work(Channel<int?> inbox) { return await inbox.receive() }
+            async int? work(Channel<int?> inbox) { return inbox.receive().await() }
             async int closed(Channel<int> inbox) {
-                try { return await inbox.receive() } catch (Error error) { return -1 }
+                try { return inbox.receive().await() } catch (Error error) { return -1 }
             }
             start() {
                 final inbox = Channel<int?>(1)
-                final one = this.work(inbox) final sent = await inbox.send(null) print(await one)
-                final two = this.work(inbox) final zero = await inbox.send(0) print(await two)
-                final closed = Channel<int>(1) closed.close() print(await this.closed(closed))
+                final one = this.work(inbox) final sent = inbox.send(null).await() print(one.await())
+                final two = this.work(inbox) final zero = inbox.send(0).await() print(two.await())
+                final closed = Channel<int>(1) closed.close() print(this.closed(closed).await())
             }
         }
     "#,
@@ -323,15 +325,15 @@ fn logging_context_survives_suspension_without_leaking_to_main() {
         r#"
         class App {
             async string? work(Channel<int> ready, Channel<int> gate) {
-                Log.put('trace', 'child') final sent = await ready.send(1)
-                final released = await gate.receive() return Log.get('trace')
+                Log.put('trace', 'child') final sent = ready.send(1).await()
+                final released = gate.receive().await() return Log.get('trace')
             }
             start() {
                 Log.put('trace', 'parent')
                 final ready = Channel<int>(1) final gate = Channel<int>(1)
-                final task = this.work(ready, gate) final started = await ready.receive()
-                Log.put('trace', 'parent-changed') final released = await gate.send(1)
-                print(await task) print(Log.get('trace'))
+                final task = this.work(ready, gate) final started = ready.receive().await()
+                Log.put('trace', 'parent-changed') final released = gate.send(1).await()
+                print(task.await()) print(Log.get('trace'))
             }
         }
     "#,
@@ -349,9 +351,9 @@ fn async_expression_uses_the_same_resumable_frame_for_captures() {
         class App {
             start() {
                 final inbox = Channel<int>(1)
-                final task = async (await inbox.receive())
-                final sent = await inbox.send(42)
-                print(await task)
+                final task = Async.start(() -> (inbox.receive().await()))
+                final sent = inbox.send(42).await()
+                print(task.await())
             }
         }
     "#,
@@ -366,17 +368,17 @@ fn async_expression_uses_the_same_resumable_frame_for_captures() {
 fn async_trace_links_nested_submissions_awaits_and_legacy_callbacks() {
     let program = Program::new(r#"
     class App {
-        async leaf(Channel<int> input) { final result=await input.receive() }
-        async middle(Channel<int> input) { await this.leaf(input) }
+        async leaf(Channel<int> input) { final result=input.receive().await() }
+        async middle(Channel<int> input) { this.leaf(input).await() }
         async legacyLeaf() { final exists=File.exists('/tmp') throw 'legacy failure' }
-        async legacyMiddle() { await this.legacyLeaf() }
+        async legacyMiddle() { this.legacyLeaf().await() }
         start() {
             final input=Channel<int>(1)
             final task=this.middle(input)
             input.close()
-            try { await task } catch(Error error) { print(error.stacktrace()) }
+            try { task.await() } catch(Error error) { print(error.stacktrace()) }
             print('NEXT')
-            try { await this.legacyMiddle() } catch(Error error) { print(error.stacktrace()) }
+            try { this.legacyMiddle().await() } catch(Error error) { print(error.stacktrace()) }
         }
     }"#);
     assert!(program.llvm.contains("define internal i1 @__ube_poll_App_leaf"));
@@ -400,9 +402,9 @@ fn async_trace_repeated_awaits_keep_separate_locations_and_rethrow_identity() {
         async leaf() { throw 'shared failure' }
         start() {
             final task=this.leaf()
-            try { await task } catch(Error error) { print(error.stacktrace()) }
+            try { task.await() } catch(Error error) { print(error.stacktrace()) }
             print('NEXT')
-            try { await task } catch(Error error) {
+            try { task.await() } catch(Error error) {
                 final trace=error.stacktrace()
                 print(trace)
                 try { throw error } catch(Error again) { print(trace==again.stacktrace()) }
@@ -427,20 +429,20 @@ fn unhandled_async_chain_reports_leaf_submission_and_each_awaiter_in_order() {
     class App {
         finished() { return }
         async leaf(Channel<int> started, Channel<int> blocked) {
-            await started.send(1)
-            await blocked.receive()
+            started.send(1).await()
+            blocked.receive().await()
         }
         async relay(Channel<int> started, Channel<int> blocked) {
-            await this.leaf(started, blocked)
+            this.leaf(started, blocked).await()
         }
         start() {
             this.finished()
             final started=Channel<int>(1)
             final blocked=Channel<int>(1)
             final task=this.relay(started, blocked)
-            await started.receive()
+            started.receive().await()
             blocked.close()
-            await task
+            task.await()
         }
     }"#);
     assert!(program.llvm.contains("define internal i1 @__ube_poll_App_leaf"));

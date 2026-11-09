@@ -2,7 +2,8 @@ class App {
     start() {
         // Create a local development secret first: openssl rand -hex 32 > jwt-secret.txt
         final key = File.read('jwt-secret.txt')
-        final expires = DateTime.now().timestamp() + 3600L
+        final expires = DateTime.now()
+          .timestamp() + 3600L
         final payload = '{"sub":"user-123","iss":"ube-example","aud":"ube-api","exp":${expires}}'
         final token = Jwt.sign(
           payload,

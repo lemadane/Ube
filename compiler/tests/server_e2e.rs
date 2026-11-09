@@ -138,7 +138,7 @@ fn compiled_ube_server_stays_running_and_serves_http_requests() {
                 final res = `Hello from Ube e2e!
 This is a captured multiline string.
 `
-                server.get('/', request -> Response.ok(res))
+                server.get('/', (Request request) -> Response.ok(res))
                 server.get('/func', this.makeHandler('returned function'))
                 Gc.collect()
                 server.start({port})
@@ -217,7 +217,7 @@ fn compiled_ube_server_serves_http2_and_reports_actual_protocol() {
             start() {{
                 final server = Server()
                 server.enableHttp2()
-                server.get('/protocol', request -> Response.ok('${{request.protocol()}} ${{request.isHttp3()}}'))
+                server.get('/protocol', (Request request) -> Response.ok('${{request.protocol()}} ${{request.isHttp3()}}'))
                 server.get('/stop', (Request request) -> {{
                     server.stop()
                     return Response.ok('stopped')
@@ -345,7 +345,7 @@ fn compiled_sessions_work_across_http1_and_http2() {
             start() {{
                 final server = Server()
                 server.enableHttp2()
-                server.get('/get', request -> Response.ok(this.readUser(request.session())))
+                server.get('/get', (Request request) -> Response.ok(this.readUser(request.session())))
                 server.get('/set', (Request request) -> {{
                     final session = request.session()
                     session.set('userId', '123')
@@ -365,7 +365,7 @@ fn compiled_sessions_work_across_http1_and_http2() {
                     request.session().destroy()
                     return Response.ok(request.session().get('userId') ?? 'anonymous')
                 }})
-                server.get('/stale', request -> Response.ok(this.checkStale(request)))
+                server.get('/stale', (Request request) -> Response.ok(this.checkStale(request)))
                 server.start({port})
             }}
         }}
@@ -535,9 +535,9 @@ fn compiled_oauth_redirect_pkce_callback_and_session_work() {
                 final client = OAuth2.create('https://provider.example/authorize', 'http://{token_address}/token', 'native-client', '', 'http://127.0.0.1:{port}/callback')
                 final server = Server()
                 server.enableHttp2()
-                server.get('/login', request -> Response.redirect(client.authorize(request.session(), 'read')))
-                server.get('/callback', request -> this.callback(client, request))
-                server.get('/profile', request -> Response.ok(request.session().get('accessToken') ?? 'anonymous'))
+                server.get('/login', (Request request) -> Response.redirect(client.authorize(request.session(), 'read')))
+                server.get('/callback', (Request request) -> this.callback(client, request))
+                server.get('/profile', (Request request) -> Response.ok(request.session().get('accessToken') ?? 'anonymous'))
                 server.get('/headers', (Request request) -> {{
                     final authorization = request.header('Authorization')
                     return Response.ok('${{authorization}} ${{request.hasBearerToken()}}')
@@ -712,12 +712,12 @@ fn compiled_http3_server_serves_quic_with_shared_sessions_and_stops() {
             server.tls('{cert}', '{key}')
             server.enableHttp2()
             server.enableHttp3(0)
-            server.get('/ports', request -> Response.ok('${{server.port()}} ${{server.http3Port()}}'))
-            server.get('/protocol', request -> Response.ok('${{request.protocol()}} ${{request.isHttp3()}}'))
+            server.get('/ports', (Request request) -> Response.ok('${{server.port()}} ${{server.http3Port()}}'))
+            server.get('/protocol', (Request request) -> Response.ok('${{request.protocol()}} ${{request.isHttp3()}}'))
             server.get('/set', (Request request) -> {{ request.session().set('user', '123') return Response.ok('set') }})
-            server.get('/get', request -> Response.ok(request.session().get('user') ?? 'anonymous'))
-            server.get('/echo', request -> Response.ok(request.query('q')))
-            server.get('/redirect', request -> Response.redirect('/protocol'))
+            server.get('/get', (Request request) -> Response.ok(request.session().get('user') ?? 'anonymous'))
+            server.get('/echo', (Request request) -> Response.ok(request.query('q')))
+            server.get('/redirect', (Request request) -> Response.redirect('/protocol'))
             server.get('/stop', (Request request) -> {{ server.stop() return Response.ok('stopped') }})
             server.start({port})
         }} }}
@@ -938,10 +938,10 @@ fn compiled_ube_server_receives_post_and_put_bodies() {
             }}
             start() {{
                 final server = Server()
-                server.post('/echo', request -> this.echo(request))
-                server.put('/echo', request -> this.echo(request))
-                server.get('/calls', request -> Response.ok('${{this._calls}}'))
-                server.post('/checked', request -> this.checked(request))
+                server.post('/echo', (Request request) -> this.echo(request))
+                server.put('/echo', (Request request) -> this.echo(request))
+                server.get('/calls', (Request request) -> Response.ok('${{this._calls}}'))
+                server.post('/checked', (Request request) -> this.checked(request))
                 server.start({port})
             }}
         }}
@@ -1229,11 +1229,11 @@ fn compiled_multiplexed_body_server(
                 server.tls('{cert}', '{key}')
                 server.enableHttp2()
                 {enable_h3}
-                server.get('/ports', request -> Response.ok('${{server.http3Port()}}'))
-                server.get('/calls', request -> Response.ok('${{this._calls}}'))
-                server.post('/echo', request -> this.echo(request))
-                server.put('/echo', request -> this.echo(request))
-                server.post('/checked', request -> this.checked(request))
+                server.get('/ports', (Request request) -> Response.ok('${{server.http3Port()}}'))
+                server.get('/calls', (Request request) -> Response.ok('${{this._calls}}'))
+                server.post('/echo', (Request request) -> this.echo(request))
+                server.put('/echo', (Request request) -> this.echo(request))
+                server.post('/checked', (Request request) -> this.checked(request))
                 server.start({port})
             }}
         }}
@@ -1688,15 +1688,15 @@ fn compiled_server_survives_caught_and_uncaught_currency_mismatches() {
             }}
             start() {{
                 final server = Server()
-                server.get('/caught-add', request -> this.recover(false))
-                server.get('/caught-subtract', request -> this.recover(true))
-                server.get('/uncaught-add', request -> this.uncaught(false))
-                server.get('/uncaught-subtract', request -> this.uncaught(true))
-                server.post('/caught', request -> this.recover(request.body() == 'subtract'))
-                server.post('/uncaught', request -> this.uncaught(request.body() == 'subtract'))
-                server.get('/valid', request -> this.valid())
-                server.get('/stats', request -> Response.ok('${{this._cleaned}} ${{this._continued}}'))
-                server.get('/health', request -> Response.ok('alive'))
+                server.get('/caught-add', (Request request) -> this.recover(false))
+                server.get('/caught-subtract', (Request request) -> this.recover(true))
+                server.get('/uncaught-add', (Request request) -> this.uncaught(false))
+                server.get('/uncaught-subtract', (Request request) -> this.uncaught(true))
+                server.post('/caught', (Request request) -> this.recover(request.body() == 'subtract'))
+                server.post('/uncaught', (Request request) -> this.uncaught(request.body() == 'subtract'))
+                server.get('/valid', (Request request) -> this.valid())
+                server.get('/stats', (Request request) -> Response.ok('${{this._cleaned}} ${{this._continued}}'))
+                server.get('/health', (Request request) -> Response.ok('alive'))
                 server.start({port})
             }}
         }}
@@ -1775,4 +1775,42 @@ fn compiled_server_survives_caught_and_uncaught_currency_mismatches() {
             }
         }
     }
+}
+
+#[test]
+fn documented_transfer_example_uploads_reads_metadata_and_deletes() {
+    let reservation = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+    let address = reservation.local_addr().unwrap();
+    drop(reservation);
+    let source = include_str!("../../examples/transfer_server/FileTransferApplication.ube")
+        .replace("server.start(8443)", &format!("server.start({})", address.port()));
+    let directory = TestDirectory::new();
+    let binary = compile_ube_server(&source, directory.path());
+    let mut server = RunningServer(Command::new(binary)
+        .current_dir(directory.path())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn().unwrap());
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while TcpStream::connect_timeout(&address, Duration::from_millis(100)).is_err() {
+        assert!(server.0.try_wait().unwrap().is_none(), "example exited during startup");
+        assert!(Instant::now() < deadline, "example failed to start");
+        thread::sleep(Duration::from_millis(20));
+    }
+    let uploaded = send_request(address,
+        "POST /files/example.txt HTTP/1.1\r\nHost: localhost\r\nContent-Length: 5\r\nConnection: close\r\n\r\nhello");
+    let uploaded = String::from_utf8(uploaded).unwrap();
+    assert!(uploaded.starts_with("HTTP/1.1 200"), "{uploaded}");
+    let json: serde_json::Value = serde_json::from_str(uploaded.split("\r\n\r\n").nth(1).unwrap()).unwrap();
+    assert_eq!(json["size"], 5);
+    assert_eq!(json["success"], true);
+    let read = send_request(address, "GET /files/example.txt HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n");
+    assert!(read.ends_with(b"\r\n\r\nhello"));
+    let info = send_request(address, "GET /files/example.txt/info HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n");
+    assert!(String::from_utf8_lossy(&info).contains("\"size\":5"));
+    let removed = send_request(address, "DELETE /files/example.txt HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n");
+    assert!(String::from_utf8_lossy(&removed).starts_with("HTTP/1.1 200"));
+    assert!(!directory.path().join("uploads/example.txt").exists());
+    let missing = send_request(address, "GET /files/example.txt HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n");
+    assert!(String::from_utf8_lossy(&missing).starts_with("HTTP/1.1 404"));
 }

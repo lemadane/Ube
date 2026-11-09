@@ -12,7 +12,8 @@ class App {
         try {
             this.fail()
         } catch (Error error) {
-            Console.printLine(error.stacktrace())
+            Console.printLine(
+              error.stacktrace())
         }
     }
 }

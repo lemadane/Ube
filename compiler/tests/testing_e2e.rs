@@ -1,3 +1,5 @@
+//! Legacy async hooks below intentionally verify runner compatibility.
+//! Shipped Testicle examples use ordinary test methods with Async.start and .await().
 mod support;
 use std::{
     fs,

@@ -312,7 +312,7 @@ fn native_test_runner_supports_parallel_async_http_requests() {
     let fixture = HttpFixture::new();
     let source = r#"
         class HttpTests {
-            async string fetch(string marker) {
+            string fetch(string marker) {
                 final request = RestInPeace.at('BASE').header('X-Custom', marker)
                 final response = request.get('/inspect').expectStatus(200)
                 final value = response.jsonString('/custom')
@@ -320,11 +320,11 @@ fn native_test_runner_supports_parallel_async_http_requests() {
                 request.close()
                 return value
             }
-            async testParallel() {
-                final one = this.fetch('one')
-                final two = this.fetch('two')
-                Testicle.equal('one', await one)
-                Testicle.equal('two', await two)
+            testParallel() {
+                final one = Async.start(() -> this.fetch('one'))
+                final two = Async.start(() -> this.fetch('two'))
+                Testicle.equal('one', one.await())
+                Testicle.equal('two', two.await())
             }
         }
     "#
@@ -461,7 +461,8 @@ fn rest_in_peace_tests_a_real_compiled_ube_http_service() {
         .unwrap()
         .port();
     let directory = tempfile::tempdir().unwrap();
-    let service_source = directory.path().join("service.ube");
+    let service_source = directory.path().join("App.ube");
+    fs::write(directory.path().join(".gitignore"), ".build/\n").unwrap();
     let binary = directory.path().join("service");
     fs::write(
         &service_source,
@@ -469,8 +470,8 @@ fn rest_in_peace_tests_a_real_compiled_ube_http_service() {
             r#"
         class App {{ start() {{
             final server = Server()
-            server.get('/health', request -> Response.ok('ready'))
-            server.post('/echo', request -> Response.ok(request.body()))
+            server.get('/health', (Request request) -> Response.ok('ready'))
+            server.post('/echo', (Request request) -> Response.ok(request.body()))
             server.start({port})
         }} }}
     "#

@@ -1,46 +1,37 @@
+//! Workspace-level language pipeline example, registered by compiler/Cargo.toml.
 use ube_compiler::{IrBuilder, Lexer, Parser, TextualLlvmEmitter, TypeChecker};
 
 #[test]
 fn test_end_to_end_pipeline() {
-    let source_code = r#"
-        fn compute(n: i64) -> i64 {
-            let mut acc: i64 = 0;
-            let mut i: i64 = 1;
-            while i <= n {
-                acc = acc + i;
-                i = i + 1;
-            }
-            return acc;
+    let source = r#"
+class App {
+    int compute(int count) {
+        var total = 0
+        var index = 1
+        for (index <= count) {
+            total = total + index
+            index = index + 1
         }
+        return total
+    }
 
-        fn main() -> i64 {
-            let result: i64 = compute(10);
-            print_i64(result);
-            return 0;
-        }
-    "#;
-
-    // 1. Lexing & Parsing
-    let lexer = Lexer::new(source_code);
-    let mut parser = Parser::new(lexer);
+    start() {
+        final result = Async.start(() -> this.compute(10)).await()
+        Console.printLine(result)
+    }
+}
+"#;
+    let mut parser = Parser::new(Lexer::new(source));
     let program = parser.parse_program();
-    assert!(parser.diagnostics.is_empty(), "Parsing failed: {:?}", parser.diagnostics);
-
-    // 2. Type Checking
+    assert!(parser.diagnostics.is_empty(), "{:?}", parser.diagnostics);
     let mut checker = TypeChecker::new();
-    let typed_program = checker.check_program(&program);
-    assert!(checker.diagnostics.is_empty(), "Type checking failed: {:?}", checker.diagnostics);
-
-    // 3. IR Lowering
+    assert!(checker.check_program(&program), "{:?}", checker.diagnostics);
     let mut builder = IrBuilder::new();
-    let ir_program = builder.build_program(&typed_program);
-    assert_eq!(ir_program.functions.len(), 2);
-
-    // 4. LLVM IR Generation
-    let mut emitter = TextualLlvmEmitter::new();
-    let llvm_ir = emitter.emit_program(&ir_program);
-
-    assert!(llvm_ir.contains("define i64 @compute(i64 %0)"));
-    assert!(llvm_ir.contains("define i64 @main()"));
-    assert!(llvm_ir.contains("call void @ube_print_i64"));
+    let ir = builder.build_program(&program);
+    assert!(builder.diagnostics.is_empty(), "{:?}", builder.diagnostics);
+    let llvm = TextualLlvmEmitter::new().emit_program(&ir);
+    assert!(llvm.contains("@App_compute"));
+    assert!(llvm.contains("@ube_task_"));
+    assert!(llvm.contains("define i32 @main(i32 %argc, i8** %argv)"));
+    assert!(llvm.contains("@ube_output_i64"));
 }

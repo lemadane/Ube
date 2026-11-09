@@ -1,6 +1,11 @@
 import XmlSource
+
 class XmlConsumer(XmlSource source) {
     string name() {
-        return Xml.toObject(this._source.read()).root().child('name').text()
+        return Xml.toObject(
+          this._source.read())
+          .root()
+          .child('name')
+          .text()
     }
 }

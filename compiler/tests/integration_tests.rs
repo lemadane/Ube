@@ -1783,13 +1783,13 @@ fn test_e2e_list_index_out_of_bounds_raises_error() {
 fn test_e2e_async_spawn_and_await() {
     let source_code = r#"
         class App {
-            async fetchScore(int id) {
+            int fetchScore(int id) {
                 return 95
             }
 
             start() {
-                final task = this.fetchScore(1000)
-                final score = await task
+                final task = Async.start(() -> this.fetchScore(1000))
+                final score = task.await()
                 Console.printLine(score)
             }
         }
@@ -1818,14 +1818,14 @@ fn test_e2e_async_task_raise_rethrown_on_await() {
     let source_code = r#"
         
         class App {
-            async riskyTask() {
+            riskyTask() {
                 throw('async task error')
             }
         
             start() {
                 try {
-                    final task = this.riskyTask()
-                    await task
+                    final task = Async.start(() -> this.riskyTask())
+                    task.await()
         
                 }
                 catch (Error err) {
@@ -1859,8 +1859,8 @@ fn test_e2e_channel_send_and_receive() {
         class App {
             start() {
                 final ch = Channel()
-                await ch.send(100)
-                final val = await ch.receive()
+                ch.send(100).await()
+                final val = ch.receive().await()
                 Console.printLine(val)
             }
         }
@@ -1889,8 +1889,8 @@ fn test_e2e_async_expression_spawn() {
     let source_code = r#"
         class App {
             start() {
-                final task = async (10 + 20)
-                final val = await task
+                final task = Async.start(() -> (10 + 20))
+                final val = task.await()
                 Console.printLine(val)
             }
         }
@@ -1931,8 +1931,8 @@ fn test_e2e_typed_closable_channel() {
                 Channel<string> messages = Channel<string>(2)
                 final receivedTask = messages.receive()
                 final sentTask = messages.send('hello')
-                final sent = await sentTask
-                final received = await receivedTask
+                final sent = sentTask.await()
+                final received = receivedTask.await()
                 messages.close()
                 Console.printLine(received)
             }
@@ -1962,13 +1962,13 @@ fn test_async_task_errors_route_to_try_catch() {
     let source = r#"
         
         class App {
-            async fail() {
+            int fail() {
                 throw('task failed')
             }
         
             start() {
                 try {
-                    final result = await this.fail()
+                    final result = Async.start(() -> this.fail()).await()
                     Console.printLine(result)
         
                 }
@@ -2001,15 +2001,15 @@ fn test_async_task_errors_route_to_try_catch() {
 fn test_e2e_multiple_async_tasks_concurrent_await() {
     let source_code = r#"
         class App {
-            async compute(int val) {
+            int compute(int val) {
                 return val * 2
             }
 
             start() {
-                final t1 = this.compute(10)
-                final t2 = this.compute(20)
-                final r1 = await t1
-                final r2 = await t2
+                final t1 = Async.start(() -> this.compute(10))
+                final t2 = Async.start(() -> this.compute(20))
+                final r1 = t1.await()
+                final r2 = t2.await()
                 Console.printLine(r1 + r2)
             }
         }
@@ -2038,7 +2038,7 @@ fn test_e2e_try_check_inside_async_method_body() {
     let source_code = r#"
         
         class App {
-            async safeTask() {
+            int safeTask() {
                 var res = 0
                 try {
                     throw('inner async error')
@@ -2051,8 +2051,8 @@ fn test_e2e_try_check_inside_async_method_body() {
             }
         
             start() {
-                final task = this.safeTask()
-                final res = await task
+                final task = Async.start(() -> this.safeTask())
+                final res = task.await()
                 Console.printLine(res)
             }
         }
@@ -2081,8 +2081,8 @@ fn test_e2e_task_all_combinator_success() {
     let source_code = r#"
         class App {
             start() {
-                final tasks = [async 10, async 20]
-                final results = await Async.all(tasks)
+                final tasks = [Async.start(() -> 10), Async.start(() -> 20)]
+                final results = Async.all(tasks).await()
                 Console.printLine(results.len())
             }
         }
@@ -2111,14 +2111,14 @@ fn test_e2e_task_all_combinator_fail_fast() {
     let source_code = r#"
         
         class App {
-            async failingTask() {
+            failingTask() {
                 throw('task 2 failed')
             }
         
             start() {
                 try {
-                    final tasks = [async 10, this.failingTask()]
-                    await Async.all(tasks)
+                    final tasks = [Async.start(() -> 10), Async.start(() -> this.failingTask())]
+                    Async.all(tasks).await()
         
                 }
                 catch (Error err) {
@@ -2151,9 +2151,9 @@ fn test_e2e_task_any_and_race_combinators() {
     let source_code = r#"
         class App {
             start() {
-                final t1 = async 100
-                final t2 = async 200
-                final winner = await Async.race([t1, t2])
+                final t1 = Async.start(() -> 100)
+                final t2 = Async.start(() -> 200)
+                final winner = Async.race([t1, t2]).await()
                 Console.printLine(winner)
             }
         }
@@ -2182,8 +2182,8 @@ fn test_e2e_task_all_settled_combinator() {
     let source_code = r#"
         class App {
             start() {
-                final tasks = [async 10, async 20]
-                final settled = await Async.allSettled(tasks)
+                final tasks = [Async.start(() -> 10), Async.start(() -> 20)]
+                final settled = Async.allSettled(tasks).await()
                 Console.printLine(settled.len())
             }
         }
@@ -2215,9 +2215,9 @@ fn test_e2e_task_timeout_wraps_any_task() {
             start() {
                 Channel<int> inbox = Channel<int>(1)
                 try {
-                    final quick = await (async 500).timeout(2000)
+                    final quick = (Async.start(() -> 500)).timeout(2000).await()
                     Console.printLine(quick)
-                    final message = await inbox.receive().timeout(50)
+                    final message = inbox.receive().timeout(50).await()
                     Console.printLine(message)
         
                 }
@@ -2292,17 +2292,17 @@ fn test_removed_concurrency_forms_are_rejected() {
 fn test_unguarded_await_failure_stops_or_propagates() {
     let source = r#"
         class App {
-            async fail() {
+            int fail() {
                 throw('boom')
             }
 
-            async relay() {
-                final value = await this.fail()
+            int relay() {
+                final value = Async.start(() -> this.fail()).await()
                 return value
             }
 
             start() {
-                final value = await this.relay()
+                final value = Async.start(() -> this.relay()).await()
                 Console.printLine(value)
             }
         }

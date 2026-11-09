@@ -1,10 +1,13 @@
 class App {
-    string loadProfile(Cache cache, string key) {
+    string loadProfile(
+      Cache cache,
+      string key) {
         try {
             final cached = cache.get(key)
             if (cached != null) {
                 Console.printLine('cache hit')
-                return cached ?? ''
+                return cached
+                  ?? ''
             }
         } catch (Error err) {
             Log.warn('Cache read failed; loading the authoritative source')
@@ -14,7 +17,10 @@ class App {
         // Replace this sample value with your database or service call.
         final profile = '{"id":42,"name":"Alice"}'
         try {
-            cache.set(key, profile, 60000)
+            cache.set(
+              key,
+              profile,
+              60000)
         } catch (Error err) {
             Log.warn('Cache write failed; returning the source value')
         }
@@ -24,8 +30,14 @@ class App {
     start() {
         final cache = Cache.memory(4096)
         try {
-            Console.printLine(this.loadProfile(cache, 'user:42'))
-            Console.printLine(this.loadProfile(cache, 'user:42'))
+            Console.printLine(
+              this.loadProfile(
+                cache,
+                'user:42'))
+            Console.printLine(
+              this.loadProfile(
+                cache,
+                'user:42'))
         } finally {
             cache.close()
         }

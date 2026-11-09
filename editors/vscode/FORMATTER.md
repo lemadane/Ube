@@ -3,9 +3,11 @@
 The formatter follows the starter program's formatting needs:
 
 - Use four spaces for each structural indentation level (two two-space increments).
+- Put each additional condition in an `if` or `else if` on a new line, beginning with `and` or `or` and indented two spaces beyond the `if` line. Preserve grouping and expressions inside call arguments.
+- Expand braced `if`, `else if`, and `else` bodies onto separate lines, with closing braces on their own lines. The language already requires braces around these bodies.
 - Separate imports from the following declaration with a blank line.
 - Expand class and trait method bodies onto separate lines, with the closing brace on its own line.
-- Always expand `finally` bodies onto separate lines, with each cleanup call on its own indented line and the closing brace on its own line.
+- Always expand `try` and `finally` bodies onto separate lines, with each consecutive call and following `return` on its own indented line and the closing brace on its own line.
 - Indent a method declaration one level inside its class, and statements one level inside their method or nested block.
 - Keep calls with zero or one argument on one line unless the call would exceed 80 columns (including indentation), the source explicitly breaks the argument across lines, the argument contains a nested call, or the argument is a null-coalescing expression (`??` or `??=`). Put that expression on its own argument line, with the closing parenthesis immediately after it.
 - Put null-coalescing operators (`??` and `??=`) on the next line, indented two spaces beyond the expression’s starting indentation.
@@ -31,7 +33,7 @@ class App {
         final server = Server()
         server.get(
           '/',
-          request -> Response.ok(
+          (Request request) -> Response.ok(
             'Hello from my Ube server!'))
         server.start(8080)
     }

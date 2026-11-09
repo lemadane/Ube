@@ -8,12 +8,15 @@ Try the cache first. On a miss or cache failure, load the authoritative source. 
 
 ```ube
 class App {
-    string loadProfile(Cache cache, string key) {
+    string loadProfile(
+      Cache cache,
+      string key) {
         try {
             final cached = cache.get(key)
             if (cached != null) {
                 Console.printLine('cache hit')
-                return cached ?? ''
+                return cached
+                  ?? ''
             }
         } catch (Error err) {
             Log.warn('Cache read failed; loading the authoritative source')
@@ -23,7 +26,10 @@ class App {
         // Replace this sample value with your database or service call.
         final profile = '{"id":42,"name":"Alice"}'
         try {
-            cache.set(key, profile, 60000)
+            cache.set(
+              key,
+              profile,
+              60000)
         } catch (Error err) {
             Log.warn('Cache write failed; returning the source value')
         }
@@ -33,8 +39,14 @@ class App {
     start() {
         final cache = Cache.memory(4096)
         try {
-            Console.printLine(this.loadProfile(cache, 'user:42'))
-            Console.printLine(this.loadProfile(cache, 'user:42'))
+            Console.printLine(
+              this.loadProfile(
+                cache,
+                'user:42'))
+            Console.printLine(
+              this.loadProfile(
+                cache,
+                'user:42'))
         } finally {
             cache.close()
         }
@@ -52,10 +64,14 @@ For a shared backend, replace `Cache.memory(4096)` with `Cache.connect(address, 
 
 ```ube
 class App {
-    async int incrementMany(Cache cache, int iterations) {
+    int incrementMany(
+      Cache cache,
+      int iterations) {
         var index = 0
         for (index < iterations) {
-            cache.increment('count', 1)
+            cache.increment(
+              'count',
+              1)
             index = index + 1
         }
         return iterations
@@ -64,12 +80,23 @@ class App {
     start() {
         final cache = Cache.memory(4096)
         try {
-            cache.set('count', '0', 0)
-            final first = this.incrementMany(cache, 100)
-            final second = this.incrementMany(cache, 100)
+            cache.set(
+              'count',
+              '0',
+              0)
+            final first = Async.start(
+              () -> this.incrementMany(
+                cache,
+                100))
+            final second = Async.start(
+              () -> this.incrementMany(
+                cache,
+                100))
             first.await()
             second.await()
-            Console.printLine(cache.get('count') ?? 'missing')
+            Console.printLine(
+              cache.get('count')
+                ?? 'missing')
         } finally {
             cache.close()
         }
@@ -102,7 +129,10 @@ A remote write may commit before its response is lost. Read-only lookups can usu
 
 ```ube
 // Inside an application method:
-final inserted = cache.add('feature:banner', 'welcome', 30000)
+final inserted = cache.add(
+  'feature:banner',
+  'welcome',
+  30000)
 Console.printLine(inserted)
 ```
 

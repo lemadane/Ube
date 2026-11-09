@@ -4,153 +4,367 @@ import xml_test_types.XmlConsumer
 
 class XmlTests {
     testObjectFieldsAndNulls() {
-        final profile = XmlProfile(42, 'Alice <&> 世界', [95, 88], null)
+        final profile = XmlProfile(
+          42,
+          'Alice <&> 世界',
+          [95, 88],
+          null)
         Gc.collect()
-        final root = Xml.toObject(profile.toXml()).root()
-        Testicle.equal('XmlProfile', root.name())
-        Testicle.equal('42', root.child('id').text())
-        Testicle.equal('Alice <&> 世界', root.child('name').text())
-        Testicle.equal('88', root.child('scores').childAt('item', 1).text())
-        Testicle.isTrue(root.child('missing').isNull())
-        Testicle.equal('Alice <&> 世界', Json.toObject(profile.toJson()).getString('name'))
+        final root = Xml.toObject(
+          profile.toXml())
+          .root()
+        Testicle.equal(
+          'XmlProfile',
+          root.name())
+        Testicle.equal(
+          '42',
+          root.child('id')
+            .text())
+        Testicle.equal(
+          'Alice <&> 世界',
+          root.child('name')
+            .text())
+        Testicle.equal(
+          '88',
+          root.child('scores')
+            .childAt(
+              'item',
+              1)
+            .text())
+        Testicle.isTrue(
+          root.child('missing')
+            .isNull())
+        Testicle.equal(
+          'Alice <&> 世界',
+          Json.toObject(
+            profile.toJson())
+            .getString('name'))
     }
 
     testListsMapsAndEmptyValues() {
-        final root = Xml.toObject([true, null, ['space key': '東京']].toXml()).root()
-        Testicle.equal(3, root.childCount('item'))
-        Testicle.equal('true', root.childAt('item', 0).text())
-        Testicle.isTrue(root.childAt('item', 1).isNull())
-        final entry = root.childAt('item', 2).child('entry')
-        Testicle.equal('space key', entry.getAttribute('key'))
-        Testicle.equal('東京', entry.text())
-        Testicle.equal('<list/>', [].toXml())
-        Testicle.isFalse(Xml.toObject(''.toXml()).root().isNull())
+        final root = Xml.toObject(
+          [true, null, ['space key': '東京']].toXml())
+          .root()
+        Testicle.equal(
+          3,
+          root.childCount('item'))
+        Testicle.equal(
+          'true',
+          root.childAt(
+            'item',
+            0)
+            .text())
+        Testicle.isTrue(
+          root.childAt(
+            'item',
+            1)
+            .isNull())
+        final entry = root.childAt(
+          'item',
+          2)
+          .child('entry')
+        Testicle.equal(
+          'space key',
+          entry.getAttribute('key'))
+        Testicle.equal(
+          '東京',
+          entry.text())
+        Testicle.equal(
+          '<list/>',
+          [].toXml())
+        Testicle.isFalse(
+          Xml.toObject(
+            ''.toXml())
+            .root()
+            .isNull())
     }
 
     testOptionsAndNamespaces() {
-        final options = XmlOptions().root('p:person').namespace('p', 'urn:people').attribute('id').rename('name', 'p:label').listItem('score')
-        final profile = XmlProfile(7, 'Alice', [90, 99], null)
-        final root = Xml.toObject(profile.toXml(options)).root()
-        Testicle.equal('urn:people', root.namespaceUri())
-        Testicle.equal('7', root.getAttribute('id'))
-        Testicle.equal('Alice', root.childNs('urn:people', 'label').text())
-        Testicle.equal('99', root.child('scores').childAt('score', 1).text())
-        Testicle.equal(profile.toXml(options), profile.toXml(options))
-        Testicle.equal('Alice', Xml.toObject(profile.toXml()).root().child('name').text())
+        final options = XmlOptions()
+          .root('p:person')
+          .namespace(
+            'p',
+            'urn:people')
+          .attribute('id')
+          .rename(
+            'name',
+            'p:label')
+          .listItem('score')
+        final profile = XmlProfile(
+          7,
+          'Alice',
+          [90, 99],
+          null)
+        final root = Xml.toObject(
+          profile.toXml(options))
+          .root()
+        Testicle.equal(
+          'urn:people',
+          root.namespaceUri())
+        Testicle.equal(
+          '7',
+          root.getAttribute('id'))
+        Testicle.equal(
+          'Alice',
+          root.childNs(
+            'urn:people',
+            'label')
+            .text())
+        Testicle.equal(
+          '99',
+          root.child('scores')
+            .childAt(
+              'score',
+              1)
+            .text())
+        Testicle.equal(
+          profile.toXml(options),
+          profile.toXml(options))
+        Testicle.equal(
+          'Alice',
+          Xml.toObject(
+            profile.toXml())
+            .root()
+            .child('name')
+            .text())
     }
 
     testDocumentEditingAndAttributeEscaping() {
         final doc = Xml.create('p:root')
-        doc.root().namespace('p', 'urn:doc').attribute('value', 'quote " & < >\r\n\tend')
-        final child = doc.root().element('p:name')
+        doc.root()
+          .namespace(
+            'p',
+            'urn:doc')
+          .attribute(
+            'value',
+            'quote " & < >\r\n\tend')
+        final child = doc.root()
+          .element('p:name')
         child.text('before')
         Gc.collect()
         child.text('after <&>')
-        final parsed = Xml.toObject(doc.toXml()).root()
-        Testicle.equal('quote " & < >\r\n\tend', parsed.getAttribute('value'))
-        Testicle.equal('after <&>', parsed.childNs('urn:doc', 'name').text())
-        Testicle.equal('urn:doc', Xml.toObject(child.toXml()).root().namespaceUri())
-        child.element('nested').text('inside')
+        final parsed = Xml.toObject(
+          doc.toXml())
+          .root()
+        Testicle.equal(
+          'quote " & < >\r\n\tend',
+          parsed.getAttribute('value'))
+        Testicle.equal(
+          'after <&>',
+          parsed.childNs(
+            'urn:doc',
+            'name')
+            .text())
+        Testicle.equal(
+          'urn:doc',
+          Xml.toObject(
+            child.toXml())
+            .root()
+            .namespaceUri())
+        child.element('nested')
+          .text('inside')
         child.text('replacement')
-        Testicle.equal(0, child.childCount('*'))
-        Testicle.equal('replacement', doc.root().child('p:name').getText())
+        Testicle.equal(
+          0,
+          child.childCount('*'))
+        Testicle.equal(
+          'replacement',
+          doc.root()
+            .child('p:name')
+            .getText())
     }
 
     testMixedContentAndNamespaceShadowing() {
-        final root = Xml.toObject('<r xmlns:p="urn:one">before<p:a xmlns:p="urn:two"><![CDATA[<&>]]></p:a>after</r>').root()
-        Testicle.equal('before<&>after', root.text())
-        final child = root.childNs('urn:two', 'a')
-        Testicle.equal('<&>', child.text())
-        Testicle.equal('urn:two', Xml.toObject(child.toXml()).root().namespaceUri())
+        final root = Xml.toObject(
+          '<r xmlns:p="urn:one">before<p:a xmlns:p="urn:two"><![CDATA[<&>]]></p:a>after</r>')
+          .root()
+        Testicle.equal(
+          'before<&>after',
+          root.text())
+        final child = root.childNs(
+          'urn:two',
+          'a')
+        Testicle.equal(
+          '<&>',
+          child.text())
+        Testicle.equal(
+          'urn:two',
+          Xml.toObject(
+            child.toXml())
+            .root()
+            .namespaceUri())
     }
 
     testMalformedXmlRaisesTypedErrors() {
         var caught = false
-        try { Xml.toObject('<broken>') }
+        try {
+            Xml.toObject('<broken>')
+        }
         catch (XmlParseError error) { caught = true }
         Testicle.isTrue(caught)
         caught = false
-        try { Xml.toObject('<r>&#xD800;</r>') }
+        try {
+            Xml.toObject('<r>&#xD800;</r>')
+        }
         catch (XmlParseError error) { caught = true }
         Testicle.isTrue(caught)
         caught = false
-        try { Xml.toObject('<!DOCTYPE r [<!ENTITY x "unsafe">]><r>&x;</r>') }
+        try {
+            Xml.toObject('<!DOCTYPE r [<!ENTITY x "unsafe">]><r>&x;</r>')
+        }
         catch (XmlParseError error) { caught = true }
         Testicle.isTrue(caught)
-        Testicle.equal('healthy', Xml.toObject('<r>healthy</r>').root().text())
+        Testicle.equal(
+          'healthy',
+          Xml.toObject('<r>healthy</r>')
+            .root()
+            .text())
     }
 
     testInvalidOptionsRaiseTypedErrors() {
-        final profile = XmlProfile(1, 'Alice', [], null)
+        final profile = XmlProfile(
+          1,
+          'Alice',
+          [],
+          null)
         var caught = false
-        try { profile.toXml(XmlOptions().rename('name', 'id')) }
+        try {
+            profile.toXml(
+              XmlOptions()
+                .rename(
+                  'name',
+                  'id'))
+        }
         catch (XmlError error) { caught = true }
         Testicle.isTrue(caught)
         caught = false
-        try { profile.toXml(XmlOptions().attribute('missing')) }
+        try {
+            profile.toXml(
+              XmlOptions()
+                .attribute('missing'))
+        }
         catch (XmlError error) { caught = true }
         Testicle.isTrue(caught)
-        Testicle.equal('Alice', Xml.toObject(profile.toXml()).root().child('name').text())
+        Testicle.equal(
+          'Alice',
+          Xml.toObject(
+            profile.toXml())
+            .root()
+            .child('name')
+            .text())
     }
 
     testCyclesAndResourcesAreRejected() {
         final list = []
         list.add(list)
         var caught = false
-        try { list.toXml() }
+        try {
+            list.toXml()
+        }
         catch (XmlError error) { caught = true }
         Testicle.isTrue(caught)
         final cache = Cache.memory(4096)
         try {
             caught = false
-            try { ['cache': cache].toXml() }
+            try {
+                ['cache': cache].toXml()
+            }
             catch (XmlError error) { caught = true }
             Testicle.isTrue(caught)
-        } finally { cache.close() }
+        } finally {
+            cache.close()
+        }
     }
 
-    async XmlDocument document() {
-        return Xml.toObject(XmlProfile(9, 'async', [], null).toXml())
+    XmlDocument document() {
+        return Xml.toObject(
+          XmlProfile(
+            9,
+            'async',
+            [],
+            null)
+            .toXml())
     }
 
-    async testAsyncSerialization() {
-        final doc = this.document().await()
-        Testicle.equal('async', doc.root().child('name').text())
+    testAsyncSerialization() {
+        final doc = Async.start(
+          () -> this.document())
+          .await()
+        Testicle.equal(
+          'async',
+          doc.root()
+            .child('name')
+            .text())
     }
 
     testConsumerUsesMockedSourceAndRealXmlParser() {
         final source = Mockery.mock(XmlSource)
         try {
-            Mockery.returns(source, 'read', '<profile><name>Alice &amp; Bob</name></profile>')
-            Testicle.equal('Alice & Bob', XmlConsumer(source).name())
-            Mockery.verify(source, 'read', 1)
-        } finally { Mockery.dispose(source) }
+            Mockery.returns(
+              source,
+              'read',
+              '<profile><name>Alice &amp; Bob</name></profile>')
+            Testicle.equal(
+              'Alice & Bob',
+              XmlConsumer(source)
+                .name())
+            Mockery.verify(
+              source,
+              'read',
+              1)
+        } finally {
+            Mockery.dispose(source)
+        }
     }
 
     testConsumerPropagatesMalformedXml() {
         final source = Mockery.mock(XmlSource)
         try {
-            Mockery.returns(source, 'read', '<broken>')
+            Mockery.returns(
+              source,
+              'read',
+              '<broken>')
             var caught = false
-            try { XmlConsumer(source).name() }
+            try {
+                XmlConsumer(source)
+                  .name()
+            }
             catch (XmlParseError error) { caught = true }
             Testicle.isTrue(caught)
-            Mockery.verify(source, 'read', 1)
-        } finally { Mockery.dispose(source) }
+            Mockery.verify(
+              source,
+              'read',
+              1)
+        } finally {
+            Mockery.dispose(source)
+        }
     }
 
     testConsumerPropagatesSourceFailure() {
         final source = Mockery.mock(XmlSource)
         try {
-            Mockery.throws(source, 'read', 'source offline')
+            Mockery.throws(
+              source,
+              'read',
+              'source offline')
             var caught = false
-            try { XmlConsumer(source).name() }
+            try {
+                XmlConsumer(source)
+                  .name()
+            }
             catch (MockeryError error) {
                 caught = true
-                Testicle.equal('source offline', error.message())
+                Testicle.equal(
+                  'source offline',
+                  error.message())
             }
             Testicle.isTrue(caught)
-            Mockery.verify(source, 'read', 1)
-        } finally { Mockery.dispose(source) }
+            Mockery.verify(
+              source,
+              'read',
+              1)
+        } finally {
+            Mockery.dispose(source)
+        }
     }
 }

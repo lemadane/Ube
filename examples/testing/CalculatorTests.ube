@@ -10,7 +10,7 @@ class CalculatorTests {
         Testicle.isFalse(4 < 0)
     }
 
-    async testAsync() {
+    testAsync() {
         final values = Channel<int>(1)
         final sent = values.send(42)
           .await()

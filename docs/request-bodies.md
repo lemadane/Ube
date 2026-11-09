@@ -7,8 +7,14 @@ HTTP/1.1, HTTP/2, and HTTP/3 are supported. For example:
 class App {
     start() {
         final server = Server()
-        server.post('/echo', request -> Response.ok(request.body()))
-        server.put('/echo', request -> Response.ok(request.body()))
+        server.post(
+          '/echo',
+          (Request request) -> Response.ok(
+            request.body()))
+        server.put(
+          '/echo',
+          (Request request) -> Response.ok(
+            request.body()))
         server.start(8080)
     }
 }

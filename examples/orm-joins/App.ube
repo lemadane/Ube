@@ -1,5 +1,6 @@
 import orm_joins_types.User
 import orm_joins_types.Order
+
 class App {
     start() {
         final db = SQL.open('sqlite::memory:')

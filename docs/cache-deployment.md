@@ -53,7 +53,9 @@ ube cache --bind 10.0.0.10:6380 --disk data/cache.db --metrics 9090
 Use that numeric endpoint in each application:
 
 ```ube
-final cache = Cache.connect('10.0.0.10:6380', Env.require('UBE_CACHE_TOKEN'))
+final cache = Cache.connect(
+  '10.0.0.10:6380',
+  Env.require('UBE_CACHE_TOKEN'))
 ```
 
 This example address is a placeholder for your deployment. The application snippet assumes an enclosing method and a token already supplied by your environment/vault. The raw protocol carries tokens and values without encryption: use an encrypted tunnel or TLS proxy across untrusted networks. Authentication grants access to the whole cache; there are no per-key access controls. Configure network access to admit only intended clients. There is no built-in TLS, DNS discovery, replication, failover, or sharding.

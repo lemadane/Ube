@@ -154,7 +154,7 @@ class Address(string city)
 class Payload(int id,string text,long wide,decimal ratio,bool active,int? absent,Address address)
 class App {
     string payload(int id){return Payload(id,'quotes " slash \\ newline\n 世界',9007199254740993L,0.25,true,null,Address('東京')).toJson()}
-    async int work(KeyValueStore store,int worker){
+    int work(KeyValueStore store,int worker){
         if(store.add('claim',worker.toJson())){store.increment('winners',1)}
         var i=0
         for(i<250){store.set('worker:${worker}:${i}',this.payload(i)) store.increment('counter',1) if(i % 50 == 0){Gc.collect()} i=i+1}
@@ -190,9 +190,9 @@ class App {
         }
         if(args[1]=='concurrent'){
             store.set('counter','0') store.set('winners','0')
-            final a=this.work(store,0) final b=this.work(store,1)
-            final c=this.work(store,2) final d=this.work(store,3)
-            await a await b await c await d
+            final a=Async.start(() -> this.work(store,0)) final b=Async.start(() -> this.work(store,1))
+            final c=Async.start(() -> this.work(store,2)) final d=Async.start(() -> this.work(store,3))
+            a.await() b.await() c.await() d.await()
         }
         if(args[1]=='concurrent' or args[1]=='verify-concurrent'){
             Console.printLine(store.get('counter') ?? 'missing')

@@ -16,7 +16,10 @@ class App {
       Cache cache,
       int count) {
         return () -> {
-            return Async.start(() -> this.incrementMany(cache, count))
+            return Async.start(
+              () -> this.incrementMany(
+                cache,
+                count))
         }
     }
 

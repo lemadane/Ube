@@ -1,3 +1,4 @@
+mod formatting;
 mod testing;
 use std::env;
 use std::fs;
@@ -20,6 +21,7 @@ fn print_usage() {
     );
     eprintln!("Usage: ube <command> [options]");
     eprintln!("Commands:");
+    eprintln!("  fmt [-w | --check] [-l] [paths...]  Format Ube source (requires Node.js 18+)");
     eprintln!("  cache [--bind IP:port] [--memory bytes] [--disk path] [--buffered] [--metrics port] [--token-env name]  Run a shared cache");
     eprintln!("  env [--key <current-key>] --add <key>:<value>[, ...]  Save encrypted values");
     eprintln!("  env [--key <current-key>] <file.json>  Encrypt and consume a JSON file");
@@ -343,6 +345,9 @@ fn main() {
     }
 
     let command = &args[1];
+    if command == "fmt" {
+        process::exit(formatting::run(&args[2..]));
+    }
 
     if command == "--version" || command == "-V" || command == "-v" || command == "version" {
         print_version();

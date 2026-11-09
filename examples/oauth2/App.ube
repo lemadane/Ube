@@ -47,13 +47,13 @@ class App {
         server.enableHttp2()
         server.get(
           '/authorize',
-          request -> Response.redirect(
+          (Request request) -> Response.redirect(
             client.authorize(
               request.session(),
               'read')))
         server.get(
           '/callback',
-          request -> this.callback(
+          (Request request) -> this.callback(
             client,
             request))
         try {

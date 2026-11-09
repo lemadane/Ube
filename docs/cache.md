@@ -31,9 +31,14 @@ For records that must remain until explicitly changed or deleted, use [KeyValueS
 class App {
     start() {
         final cache = Cache.memory(67108864)
-        cache.set('user:42', '{"name":"Alice"}', 60000)
+        cache.set(
+          'user:42',
+          '{"name":"Alice"}',
+          60000)
         final user = cache.get('user:42') // string?, null on a miss
-        Console.printLine(user ?? 'not cached')
+        Console.printLine(
+          user
+            ?? 'not cached')
         cache.close()
     }
 }
@@ -73,9 +78,17 @@ Applications connect through the same API:
 ```ube
 class App {
     start() {
-        final cache = Cache.connect('127.0.0.1:6380', Env.require('UBE_CACHE_TOKEN'))
-        cache.set('shared:greeting', 'hello', 60000)
-        Console.printLine(cache.get('shared:greeting') ?? 'missing')
+        final cache = Cache.connect(
+          '127.0.0.1:6380',
+          Env.require(
+            'UBE_CACHE_TOKEN'))
+        cache.set(
+          'shared:greeting',
+          'hello',
+          60000)
+        Console.printLine(
+          cache.get('shared:greeting')
+            ?? 'missing')
         cache.close()
     }
 }

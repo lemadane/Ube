@@ -1,7 +1,10 @@
 # Yielding channel-await benchmark
 
 This Linux benchmark measures the first native yielding slice, not a comparison
-against Rust or Java. Each method signals that it started, suspends on a channel,
+against Rust or Java. Its generated source intentionally retains legacy
+`async` method declarations to exercise native method-frame lowering. Application
+examples use `Async.start` and `.await()`; replacing this benchmark with a call
+to an ordinary method would measure the blocking-pool fallback instead. Each method signals that it started, suspends on a channel,
 and performs an addition after resuming. A warmed runtime establishes the OS
 thread baseline. The harness samples `/proc` while all methods are waiting and
 again after completion, verifies the sum, and fails on unexpected thread growth.

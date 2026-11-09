@@ -8,14 +8,22 @@ trait dependency instead.
 class ApiTests {
     testEcho() {
         final request = RestInPeace.at('http://127.0.0.1:3000')
-            .accept('application/json')
-            .timeout(3000)
+          .accept('application/json')
+          .timeout(3000)
         try {
-            final response = request.json(`{"name":"Ada"}`).post('/echo')
+            final response = request.json(`{"name":"Ada"}`)
+              .post('/echo')
             try {
-                response.expectStatus(200).expectJsonString('/name', 'Ada')
-                Testicle.equal('Ada', response.jsonString('/name'))
-                Testicle.equal(200, response.status())
+                response.expectStatus(200)
+                  .expectJsonString(
+                    '/name',
+                    'Ada')
+                Testicle.equal(
+                  'Ada',
+                  response.jsonString('/name'))
+                Testicle.equal(
+                  200,
+                  response.status())
             } finally {
                 response.close()
             }
@@ -110,8 +118,12 @@ provide these fluent checks, each returning the same response on success:
 
 ```ube
 response.expectStatus(201)
-    .expectHeader('content-type', 'application/json')
-    .expectJsonString('/name', 'Ada')
+  .expectHeader(
+    'content-type',
+    'application/json')
+  .expectJsonString(
+    '/name',
+    'Ada')
 response.expectBody('exact text')
 ```
 

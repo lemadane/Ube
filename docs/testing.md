@@ -12,20 +12,32 @@ Create `tests/CalculatorTests.ube`:
 
 ```ube
 class CalculatorTests {
-    beforeEach() { print('Starting test') }
-    afterEach() { print('Finished test') }
+    beforeEach() {
+        print('Starting test')
+    }
+    afterEach() {
+        print('Finished test')
+    }
 
     testAddition() {
-        Testicle.equal(4, 2 + 2)
-        Testicle.notEqual(0, 4)
+        Testicle.equal(
+          4,
+          2 + 2)
+        Testicle.notEqual(
+          0,
+          4)
         Testicle.isTrue(4 > 0)
         Testicle.isFalse(4 < 0)
     }
 
-    async testAsync() {
+    testAsync() {
         final values = Channel<int>(1)
-        final sent = values.send(42).await()
-        Testicle.equal(42, values.receive().await())
+        final sent = values.send(42)
+          .await()
+        Testicle.equal(
+          42,
+          values.receive()
+            .await())
         values.close()
     }
 }
@@ -43,13 +55,15 @@ selects `*Tests.ube`, `*Test.ube`, `*_test.ube`, and `*.test.ube` files in sorte
 links. Every source filename must match its declared class or trait name exactly. Each class method starting with
 `test` is a test. Test classes must have no constructor parameters or sum cases.
 Tests and optional `beforeEach`/`afterEach` hooks take no parameters and omit the
-return type. Tests and hooks may be async; the runner awaits them.
+return type. Start concurrent work with `Async.start` inside the test or hook
+and call `.await()` before asserting its result. Legacy async hooks remain
+covered by runner compatibility tests.
 
 Each test gets a fresh class instance in a separate native process. Setup runs
 before the test; teardown runs through `finally`, including when setup or an
 assertion throws. A timeout or process termination cannot guarantee teardown.
-Test files may contain helper classes, but must not define `start()` or the
-reserved generated class `UbeTestRunner`.
+Put helper classes in separate, matching source files and import them. Test
+files must not define `start()` or the reserved generated class `UbeTestRunner`.
 
 ## Assertions
 
@@ -74,7 +88,11 @@ flag so failure to throw cannot silently pass:
 ```ube
 testExpectedError() {
     var caught = false
-    try { Money.parse('invalid', 'USD') }
+    try {
+        Money.parse(
+          'invalid',
+          'USD')
+    }
     catch (MoneyError error) { caught = true }
     Testicle.isTrue(caught)
 }
@@ -125,3 +143,22 @@ Additional native fixtures reject invalid numeric character references, duplicat
 The file round-trip regression compiles separate native writer and reader programs. The writer persists XML; fresh reader processes parse and verify fields, lists, maps, namespaces, nulls, and an integer larger than JavaScript's exact integer range. A corrupted file must fail with `XmlParseError`. These tests exercise real generated executables and filesystem I/O. The KeyValueStore suite protects JSON serialization and persistence paths shared with the data traversal.
 
 See the [XML reference](xml.md), [runnable XML project](../examples/xml/README.md), and [JSON reference](json.md). JUnit XML reporting remains a separate, unimplemented Testicle feature.
+
+## Documentation and example regressions
+
+`compiler/tests/documentation.rs` type-checks every shipped `.ube` example and
+complete class/trait examples in Markdown, resolving supporting declarations
+from the same document. It also rejects legacy task syntax in public examples.
+Fragments are checked for current task syntax but are not compiled without their
+surrounding declarations. Package-import examples use a small local dependency
+fixture; dependency resolution itself has a separate project-command suite.
+
+```bash
+cargo test -p ube-compiler --test documentation --test language_pipeline
+```
+
+Native yielding tests, the yielding benchmark, legacy Testicle hooks, and explicit
+compatibility/rejection tests intentionally retain legacy declarations where
+that syntax selects the behavior under test. Rust runtime and JavaScript tooling
+use their host languages' own `async`/`await` syntax. Ordinary Ube examples use
+`Async.start` and `.await()`.

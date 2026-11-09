@@ -8,10 +8,15 @@ access, redirects, and sessions are shared with the TCP transports.
 class App {
     start() {
         final server = Server()
-        server.tls('cert.pem', 'key.pem')
+        server.tls(
+          'cert.pem',
+          'key.pem')
         server.enableHttp2()
         server.enableHttp3(8443)
-        server.get('/', request -> Response.ok('Hello over ${request.protocol()}'))
+        server.get(
+          '/',
+          (Request request) -> Response.ok(
+            'Hello over ${request.protocol()}'))
         server.start(8443)
     }
 }

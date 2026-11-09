@@ -6,7 +6,7 @@ class App {
         // server.tls('cert.pem', 'key.pem')
         server.get(
           '/',
-          request -> Response.ok(
+          (Request request) -> Response.ok(
             'Hello over ${request.protocol()}'))
         server.start(8080)
     }

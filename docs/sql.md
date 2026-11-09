@@ -12,7 +12,7 @@ repositories. `db.table(name)` and `tx.table(name)` build model-free SELECT
 queries with projections, bound filters, ordering, and pagination. Live-schema-checked
 SQL, migration diffs, streaming, and asynchronous SQL built-ins are not implemented
 yet. SQL methods block their calling Ube thread while database IO runs on
-runtime workers. They do not return `Task` values. Runtime typed accessors are
+runtime workers. They do not return `Async` values. Runtime typed accessors are
 not compile-time database-schema validation.
 
 ## Opening a database
@@ -70,7 +70,9 @@ Do not automatically retry writes after an ambiguous timeout or commit failure.
 final params = SQLParams.create()
 params.addInt(7)
 params.addString('O\'Brien')
-db.execute('INSERT INTO users(id, name) VALUES (?, ?)', params)
+db.execute(
+  'INSERT INTO users(id, name) VALUES (?, ?)',
+  params)
 params.clear()
 params.close()
 ```
@@ -114,8 +116,12 @@ does not authorize access to arbitrary user-selected tables.
 ```ube
 final tx = db.begin()
 try {
-    tx.execute('UPDATE accounts SET balance = balance - 10 WHERE id = 1', params)
-    tx.execute('UPDATE accounts SET balance = balance + 10 WHERE id = 2', params)
+    tx.execute(
+      'UPDATE accounts SET balance = balance - 10 WHERE id = 1',
+      params)
+    tx.execute(
+      'UPDATE accounts SET balance = balance + 10 WHERE id = 2',
+      params)
     tx.commit()
 } finally {
     tx.close()
@@ -155,11 +161,16 @@ transactional engine such as InnoDB and keep DDL outside application transaction
 ## Results
 
 ```ube
-final rows = db.query('SELECT id, name FROM users', params)
+final rows = db.query(
+  'SELECT id, name FROM users',
+  params)
 try {
     for (rows.next()) {
-        print(rows.getInt(0))
-        print(rows.getString(rows.columnIndex('name')))
+        print(
+          rows.getInt(0))
+        print(
+          rows.getString(
+            rows.columnIndex('name')))
     }
 } finally {
     rows.close()

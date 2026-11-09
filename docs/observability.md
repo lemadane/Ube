@@ -9,9 +9,15 @@ class App {
         Health.ready(true)
 
         Metrics.increment('orders_created_total')
-        Metrics.add('orders_created_total', 2)
-        Metrics.gauge('orders_pending', 12)
-        Metrics.record('order_processing_seconds', 0.025)
+        Metrics.add(
+          'orders_created_total',
+          2)
+        Metrics.gauge(
+          'orders_pending',
+          12)
+        Metrics.record(
+          'order_processing_seconds',
+          0.025)
 
         // Run the application here; the listener stops when the program exits.
     }

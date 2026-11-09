@@ -3,6 +3,10 @@ name = "ube-compiler"
 version = "0.6.0"
 edition = "2021"
 
+[[test]]
+name = "language_pipeline"
+path = "../tests/integration_tests.rs"
+
 [dependencies]
 tempfile = "3"
 toml_edit = { version = "0.25", features = ["serde"] }

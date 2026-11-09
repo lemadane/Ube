@@ -12,12 +12,23 @@ require before marking a user as logged in.
 
 ```ube
 final key = File.read('jwt-secret.txt')
-final expires = DateTime.now().timestamp() + 3600L
+final expires = DateTime.now()
+  .timestamp() + 3600L
 final payload = '{"sub":"user-123","iss":"my-app","aud":"my-api","exp":${expires}}'
-final token = Jwt.sign(payload, key, 'HS256')
-final claims = Jwt.verify(token, key, 'HS256', 'my-app', 'my-api')
+final token = Jwt.sign(
+  payload,
+  key,
+  'HS256')
+final claims = Jwt.verify(
+  token,
+  key,
+  'HS256',
+  'my-app',
+  'my-api')
 try {
-    print(claims.get('sub') ?? 'missing subject')
+    print(
+      claims.get('sub')
+        ?? 'missing subject')
 } finally {
     claims.close()
 }
@@ -58,13 +69,17 @@ callbacks:
 
 ```ube
 final client = OAuth2.create(
-    'https://provider.example/authorize',
-    'https://provider.example/token',
-    'your-client-id',
-    '',
-    'http://127.0.0.1:8080/callback'
-)
-server.get('/authorize', request -> Response.redirect(client.authorize(request.session(), 'read')))
+  'https://provider.example/authorize',
+  'https://provider.example/token',
+  'your-client-id',
+  '',
+  'http://127.0.0.1:8080/callback')
+server.get(
+  '/authorize',
+  (Request request) -> Response.redirect(
+    client.authorize(
+      request.session(),
+      'read')))
 ```
 
 The five `create` arguments are the authorization endpoint, token endpoint,

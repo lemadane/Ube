@@ -9,26 +9,27 @@ import subprocess
 import tempfile
 import time
 
+# Legacy declarations intentionally exercise native method-frame lowering.
 SOURCE = """
 class App {
     async int work(Channel<int> ready, Channel<int> gate) {
-        final sent = await ready.send(1)
-        final value = await gate.receive()
+        final sent = ready.send(1).await()
+        final value = gate.receive().await()
         return value + 1
     }
     start() {
         final ready = Channel<int>(COUNT) final gate = Channel<int>(COUNT)
-        final warm = this.work(ready, gate) final started = await ready.receive()
-        final sent = await gate.send(1) final warmed = await warm
+        final warm = this.work(ready, gate) final started = ready.receive().await()
+        final sent = gate.send(1).await() final warmed = warm.await()
         print('warm') final begin = Console.readLine()
         final tasks = [] var index = 0
         for (index < COUNT) { tasks.add(this.work(ready, gate)) index = index + 1 }
         index = 0
-        for (index < COUNT) { final started = await ready.receive() index = index + 1 }
+        for (index < COUNT) { final started = ready.receive().await() index = index + 1 }
         print('parked') final release = Console.readLine()
         index = 0
-        for (index < COUNT) { final sent = await gate.send(1) index = index + 1 }
-        final results = await Task.all(tasks)
+        for (index < COUNT) { final sent = gate.send(1).await() index = index + 1 }
+        final results = Async.all(tasks).await()
         var total = 0 index = 0
         for (index < COUNT) { total = total + results[index] index = index + 1 }
         print(total) final finished = Console.readLine()

@@ -10,7 +10,11 @@ class Address(string city)
 ```ube
 // Profile.ube
 import Address
-class Profile(int id, string name, Address address)
+
+class Profile(
+  int id,
+  string name,
+  Address address)
 ```
 
 ```ube
@@ -20,12 +24,20 @@ import Profile
 
 class App {
     start() {
-        final profile = Profile(42, 'Alice', Address('東京'))
-        Console.printLine(profile.toJson())
+        final profile = Profile(
+          42,
+          'Alice',
+          Address('東京'))
+        Console.printLine(
+          profile.toJson())
 
-        final document = Json.toObject(profile.toJson())
-        Console.printLine(document.getInt('id'))
-        Console.printLine(document.getObject('address').getString('city'))
+        final document = Json.toObject(
+          profile.toJson())
+        Console.printLine(
+          document.getInt('id'))
+        Console.printLine(
+          document.getObject('address')
+            .getString('city'))
     }
 }
 ```
@@ -68,7 +80,8 @@ JSON cannot faithfully represent every runtime object. Ube does not silently dro
 
 ```ube
 final values = [1, 'two', true, [3, 4]]
-Console.printLine(values.toJson())
+Console.printLine(
+  values.toJson())
 // [1,"two",true,[3,4]]
 ```
 
@@ -76,10 +89,12 @@ Maps serialize as JSON objects. String keys remain unchanged; integer, finite de
 
 ```ube
 final profile = ['name': 'Alice', 'scores': [95, 88]]
-Console.printLine(profile.toJson())
+Console.printLine(
+  profile.toJson())
 // {"name":"Alice","scores":[95,88]}
 
-Console.printLine([1000L: 95].toJson())
+Console.printLine(
+  [1000L: 95].toJson())
 // {"1000":95}
 ```
 
@@ -134,9 +149,14 @@ Parsing accepts up to 16 MiB of JSON text and uses the JSON parser's own nesting
 // Inside a method with a Profile instance:
 final store = KeyValueStore.open('data/records.db')
 try {
-    store.set('profile', profile.toJson())
-    final document = Json.toObject(store.get('profile') ?? '{}')
-    Console.printLine(document.getString('name'))
+    store.set(
+      'profile',
+      profile.toJson())
+    final document = Json.toObject(
+      store.get('profile')
+        ?? '{}')
+    Console.printLine(
+      document.getString('name'))
 } finally {
     store.close()
 }

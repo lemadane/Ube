@@ -1,3 +1,6 @@
 import Address
 
-class Profile(int id, string name, Address address)
+class Profile(
+  int id,
+  string name,
+  Address address)

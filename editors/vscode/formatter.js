@@ -198,7 +198,7 @@ function isGroupedFunctionParenthesis(source, openIndex, closeIndex, end) {
 
 function isCallParenthesis(source, openIndex, closeIndex, end) {
   const previous = previousToken(source, openIndex);
-  if (["Func", "if", "for", "while", "catch", "switch", "match"].includes(previous.text)) {
+  if (["Func", "if", "for", "while", "catch", "switch", "match", "and", "or", "not"].includes(previous.text)) {
     return false;
   }
   if (isGroupedFunctionParenthesis(source, openIndex, closeIndex, end)) {
@@ -296,6 +296,37 @@ function appendClosingParenthesis(argument) {
   return `${argument})`;
 }
 
+function splitIfConditions(source, indent) {
+  let result = "";
+  let braceDepth = 0;
+  for (let cursor = 0; cursor < source.length;) {
+    const skipped = skipNonCode(source, cursor, source.length);
+    if (skipped !== cursor) {
+      result += source.slice(cursor, skipped);
+      cursor = skipped;
+      continue;
+    }
+    if (source[cursor] === "(") {
+      const close = findClosingParenthesis(source, cursor, source.length);
+      if (close !== -1 && isCallParenthesis(source, cursor, close, source.length)) {
+        result += source.slice(cursor, close + 1);
+        cursor = close + 1;
+        continue;
+      }
+    }
+    const token = source.slice(cursor).match(/^[A-Za-z_][A-Za-z0-9_]*/)?.[0] || source[cursor];
+    if (braceDepth === 0 && ["and", "or"].includes(token)) {
+      result = result.trimEnd() + `\n${ARGUMENT_LINE}${indent}:${token}`;
+    } else {
+      result += token;
+    }
+    if (token === "{") braceDepth += 1;
+    if (token === "}") braceDepth -= 1;
+    cursor += token.length;
+  }
+  return result;
+}
+
 function formatCallArguments(source, start, end, extraIndent = 0) {
   let result = "";
   let cursor = start;
@@ -343,7 +374,11 @@ function formatCallArguments(source, start, end, extraIndent = 0) {
     }
 
     if (!isCallParenthesis(source, cursor, closeIndex, end)) {
-      result += `(${formatCallArguments(source, cursor + 1, closeIndex, continuationIndent)})`;
+      let condition = formatCallArguments(source, cursor + 1, closeIndex, continuationIndent);
+      if (/\bif\s*$/.test(source.slice(0, cursor))) {
+        condition = splitIfConditions(condition, continuationIndent);
+      }
+      result += `(${condition})`;
       cursor = closeIndex + 1;
       continue;
     }
@@ -559,6 +594,7 @@ function expandDeclarationBlocks(source) {
   const breaks = new Set();
   let previous = "";
   let pendingType = false;
+  let closedIfCondition = false;
   for (let cursor = 0; cursor < source.length;) {
     if (/\s/.test(source[cursor])) {
       cursor += 1;
@@ -573,26 +609,29 @@ function expandDeclarationBlocks(source) {
     const token = source.slice(cursor).match(/^[A-Za-z_][A-Za-z0-9_]*/)?.[0] || source[cursor];
     const frame = stack[stack.length - 1];
     if (["class", "trait"].includes(token)) pendingType = true;
-    if (frame?.finally && previous === ")" &&
+    if (frame?.statementBlock && previous === ")" &&
         /^[A-Za-z_]/.test(token) &&
         !["and", "or", "is", "as", "in"].includes(token)) {
       breaks.add(cursor);
     }
     if (["{", "(", "["].includes(token)) {
-      const isFinally = token === "{" && previous === "finally";
+      const isStatementBlock = token === "{" &&
+        (["try", "finally", "else"].includes(previous) || closedIfCondition);
       const isMethod = token === "{" && frame?.type && previous === ")";
       const isType = token === "{" && pendingType;
       if (token === "{") pendingType = false;
-      stack.push({ token, finally: isFinally, method: isMethod, type: isType });
-      if (isFinally || (isMethod && !/^[ \t]*\/\//.test(source.slice(cursor + 1)))) {
+      stack.push({ token, statementBlock: isStatementBlock, method: isMethod, type: isType,
+        ifCondition: token === "(" && previous === "if" });
+      if (isStatementBlock || (isMethod && !/^[ \t]*\/\//.test(source.slice(cursor + 1)))) {
         breaks.add(cursor + 1);
       }
     } else if (["}", ")", "]"].includes(token)) {
-      if (token === "}" && (frame?.finally || frame?.method)) breaks.add(cursor);
+      if (token === "}" && (frame?.statementBlock || frame?.method)) breaks.add(cursor);
       stack.pop();
-    } else if (token === ";" && frame?.finally) {
+    } else if (token === ";" && frame?.statementBlock) {
       breaks.add(cursor + 1);
     }
+    closedIfCondition = token === ")" && frame?.ifCondition;
     previous = token;
     cursor += token.length;
   }

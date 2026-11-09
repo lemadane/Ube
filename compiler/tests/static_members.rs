@@ -203,10 +203,10 @@ fn static_async_methods_and_await() {
         r#"
     class Work {
         static final int answer = 42
-        static async int first() { return static.answer }
-        static async int second() { final result = await static.first() return result + 1 }
+        static int first() { return static.answer }
+        static int second() { final result = Async.start(() -> static.first()).await() return result + 1 }
     }
-    class App { start() { print(await Work.second()) } }
+    class App { start() { print(Async.start(() -> Work.second()).await()) } }
     "#,
         "43\n",
     );
@@ -299,6 +299,7 @@ fn static_methods_do_not_satisfy_instance_traits() {
 }
 
 #[test]
+// Legacy declaration is intentional: this checks native resumable method frames.
 fn static_fields_work_across_native_async_suspension() {
     runs(
         r#"
@@ -328,7 +329,7 @@ fn concurrent_static_reference_replacement_and_collection() {
     class Item(int value)
     class State {
         static var Item item = Item(0)
-        static async int write() {
+        static int write() {
             var index = 0
             for (index < 100) {
                 static.item = Item(index)
@@ -337,7 +338,7 @@ fn concurrent_static_reference_replacement_and_collection() {
             }
             return index
         }
-        static async int read() {
+        static int read() {
             var index = 0
             for (index < 100) {
                 final item = static.item
@@ -349,8 +350,8 @@ fn concurrent_static_reference_replacement_and_collection() {
         }
     }
     class App { start() {
-        final writer = State.write() final reader = State.read()
-        print(await writer) print(await reader)
+        final writer = Async.start(() -> State.write()) final reader = Async.start(() -> State.read())
+        print(writer.await()) print(reader.await())
     } }
     "#,
         "100\n100\n",

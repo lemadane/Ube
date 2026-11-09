@@ -64,12 +64,19 @@ Parameters use **one-based** indexes and can be `?`, `?NNN`, `:name`, `@name`, o
 `$name`. Named parameters use their exact SQLite prefix.
 
 ```ube
-final insert = db.prepare('INSERT INTO items(name, active) VALUES (:name, :active)')
+final insert = db.prepare(
+  'INSERT INTO items(name, active) VALUES (:name, :active)')
 try {
-    insert.bindString(insert.parameterIndex(':name'), 'Ube')
-    insert.bindBool(insert.parameterIndex(':active'), true)
+    insert.bindString(
+      insert.parameterIndex(':name'),
+      'Ube')
+    insert.bindBool(
+      insert.parameterIndex(':active'),
+      true)
     insert.execute()
-    insert.bindString(insert.parameterIndex(':name'), 'Another item')
+    insert.bindString(
+      insert.parameterIndex(':name'),
+      'Another item')
     insert.execute()
 } finally {
     insert.close()
@@ -146,7 +153,8 @@ try {
     db.commit()
 } catch (SQLiteError err) {
     db.rollback()
-    log(err.message())
+    log(
+      err.message())
 }
 ```
 

@@ -8,8 +8,13 @@ class App {
     start() {
         final server = Server()
         server.enableHttp2()
-        server.tls('cert.pem', 'key.pem')
-        server.get('/', request -> Response.ok('Hello over ${request.protocol()}'))
+        server.tls(
+          'cert.pem',
+          'key.pem')
+        server.get(
+          '/',
+          (Request request) -> Response.ok(
+            'Hello over ${request.protocol()}'))
         server.start(8443)
     }
 }

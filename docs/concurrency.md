@@ -4,19 +4,26 @@ Tasks start immediately. Use `.await()` to obtain the result; failures use
 ordinary `try`, `catch`, and `finally`.
 
 ```ube
-final userTask = Async.start(() -> users.fetch(id))
-final ordersTask = Async.start(() -> orders.fetch(id))
+final userTask = Async.start(
+  () -> users.fetch(id))
+final ordersTask = Async.start(
+  () -> orders.fetch(id))
 final user = userTask.await()
 final orders = ordersTask.await()
 ```
 
 ## Yielding native methods: first supported slice
 
-The compiler now emits native resumable poll functions for async methods that
+The compiler emits native resumable poll functions for eligible task bodies that
 contain an await and use only known nonblocking IR operations. Channel waits,
 task waits, supported combinators/deadlines, primitive arithmetic, local slots,
 branches, loops, field accesses, and exception/cleanup control flow are covered.
-The compiler selects this path automatically; the syntax above is unchanged.
+The compiler selects this path automatically. A direct expression such as
+`Async.start(() -> inbox.receive().await())` can yield. A call to an ordinary
+method, or a block lambda invoked as a function, currently uses the blocking pool.
+The legacy method-lowering tests and benchmark deliberately retain the old
+`async` declaration syntax to measure that separate compiler path; it is not
+the recommended application syntax.
 
 A heap frame retains the resume position, registers, locals, pending exception,
 and cancellation-delivery state. Pending task/channel waits register a Tokio
@@ -25,7 +32,7 @@ across suspension and worker migration, and frame roots are removed when the
 frame is destroyed. Logging context is restored separately for each poll.
 A 256-instruction budget yields long-running control flow cooperatively.
 
-This is a conservative first slice, not a conversion of every async method.
+This is a conservative first slice, not a conversion of every task body.
 Methods with ordinary method calls, trait dispatch, object construction, nested
 async submissions, or unapproved runtime calls retain the blocking-pool backend.
 This avoids running hidden blocking IO on scheduler workers. Interprocedural
@@ -41,7 +48,7 @@ checks do not establish parity with Rust or Java virtual threads.
 
 ## Task ownership and cleanup
 
-Each executing async method or `async expr` owns the tasks it starts. Tasks
+Each task started with `Async.start` owns the tasks it starts. Tasks
 started by synchronous helpers belong to that same parent task. Tasks started
 from synchronous entry-point code belong to the program's root task scope. These are
 task scopes, not a new scope at every brace or synchronous method call.
@@ -88,11 +95,18 @@ lists are also validated at runtime, using registered opaque task IDs rather
 than dereferencing their elements as pointers.
 
 ```ube
-final results = await Async.allSettled([async 0, async false, async 'hello'])
-print(results[0].succeeded())
-print(results[0].value())
-print(results[1].boolValue())
-print(results[2].stringValue())
+final results = Async.allSettled(
+  [Async.start(() -> 0), Async.start(() -> false), Async.start(
+    () -> 'hello')])
+  .await()
+print(
+  results[0].succeeded())
+print(
+  results[0].value())
+print(
+  results[1].boolValue())
+print(
+  results[2].stringValue())
 ```
 
 `TaskOutcomes` supports `len()`, `get(int)`, and `[int]`, with bounds checking.

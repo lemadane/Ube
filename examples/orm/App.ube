@@ -1,4 +1,5 @@
 import orm_types.User
+
 class App {
     start() {
         final db = SQL.open('sqlite::memory:')

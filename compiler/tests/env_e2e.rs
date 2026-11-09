@@ -381,7 +381,7 @@ fn env_api_is_typed_and_works_in_native_tests_and_async_tasks() {
     }
     fixture.source("class App { start() { string? value = Env.get('UBE_SECRET_TEST_PASSWORD') if (value) { print(value) } } }");
     assert!(success(fixture.cli(&["run"])).contains("sentinel-secret-π-73482"));
-    fs::write(fixture.root.join("tests/EnvTests.ube"), "class EnvTests { testVault() { Testicle.isTrue(Env.has('UBE_SECRET_TEST_PASSWORD')) Testicle.isFalse(Env.has('UBE_SECRET_MISSING')) } async testAsync() { final task = async (Env.has('UBE_SECRET_TEST_PASSWORD')) Testicle.isTrue(await task) } }").unwrap();
+    fs::write(fixture.root.join("tests/EnvTests.ube"), "class EnvTests { testVault() { Testicle.isTrue(Env.has('UBE_SECRET_TEST_PASSWORD')) Testicle.isFalse(Env.has('UBE_SECRET_MISSING')) } testAsync() { final task = Async.start(() -> Env.has('UBE_SECRET_TEST_PASSWORD')) Testicle.isTrue(task.await()) } }").unwrap();
     assert!(success(fixture.cli(&["test"])).contains("Tests: 2 passed"));
 }
 

@@ -14,7 +14,11 @@ class Address(string city)
 ```ube
 // Profile.ube
 import Address
-class Profile(int id, string name, Address address)
+
+class Profile(
+  int id,
+  string name,
+  Address address)
 ```
 
 ```ube
@@ -26,13 +30,24 @@ class App {
     start() {
         final store = KeyValueStore.open('data/records.db')
         try {
-            final profile = Profile(42, 'Alice', Address('東京'))
-            store.set('user:42', profile.toJson())
+            final profile = Profile(
+              42,
+              'Alice',
+              Address('東京'))
+            store.set(
+              'user:42',
+              profile.toJson())
 
-            final saved = Json.toObject(store.get('user:42') ?? '{}')
-            Console.printLine(saved.getInt('id'))
-            Console.printLine(saved.getString('name'))
-            Console.printLine(saved.getObject('address').getString('city'))
+            final saved = Json.toObject(
+              store.get('user:42')
+                ?? '{}')
+            Console.printLine(
+              saved.getInt('id'))
+            Console.printLine(
+              saved.getString('name'))
+            Console.printLine(
+              saved.getObject('address')
+                .getString('city'))
         } finally {
             store.close()
         }
@@ -68,9 +83,14 @@ A stored JSON null is the non-null Ube string `'null'`; a missing record returns
 
 ```ube
 // Inside an application method:
-store.set('present-null', 'null')
-Console.printLine(store.has('present-null')) // true
-Console.printLine(store.get('absent') ?? 'missing') // missing
+store.set(
+  'present-null',
+  'null')
+Console.printLine(
+  store.has('present-null')) // true
+Console.printLine(
+  store.get('absent')
+    ?? 'missing') // missing
 ```
 
 `increment` requires an existing signed 64-bit JSON integer, such as the JSON text `'0'`. A JSON string containing a number, such as `'"0"'`, is not an integer. Missing keys, decimals, non-integers, and overflow raise errors. Negative deltas are supported. Numeric method parameters accept `int` through widening to `long`.

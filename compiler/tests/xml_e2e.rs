@@ -258,14 +258,14 @@ fn xml_encoding_and_document_handles_work_across_async_calls() {
         r#"
     class Profile(int id)
     class App {
-        async string encode() { return Profile(7).toXml() }
-        async XmlDocument document() { return Xml.toObject('<ready>ok</ready>') }
-        async fail() { Xml.toObject('<broken>') }
+        string encode() { return Profile(7).toXml() }
+        XmlDocument document() { return Xml.toObject('<ready>ok</ready>') }
+        fail() { Xml.toObject('<broken>') }
         start() {
-            print(await this.encode())
-            final document=await this.document()
+            print(Async.start(() -> this.encode()).await())
+            final document=Async.start(() -> this.document()).await()
             print(document.root().text())
-            try {await this.fail()}catch(XmlParseError e){print('worker XML error')}
+            try {Async.start(() -> this.fail()).await()}catch(XmlParseError e){print('worker XML error')}
             final json=Json.toObject('{"items":[1,2]}')
             print(Xml.toObject(json.toXml()).root().child('entry').childAt('item',1).text())
             try {Json.toObject(`{"bad":"\u0001"}`).toXml()}catch(XmlError e){print('XML control character rejected')}

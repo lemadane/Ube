@@ -72,7 +72,7 @@ Ube/
 │       ├── concurrency.rs          # Tokio tasks/channels & one-shot cancellation
 │       ├── gc.rs                   # Precise tracing heap, method roots, and pointer barriers
 │       └── collections.rs          # Runtime collection array/map representations
-└── standard-library/               # Core Ube standard library packages
+└── standard-library/               # Built-in API implementation notes (runtime-backed)
     └── Console.ube               # Standard library prelude definitions
 ```
 

@@ -18,9 +18,7 @@ Parentheses may group a function type in a local declaration, making the boundar
 Func() -> int shortOperation = () -> 42
 (Func() -> int) groupedOperation = () -> 42
 
-(
-    Func(int, string) -> Func(bool) -> int
-) operationFactory = (int count, string label) -> (bool enabled) -> count
+(Func(int, string) -> Func(bool) -> int) operationFactory = (int count, string label) -> (bool enabled) -> count
 ```
 
 ## Returning and calling functions
@@ -29,21 +27,28 @@ An expression closure uses typed parameters followed by `->` and its result expr
 
 ```ube
 class App {
-    Func(int) -> int makeAdder(int amount) {
+    (Func(int) -> int) makeAdder(int amount) {
         return (int value) -> value + amount
     }
 
-    int apply(Func(int) -> int operation, int value) {
+    int apply(
+      (Func(int) -> int) operation,
+      int value) {
         return operation(value)
     }
 
     start() {
+        (Func(string) -> void) output = (string text) -> Console.printLine(text)
         final addFive = this.makeAdder(5)
-        Console.printLine(addFive(10))              // 15
-        Console.printLine(this.apply(addFive, 20))  // 25
-        Console.printLine(this.makeAdder(7)(3))     // 10
+        Console.printLine(
+          addFive(10))              // 15
+        Console.printLine(
+          this.apply(
+            addFive,
+            20))  // 25
+        Console.printLine(
+          this.makeAdder(7)(3))     // 10
 
-        Func(string) -> void output = (string text) -> Console.printLine(text)
         output('hello')
     }
 }
@@ -59,10 +64,14 @@ final add = (int left, int right) -> {
     return result
 }
 
-server.get('/', (Request request) -> {
-    final theme = request.session().get('theme') ?? 'light'
-    return Response.ok('Theme: ${theme}')
-})
+server.get(
+  '/',
+  (Request request) -> {
+      final theme = request.session()
+        .get('theme')
+        ?? 'light'
+      return Response.ok('Theme: ${theme}')
+  })
 ```
 
 Block return types are inferred. All returns must have the same type, and value-returning blocks must return or throw on every path. A block with no value returns is `Func(...) -> void`. Use `()` for no parameters. Blocks support local variables, conditionals, loops, and exception handling. Captures follow the same rules as expression lambdas.
@@ -77,7 +86,8 @@ Creating a closure captures the current values of referenced local variables. Ca
 var amount = 2
 final read = () -> amount
 amount = 99
-Console.printLine(read()) // 2
+Console.printLine(
+  read()) // 2
 ```
 
 Object captures retain the same object reference; they do not deep-copy the object. Mutations through that object's methods remain visible. Captured objects and other functions stay alive through garbage collection for as long as the closure needs them. Resource handles still require their normal explicit cleanup; keep a cache or file open until its callbacks finish.
@@ -89,8 +99,14 @@ Each invocation evaluates the expression again. Exceptions propagate to the call
 Start an ordinary method or expression on the task runtime by passing a zero-argument function to `Async.start`:
 
 ```ube
-final firstTask = Async.start(() -> this.incrementMany(cache, 100))
-final secondTask = Async.start(() -> this.incrementMany(cache, 100))
+final firstTask = Async.start(
+  () -> this.incrementMany(
+    cache,
+    100))
+final secondTask = Async.start(
+  () -> this.incrementMany(
+    cache,
+    100))
 final firstResult = firstTask.await()
 final secondResult = secondTask.await()
 ```
@@ -100,18 +116,29 @@ final secondResult = secondTask.await()
 `Func() -> Async<int>` is a function that creates or returns a task when called:
 
 ```ube
-Func() -> Async<int> makeIncrement(Cache cache, int count) {
-    return () -> Async.start(() -> this.incrementMany(cache, count))
+(Func() -> Async<int>) makeIncrement(
+  Cache cache,
+  int count) {
+    return () -> Async.start(
+      () -> this.incrementMany(
+        cache,
+        count))
 }
 ```
 
 Creating these function values does not call `incrementMany`:
 
 ```ube
-final first = this.makeIncrement(cache, 100)
-final second = this.makeIncrement(cache, 100)
-first().await()
-second().await()
+final first = this.makeIncrement(
+  cache,
+  100)
+final second = this.makeIncrement(
+  cache,
+  100)
+first()
+  .await()
+second()
+  .await()
 ```
 
 Those two operations run sequentially. To start both before waiting:

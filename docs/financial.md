@@ -5,12 +5,29 @@ Use string inputs and outputs when exact decimal values matter:
 ```ube
 class App {
     start() {
-        final subtotal = Money.parse('0.10', 'PHP')
-        final shipping = Money.parse('0.20', 'PHP')
-        print(subtotal.add(shipping).amountText()) // 0.3
-        print(Money.parse('100', 'PHP').multiplyPercent('12.5').amountText()) // 12.5
-        final dollars = Money.parse('3.5', 'PHP').convertExact('USD', '0.1')
-        print(dollars.amountText()) // 0.35
+        final subtotal = Money.parse(
+          '0.10',
+          'PHP')
+        final shipping = Money.parse(
+          '0.20',
+          'PHP')
+        print(
+          subtotal.add(shipping)
+            .amountText()) // 0.3
+        print(
+          Money.parse(
+            '100',
+            'PHP')
+            .multiplyPercent('12.5')
+            .amountText()) // 12.5
+        final dollars = Money.parse(
+          '3.5',
+          'PHP')
+          .convertExact(
+            'USD',
+            '0.1')
+        print(
+          dollars.amountText()) // 0.35
     }
 }
 ```
@@ -50,9 +67,16 @@ cleanup use the normal exception ABI.
 
 ```ube
 try {
-    Money.parse('10', 'PHP').add(Money.parse('5', 'USD'))
+    Money.parse(
+      '10',
+      'PHP')
+      .add(
+        Money.parse(
+          '5',
+          'USD'))
 } catch (CurrencyMismatchError error) {
-    print(error.message())
+    print(
+      error.message())
 } finally {
     print('cleanup')
 }

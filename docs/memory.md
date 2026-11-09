@@ -20,8 +20,10 @@ collection and managed-heap diagnostics:
 
 ```ube
 Gc.collect()
-print(Gc.objects())
-print(Gc.reclaimed())
+print(
+  Gc.objects())
+print(
+  Gc.reclaimed())
 ```
 
 `Gc.collect()` returns true after completing a collection. Counts describe the

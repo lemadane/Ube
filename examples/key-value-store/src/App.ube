@@ -29,8 +29,8 @@ class App {
                     Console.printLine(
                       profile.getString('name'))
                     Console.printLine(
-                      profile.getObject('address').getString(
-                        'city'))
+                      profile.getObject('address')
+                        .getString('city'))
                 } else {
                     Console.printLine('missing')
                 }

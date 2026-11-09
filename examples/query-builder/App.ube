@@ -3,21 +3,47 @@ class App {
         final db = SQL.open('sqlite::memory:')
         final params = SQLParams.create()
         try {
-            db.execute('CREATE TABLE users(id INTEGER, name TEXT, active INTEGER)', params)
+            db.execute(
+              'CREATE TABLE users(id INTEGER, name TEXT, active INTEGER)',
+              params)
             params.addInt(1)
             params.addString('Ada')
             params.addBool(true)
-            db.execute('INSERT INTO users VALUES (?, ?, ?)', params)
+            db.execute(
+              'INSERT INTO users VALUES (?, ?, ?)',
+              params)
 
-            final query = db.table('users').select('id').select('name').where('active', '=', true).orderBy('name', 'asc').limit(20)
+            final query = db.table('users')
+              .select('id')
+              .select('name')
+              .where(
+                'active',
+                '=',
+                true)
+              .orderBy(
+                'name',
+                'asc')
+              .limit(20)
             try {
-                print(query.toSql())
+                print(
+                  query.toSql())
                 final rows = query.all()
                 try {
-                    for (rows.next()) { print(rows.getString(rows.columnIndex('name'))) }
-                } finally { rows.close() }
-                print(query.count())
-            } finally { query.close() }
-        } finally { params.close() db.close() }
+                    for (rows.next()) { print(
+                          rows.getString(
+                            rows.columnIndex(
+                              'name'))) }
+                } finally {
+                    rows.close()
+                }
+                print(
+                  query.count())
+            } finally {
+                query.close()
+            }
+        } finally {
+            params.close()
+            db.close()
+        }
     }
 }

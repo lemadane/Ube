@@ -95,7 +95,7 @@ Expected output:
 200
 ```
 
-Two async methods each increment the same key 100 times. Both start before either is awaited. The counter operation is atomic; a separate `get` followed by `set` would not provide that guarantee. Cache calls are synchronous; methods containing these calls use the blocking task backend.
+Two tasks started with `Async.start(() -> this.incrementMany(...))` each increment the same key 100 times. Both start before either is awaited. The counter operation is atomic; a separate `get` followed by `set` would not provide that guarantee. Cache calls are synchronous; methods containing these calls use the blocking task backend.
 
 ## Standalone server and two application processes
 
