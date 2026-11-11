@@ -1,7 +1,9 @@
 class App {
     start() {
         final active = true
-        final status = active then 'ACTIVE' else 'INACTIVE'
+        final status = active
+          then 'ACTIVE'
+          else 'INACTIVE'
         print(status)
     }
 }

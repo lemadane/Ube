@@ -118,7 +118,10 @@ fn conditional_values_are_lazy_and_right_associative() {
         static var int calls = 0
         static int next() { static.calls = static.calls + 1 return 7 }
         start() {
-            print(true then 'ACTIVE' else 'INACTIVE')
+            final status = true
+              then 'ACTIVE'
+              else 'INACTIVE'
+            print(status)
             print(false then 1 else true then 2 else 3)
             print(true then false then 1 else 2 else 3)
             print(1 + 2 == 3 and true then 4 else 5)
@@ -169,11 +172,31 @@ fn nullable_and_numeric_branches_keep_their_result_types() {
 
 #[test]
 fn malformed_or_incompatible_branches_are_rejected() {
-    for expression in ["true then 1", "true then else 2", "true then 1 else", "true ? 1 : 2"] {
+    for expression in ["if true then 1 else 2", "if (true) then 1 else 2", "true 1 else 2", "true then 1", "true then else 2", "true then 1 else", "true ? 1 : 2"] {
         let source = format!("class App {{ start() {{ final value = {expression} }} }}");
         assert!(!diagnostics(&source).is_empty(), "{expression}");
     }
     rejects("class App { start() { final value = true then 1 else 'text' } }", "Conditional branches require compatible");
     rejects("class App { start() { final value = true then print(1) else print(2) } }", "Conditional branches require compatible");
     rejects("class App { start() { int value = true then 1 else null } }", "Mismatched initializer type");
+}
+
+#[test]
+fn ternaries_preserve_braced_if_and_explicit_grouping() {
+    runs(r#"
+    class App {
+        int choose(bool flag) {
+            if (flag) { return 10 } else { return 20 }
+        }
+        start() {
+            final value = if (true) { yield 3 } else { yield 4 }
+            print(value)
+            print(this.choose(true))
+            print((false) then 1 else 2)
+            print((true) and true then 5 else 6)
+            print((true then false else true) then 7 else 8)
+            print((true then 2 else 3) + 4)
+        }
+    }
+    "#, "3\n10\n2\n5\n8\n6\n");
 }

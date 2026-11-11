@@ -486,12 +486,55 @@ function leadingClosingBraces(line) {
   return count;
 }
 
+// Track expression branches independently from braced if/else statements.
+function conditionalBranchIndents(source) {
+  const indents = new Map();
+  const pending = [];
+  let braceDepth = 0;
+  let line = 0;
+  let lineStart = 0;
+  let previous = "";
+  for (let cursor = 0; cursor < source.length;) {
+    const skipped = skipNonCode(source, cursor, source.length);
+    if (skipped !== cursor) {
+      for (let i = cursor; i < skipped; i += 1) {
+        if (source[i] === "\n") { line += 1; lineStart = i + 1; }
+      }
+      cursor = skipped;
+      continue;
+    }
+    if (source[cursor] === "\n") { line += 1; lineStart = cursor + 1; }
+    if (/\s/.test(source[cursor])) { cursor += 1; continue; }
+    const token = source.slice(cursor).match(/^[A-Za-z_][A-Za-z0-9_]*/)?.[0] || source[cursor];
+    const frame = pending.at(-1);
+    const atLineStart = source.slice(lineStart, cursor).replace(/\uE000\d+:/g, "").trim() === "";
+    if (token === "then" && previous !== "." &&
+        !/^\s*(?:[=,;)}\]]|$)/.test(source.slice(cursor + token.length))) {
+      pending.push({ braceDepth });
+      if (atLineStart) indents.set(line, pending.length);
+    } else if (token === "else" && frame && frame.braceDepth === braceDepth &&
+        !/^\s*\{/.test(source.slice(cursor + token.length))) {
+      if (atLineStart) indents.set(line, pending.length);
+      pending.pop();
+    } else if (token === "{") {
+      braceDepth += 1;
+    } else if (token === "}") {
+      braceDepth -= 1;
+      while (pending.length && pending.at(-1).braceDepth > braceDepth) pending.pop();
+    }
+    previous = token;
+    cursor += token.length;
+  }
+  return indents;
+}
+
 function indentLines(source) {
+  const conditionalIndents = conditionalBranchIndents(source);
   let braceDepth = 0;
   const lexicalState = { quote: null, inBlockComment: false };
   return source
     .split(/\r?\n/)
-    .map((line) => {
+    .map((line, lineIndex) => {
       let trimmed = line.trim();
       if (!trimmed) {
         return "";
@@ -512,7 +555,8 @@ function indentLines(source) {
       const indentSpaces = argumentIndent !== null
         ? lineDepth * STRUCTURAL_INDENT + (argumentIndent + 1) * CALL_ARGUMENT_INDENT
         : lineDepth * STRUCTURAL_INDENT;
-      const output = `${" ".repeat(indentSpaces)}${trimmed}`;
+      const branchIndent = (conditionalIndents.get(lineIndex) || 0) * CALL_ARGUMENT_INDENT;
+      const output = `${" ".repeat(indentSpaces + branchIndent)}${trimmed}`;
       braceDepth = Math.max(0, braceDepth + countBraces(trimmed, lexicalState));
       return output;
     })

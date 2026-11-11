@@ -460,20 +460,22 @@ in executable Ube code yet. Use explicit `if`/`else` branches.
 
 ### 16. First-Class `if` Expressions & `for` Comprehensions (Mandatory `{}` & `yield`)
 - **Expression Evaluation**: Both `if` and `for` can be evaluated directly as expressions (`final x = if (...) { ... }`).
-- **Mandatory Braces `{}`**: ALL `if` expressions and `for` expressions require `{}` open and close braces.
+- **Mandatory Braces `{}`**: Block-form `if` expressions and `for` expressions require `{}` open and close braces; `condition then value else value` uses expression branches without braces.
 - **Mandatory `yield` Keyword**: Emitting values from expression blocks requires `yield expr` (e.g. `final status = if (score >= 50) { yield `Passed` } else { yield `Failed` }`).
 - **`for` Expression Comprehensions**: `final doubled = for (x in numbers) { yield x * 2 }` transforms collections into `List`.
 
 
 ### Conditional expressions: `then` / `else`
 
-Use `condition then value else value` for a choice between two expressions:
+Use `condition then value else value` for a choice between two expressions. Both single-line and multiline forms are supported:
 
 ```ube
 class App {
     start() {
         final active = true
-        final status = active then 'ACTIVE' else 'INACTIVE'
+        final status = active
+          then 'ACTIVE'
+          else 'INACTIVE'
         print(status)
     }
 }
@@ -483,7 +485,7 @@ The condition follows Ube's normal `if` rules: booleans test their value, and nu
 
 The conditional binds more loosely than arithmetic, comparisons, logical operators, and `??`, and more tightly than assignment. Nested expressions associate to the right: `a then x else b then y else z` means `a then x else (b then y else z)`. Parenthesize complex nesting for readability. Conditionals work in arguments, returns, interpolated strings, and closures. The symbolic `condition ? yes : no` form is not supported. Ube's existing `??` null fallback is unchanged.
 
-`then` is contextual: it acts as an operator between expressions, while identifiers and qualified member names retain their usual behavior. Braced `if` expressions with `yield` remain supported.
+Do not prefix a ternary expression with `if`; use `condition then yes else no`. Line breaks are allowed before `then` and `else`, and parentheses around the condition are optional. `then` remains contextual, so qualified member names retain their usual behavior. Braced `if` expressions with `yield` remain supported.
 
 ### 17. Lambdas & Method References
 - **Brace Syntax**: `{ (x) -> x * 2 }`.

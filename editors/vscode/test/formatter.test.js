@@ -668,3 +668,18 @@ test("keeps use groups together and ignores imports inside literals and comments
   const literal = "final text = `\nuse One\nclass Example {}\n`\n// use Two\n";
   assert.equal(formatUbeDocument(literal), literal);
 });
+
+
+test("indents multiline then/else expressions without changing braced statements", () => {
+  const sources = [
+    "final status = customer.isActive()\n  then 'ACTIVE'\n  else 'INACTIVE'\n",
+    "final nested = first\n  then second\n    then 'A'\n    else 'B'\n  else 'C'\n",
+    "class App {\n    start() {\n        final status = active\n          then 'ACTIVE'\n          else 'INACTIVE'\n        if (active) {\n            print(status)\n        } else {\n            print('off')\n        }\n    }\n}\n",
+    "final value = ready then 'yes' else 'no'\n",
+    "// flag then value else fallback\nfinal text = 'then else'\n",
+  ];
+  for (const expected of sources) {
+    assert.equal(formatUbeDocument(expected), expected);
+    assert.equal(formatUbeDocument(expected.split('\n').map(line => line.trim()).join('\n')), expected);
+  }
+});
