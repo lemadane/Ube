@@ -145,7 +145,7 @@ impl<'a> Parser<'a> {
             match self.current_token.kind {
                 TokenKind::Class
                 | TokenKind::Trait
-                | TokenKind::Import
+                | TokenKind::Use
                 | TokenKind::If
                 | TokenKind::For
                 | TokenKind::Return => return,
@@ -158,7 +158,7 @@ impl<'a> Parser<'a> {
         match self.current_token.kind {
             TokenKind::Class => self.parse_class_decl().map(Item::Class),
             TokenKind::Trait => self.parse_trait_decl().map(Item::Trait),
-            TokenKind::Import => self.parse_import_decl().map(Item::Import),
+            TokenKind::Use => self.parse_import_decl().map(Item::Import),
             _ => {
                 self.diagnostics.push(Diagnostic::error(
                     format!(
@@ -397,6 +397,10 @@ impl<'a> Parser<'a> {
 
         // Check if return type is omitted: identifier followed directly by '('
         let (return_type, method_name) = match (&self.current_token.kind, &self.peek_token.kind) {
+            (TokenKind::Use, TokenKind::OpenParen) => {
+                self.advance();
+                (None, "use".into())
+            }
             (TokenKind::Identifier(name), TokenKind::OpenParen) if name != "Func" => {
                 let mname = name.clone();
                 self.advance();
@@ -405,6 +409,7 @@ impl<'a> Parser<'a> {
             _ => {
                 let ret_type = self.parse_type_spec()?;
                 let mname = match self.current_token.kind.clone() {
+                    TokenKind::Use => { self.advance(); "use".into() }
                     TokenKind::Identifier(name) => {
                         self.advance();
                         name
@@ -552,7 +557,7 @@ impl<'a> Parser<'a> {
 
     fn parse_import_decl(&mut self) -> Result<ImportDecl, ()> {
         let start_span = self.current_token.span;
-        self.expect(&TokenKind::Import, "import")?;
+        self.expect(&TokenKind::Use, "use")?;
 
         let mut path = Vec::new();
         match self.current_token.kind.clone() {
@@ -1516,6 +1521,7 @@ impl<'a> Parser<'a> {
                     return Ok(Expr { kind: ExprKind::Await(Box::new(left)), span });
                 }
                 let member_name = match self.current_token.kind.clone() {
+                    TokenKind::Use => { self.advance(); "use".into() }
                     TokenKind::Identifier(m) => {
                         self.advance();
                         m

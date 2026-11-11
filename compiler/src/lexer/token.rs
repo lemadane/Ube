@@ -17,7 +17,7 @@ pub enum TokenKind {
     Default,
     Yield,
     Return,
-    Import,
+    Use,
     As,
     Is,
     Not,

@@ -129,7 +129,7 @@ class/trait declarations in one file are compiler errors. Imports and comments
 are allowed alongside the declaration; import-only files are allowed. The filename
 must match the declared class or trait name exactly, including case: `class App` belongs in `App.ube`.
 
-Local imports use `import path.Type`, resolved relative to the importing file
+Local imports use `use path.Type`, resolved relative to the importing file
 as `path/Type.ube`. Dependencies are loaded transitively into a shared type
 namespace, once per canonical file path, including circular imports. Local
 import aliases and symbol lists are rejected. Missing files are errors. Each
@@ -155,7 +155,7 @@ Dependency aliases are importable identifiers. Dependencies use either
 commits, versions, and source checksums in `ube.lock`; `--update` explicitly
 refreshes locked sources. Version ranges and a package registry are not supported.
 
-`import alias.services.Type` resolves to `src/services/Type.ube` in the installed
+`use alias.services.Type` resolves to `src/services/Type.ube` in the installed
 dependency, taking precedence over local imports with that prefix. Dependencies
 resolve their own imports within their own package context. Installed sources
 are checked against `ube.lock` before compilation. Imported types share one
@@ -208,9 +208,9 @@ class Invoice(
 
 ```ube
 // App.ube
-import Printable
-import User
-import Invoice
+use Printable
+use User
+use Invoice
 
 class App {
     render(Printable item) {
@@ -250,7 +250,7 @@ class DatabaseConnection(string url) {
 
 ```ube
 // UserService.ube
-import DatabaseConnection
+use DatabaseConnection
 
 class UserService(DatabaseConnection db) {
     findUser(long id) {
@@ -261,8 +261,8 @@ class UserService(DatabaseConnection db) {
 
 ```ube
 // App.ube
-import DatabaseConnection
-import UserService
+use DatabaseConnection
+use UserService
 
 class App {
     start() {
@@ -304,7 +304,7 @@ class Calculator {
 
 ```ube
 // App.ube
-import Calculator
+use Calculator
 
 class App {
     start() {
@@ -386,8 +386,8 @@ class Logger(string prefix) {
 
 ```ube
 // Car.ube
-import Engine
-import Logger
+use Engine
+use Logger
 
 class Car(
   string model,
@@ -402,9 +402,9 @@ class Car(
 
 ```ube
 // App.ube
-import Engine
-import Logger
-import Car
+use Engine
+use Logger
+use Car
 
 class App {
     start() {
@@ -614,7 +614,7 @@ class User(string name = 'Guest')
 
 ```ube
 // App.ube
-import User
+use User
 
 class App {
     start() {

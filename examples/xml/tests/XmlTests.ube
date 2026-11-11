@@ -1,6 +1,6 @@
-import xml_test_types.XmlProfile
-import xml_test_types.XmlSource
-import xml_test_types.XmlConsumer
+use xml_test_types.XmlProfile
+use xml_test_types.XmlSource
+use xml_test_types.XmlConsumer
 
 class XmlTests {
     testObjectFieldsAndNulls() {

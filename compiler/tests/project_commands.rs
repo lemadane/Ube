@@ -150,7 +150,7 @@ fn local_dependencies_are_imported_locked_checked_and_removed() {
     let app = dir.path().join("app");
     fs::write(
         app.join("src/App.ube"),
-        "import greet.Greeting\nclass App { start() { log(Greeting().value()) } }",
+        "use greet.Greeting\nclass App { start() { log(Greeting().value()) } }",
     )
     .unwrap();
     failure(cli(&app, &["add", "greet"]), "no package registry");
@@ -203,7 +203,7 @@ fn transitive_dependencies_resolve_in_their_own_package_context() {
         &a,
         "a",
         "Greeting",
-        "import numbers.Number\nclass Greeting { int value() { return Number().value() } }",
+        "use numbers.Number\nclass Greeting { int value() { return Number().value() } }",
     );
     let mut manifest = fs::read_to_string(a.join("ube.toml")).unwrap();
     manifest.push_str("\n[dependencies]\nnumbers = { path = '../b' }\n");
@@ -213,7 +213,7 @@ fn transitive_dependencies_resolve_in_their_own_package_context() {
     success(cli(&app, &["add", "greet", "--path", "../a"]));
     fs::write(
         app.join("src/App.ube"),
-        "import greet.Greeting\nclass App { start() { log(Greeting().value()) } }",
+        "use greet.Greeting\nclass App { start() { log(Greeting().value()) } }",
     )
     .unwrap();
     assert!(success(cli(&app, &["run"])).contains("17"));
@@ -240,7 +240,7 @@ fn git_dependencies_pin_commits_until_explicit_update() {
     success(cli(&app, &["add", "greet", "--git", lib.to_str().unwrap()]));
     fs::write(
         app.join("src/App.ube"),
-        "import greet.Greeting\nclass App { start() { log(Greeting().value()) } }",
+        "use greet.Greeting\nclass App { start() { log(Greeting().value()) } }",
     )
     .unwrap();
     assert!(fs::read_to_string(app.join("ube.lock"))
@@ -338,7 +338,7 @@ fn manifest_test_discovery_works_from_subdirectories_with_package_imports() {
     success(cli(dir.path(), &["new", "app"]));
     let app = dir.path().join("app");
     success(cli(&app, &["add", "greet", "--path", "../library"]));
-    fs::write(app.join("tests/GreetingTests.ube"), "import greet.Greeting\nclass GreetingTests { testValue() { Testicle.equal(42, Greeting().value()) } }").unwrap();
+    fs::write(app.join("tests/GreetingTests.ube"), "use greet.Greeting\nclass GreetingTests { testValue() { Testicle.equal(42, Greeting().value()) } }").unwrap();
     assert!(
         success(cli(&app.join("src"), &["test", "--timeout", "5000"])).contains("Tests: 1 passed")
     );
@@ -491,7 +491,7 @@ fn manifest_formats_support_scaffolding_mixed_dependencies_and_builds() {
             .is_file());
         fs::write(
             app.join("src/App.ube"),
-            "import greet.Greeting\nclass App { start() { print(Greeting().value()) } }",
+            "use greet.Greeting\nclass App { start() { print(Greeting().value()) } }",
         )
         .unwrap();
         success(cli(&app.join("src"), &["check"]));
@@ -583,7 +583,7 @@ fn git_snapshots_preserve_yaml_dependency_and_json_project_manifests() {
     ));
     fs::write(
         app.join("src/App.ube"),
-        "import greet.Greeting\nclass App { start() { print(Greeting().value()) } }",
+        "use greet.Greeting\nclass App { start() { print(Greeting().value()) } }",
     )
     .unwrap();
     success(cli(&app, &["check"]));

@@ -28,15 +28,15 @@ fn rejects_multiple_declarations_in_every_combination() {
 fn imports_load_once_and_allow_cycles_with_one_declaration_per_file() {
     let dir = tempfile::tempdir().unwrap();
     fs::create_dir(dir.path().join("services")).unwrap();
-    fs::write(dir.path().join("App.ube"), "import services.Greeting\nimport services.Welcome\nclass App { start() { final welcome = Welcome() log(welcome.greet()) } }").unwrap();
+    fs::write(dir.path().join("App.ube"), "use services.Greeting\nuse services.Welcome\nclass App { start() { final welcome = Welcome() log(welcome.greet()) } }").unwrap();
     fs::write(
         dir.path().join("services/Greeting.ube"),
-        "import Welcome\ntrait Greeting { string greet() }",
+        "use Welcome\ntrait Greeting { string greet() }",
     )
     .unwrap();
     fs::write(
         dir.path().join("services/Welcome.ube"),
-        "import Greeting\nclass Welcome { string greet() { return 'hello' } }",
+        "use Greeting\nclass Welcome { string greet() { return 'hello' } }",
     )
     .unwrap();
     let loaded = load_program(&dir.path().join("App.ube")).unwrap();
@@ -61,7 +61,7 @@ fn imports_load_once_and_allow_cycles_with_one_declaration_per_file() {
 fn validates_imported_files_and_reports_missing_dependencies() {
     let dir = tempfile::tempdir().unwrap();
     let main = dir.path().join("App.ube");
-    fs::write(&main, "import Helper\nclass App").unwrap();
+    fs::write(&main, "use Helper\nclass App").unwrap();
     assert!(load_program(&main).err().unwrap().contains("Helper.ube"));
     fs::write(
         dir.path().join("Helper.ube"),
@@ -85,7 +85,7 @@ fn test_runner_loads_dependencies_without_discovering_their_tests() {
     let path = dir.path().join("Checks.ube");
     fs::write(
         &path,
-        "import Helper\nclass Checks { testValue() { Testicle.equal(42, Helper().value()) } }",
+        "use Helper\nclass Checks { testValue() { Testicle.equal(42, Helper().value()) } }",
     )
     .unwrap();
     let output = Command::new(env!("CARGO_BIN_EXE_ube-compiler"))

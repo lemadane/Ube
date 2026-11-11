@@ -1,5 +1,5 @@
-import orm_joins_types.User
-import orm_joins_types.Order
+use orm_joins_types.User
+use orm_joins_types.Order
 
 class App {
     start() {

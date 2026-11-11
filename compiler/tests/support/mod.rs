@@ -55,7 +55,7 @@ pub fn write_source(path: &Path, source: &str) -> PathBuf {
         for (other, _) in &declarations {
             if other != name && *other != entry {
                 text.push_str(&format!(
-                    "import {}{other}\n",
+                    "use {}{other}\n",
                     if *name == entry {
                         format!("{module}.")
                     } else {

@@ -654,17 +654,17 @@ test("dedents nested blocks inside a lambda argument without changing literals",
 
 
 test("separates imports and expands the Profile method", () => {
-  const source = "import UserLookup\nclass Profile(UserLookup users) {\n    string title(int id) { return this._users.name(id) }\n}\n";
+  const source = "use UserLookup\nclass Profile(UserLookup users) {\n    string title(int id) { return this._users.name(id) }\n}\n";
   const expected = fs.readFileSync(path.join(__dirname, "../../../examples/testing/profile_test_types/Profile.ube"), "utf8");
   assert.equal(formatUbeDocument(source), expected);
   assert.equal(formatUbeDocument(expected), expected);
 });
 
-test("keeps import groups together and ignores imports inside literals and comments", () => {
-  const source = "import One\nimport Two // dependency\ntrait Lookup {\n    string name() { return 'import Three' }\n}\n";
-  const expected = "import One\nimport Two // dependency\n\ntrait Lookup {\n    string name() {\n        return 'import Three'\n    }\n}\n";
+test("keeps use groups together and ignores imports inside literals and comments", () => {
+  const source = "use One\nuse Two // dependency\ntrait Lookup {\n    string name() { return 'use Three' }\n}\n";
+  const expected = "use One\nuse Two // dependency\n\ntrait Lookup {\n    string name() {\n        return 'use Three'\n    }\n}\n";
   assert.equal(formatUbeDocument(source), expected);
   assert.equal(formatUbeDocument(expected), expected);
-  const literal = "final text = `\nimport One\nclass Example {}\n`\n// import Two\n";
+  const literal = "final text = `\nuse One\nclass Example {}\n`\n// use Two\n";
   assert.equal(formatUbeDocument(literal), literal);
 });

@@ -14,7 +14,7 @@ trait UserLookup {
 
 ```ube
 // Profile.ube
-import UserLookup
+use UserLookup
 
 class Profile(UserLookup users) {
     string title(int id) {
@@ -25,8 +25,8 @@ class Profile(UserLookup users) {
 
 ```ube
 // ProfileTests.ube
-import UserLookup
-import Profile
+use UserLookup
+use Profile
 
 class ProfileTests {
     testTitle() {

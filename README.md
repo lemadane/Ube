@@ -150,7 +150,7 @@ Dependencies are Ube projects with `ube.toml` and `.ube` source files under
 
 ```ube
 // src/App.ube; greetings/src/Greeting.ube declares class Greeting.
-import greetings.Greeting
+use greetings.Greeting
 
 class App {
     start() {
@@ -161,7 +161,7 @@ class App {
 }
 ```
 
-`import greetings.services.Greeting` resolves to the dependency's
+`use greetings.services.Greeting` resolves to the dependency's
 `src/services/Greeting.ube`. A declared dependency alias takes precedence over a
 local import with the same prefix. Transitive dependencies resolve within their
 own packages. Types currently share one compilation namespace, so imported
@@ -206,7 +206,7 @@ trait Greeting {
 
 ```ube
 // Welcome.ube
-import Greeting
+use Greeting
 
 class Welcome(Greeting greeting) {
     string message() {
@@ -215,7 +215,7 @@ class Welcome(Greeting greeting) {
 }
 ```
 
-`import services.Greeting` loads `services/Greeting.ube`. Imports are transitive;
+`use services.Greeting` loads `services/Greeting.ube`. Imports are transitive;
 repeated and circular imports load each physical file once. Imported declarations
 share the compilation's type namespace. Aliases and symbol-list imports are not
 supported by the local file loader. A missing import is a compiler error.
@@ -651,9 +651,9 @@ class Invoice(
 
 ```ube
 // App.ube
-import Printable
-import User
-import Invoice
+use Printable
+use User
+use Invoice
 
 class App {
     render(Printable item) {
@@ -712,7 +712,7 @@ Because Ube has **no `extends` keyword**, code reuse and polymorphism are achiev
 
 ```ube
 // Engine.ube
-import Logger
+use Logger
 
 // Component Class 1: Engine
 class Engine(int horsepower) {
@@ -737,8 +737,8 @@ class Logger(string prefix) {
 
 ```ube
 // Car.ube
-import Engine
-import Logger
+use Engine
+use Logger
 
 class Car(
   string model,
@@ -755,7 +755,7 @@ class Car(
 
 ```ube
 // DataExporter.ube
-import Logger
+use Logger
 
 class DataExporter(Logger logger) {
     exportData(string data) {
@@ -766,10 +766,10 @@ class DataExporter(Logger logger) {
 
 ```ube
 // App.ube
-import Engine
-import Logger
-import Car
-import DataExporter
+use Engine
+use Logger
+use Car
+use DataExporter
 
 class App {
     start() {
@@ -805,7 +805,7 @@ class DatabaseConnection(string connectionUrl) {
 
 ```ube
 // UserService.ube
-import DatabaseConnection
+use DatabaseConnection
 
 class UserService(DatabaseConnection db) {
     findUser(long id) {
@@ -816,7 +816,7 @@ class UserService(DatabaseConnection db) {
 
 ```ube
 // OrderService.ube
-import DatabaseConnection
+use DatabaseConnection
 
 class OrderService(DatabaseConnection db) {
     findOrders(long userId) {
@@ -827,9 +827,9 @@ class OrderService(DatabaseConnection db) {
 
 ```ube
 // App.ube
-import DatabaseConnection
-import UserService
-import OrderService
+use DatabaseConnection
+use UserService
+use OrderService
 
 class App {
     start() {
@@ -1230,7 +1230,7 @@ class RequestError(
 
 ```ube
 // App.ube
-import RequestError
+use RequestError
 
 class App {
     start() {
@@ -1416,7 +1416,7 @@ class KitchenOrderScan(
 
 ```ube
 // App.ube
-import KitchenOrderScan
+use KitchenOrderScan
 
 class App {
     start() {
@@ -1481,7 +1481,7 @@ class User(
 
 ```ube
 // App.ube
-import User
+use User
 
 class App {
     start() {

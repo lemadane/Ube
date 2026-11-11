@@ -8,7 +8,7 @@ use std::{
 };
 
 /// Each physical file owns at most one class or trait. Imports are relative to
-/// the importing file: `import services.Gateway` loads `services/Gateway.ube`.
+/// the importing file: `use services.Gateway` loads `services/Gateway.ube`.
 /// The parser remains usable for synthetic, combined compilation units.
 pub struct LoadedProgram {
     pub program: Program,
@@ -66,7 +66,7 @@ fn load(path: &Path, visited: &mut HashSet<PathBuf>, output: &mut String) -> Res
     for item in &program.items {
         if let Item::Import(import) = item {
             if !import.symbols.is_empty() || import.package_alias.is_some() {
-                return Err(format!("{}: local file imports use 'import path.Type'; import aliases and symbol lists are not supported", path.display()));
+                return Err(format!("{}: local file imports use 'use path.Type'; import aliases and symbol lists are not supported", path.display()));
             }
             let dependency = match crate::project::dependency_import(&canonical, &import.path)? {
                 Some(path) => path,

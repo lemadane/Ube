@@ -16,7 +16,7 @@ class User(
 
 ```ube
 // App.ube
-import User
+use User
 
 class App {
     start() {

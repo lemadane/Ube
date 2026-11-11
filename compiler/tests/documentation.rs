@@ -156,7 +156,7 @@ fn markdown_ube_examples_use_current_syntax_and_complete_classes_check() {
                 fs::write(directory.path().join(format!("{name}.ube")), source).unwrap();
             }
             // The dependency-import example explicitly assumes this package type.
-            if source.contains("import greetings.Greeting") {
+            if source.contains("use greetings.Greeting") {
                 fs::create_dir(directory.path().join("greetings")).unwrap();
                 fs::write(
                     directory.path().join("greetings/Greeting.ube"),

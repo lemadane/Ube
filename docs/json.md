@@ -9,7 +9,7 @@ class Address(string city)
 
 ```ube
 // Profile.ube
-import Address
+use Address
 
 class Profile(
   int id,
@@ -19,8 +19,8 @@ class Profile(
 
 ```ube
 // App.ube
-import Address
-import Profile
+use Address
+use Profile
 
 class App {
     start() {

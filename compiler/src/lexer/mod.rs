@@ -11,6 +11,12 @@ mod tests {
     fn lex(source: &str) -> TokenKind { Lexer::new(source).next_token().kind }
 
     #[test]
+    fn use_is_the_dependency_keyword() {
+        assert_eq!(lex("use"), TokenKind::Use);
+        assert_eq!(lex("import"), TokenKind::Identifier("import".into()));
+    }
+
+    #[test]
     fn removed_boolean_operator_names_are_plain_identifiers() {
         let mut lexer = Lexer::new("nand nor xor xnor and or not");
         for name in ["nand", "nor", "xor", "xnor"] {

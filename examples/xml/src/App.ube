@@ -1,4 +1,4 @@
-import Profile
+use Profile
 
 class App {
     start() {

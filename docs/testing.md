@@ -62,7 +62,7 @@ covered by runner compatibility tests.
 Each test gets a fresh class instance in a separate native process. Setup runs
 before the test; teardown runs through `finally`, including when setup or an
 assertion throws. A timeout or process termination cannot guarantee teardown.
-Put helper classes in separate, matching source files and import them. Test
+Put helper classes in separate, matching source files and reference them with `use`. Test
 files must not define `start()` or the reserved generated class `UbeTestRunner`.
 
 ## Assertions

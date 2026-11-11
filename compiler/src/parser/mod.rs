@@ -10,6 +10,17 @@ mod tests {
     use crate::lexer::Lexer;
 
     #[test]
+    fn use_declarations_preserve_method_names() {
+        for method in ["use() {}", "int use() { return 1 }"] {
+            let source = format!("use services.Helper\nclass App {{ {method} start() {{ this.use() }} }}");
+            let mut parser = Parser::new(Lexer::new(&source));
+            let program = parser.parse_program();
+            assert!(parser.diagnostics.is_empty(), "{:?}", parser.diagnostics);
+            assert!(matches!(program.items[0], Item::Import(_)));
+        }
+    }
+
+    #[test]
     fn empty_classes_require_omitting_braces() {
         for declaration in ["class Address(string city)", "class Empty", "class Empty()"] {
             for suffix in ["", "\nclass App { start() {} }"] {

@@ -1,4 +1,4 @@
-import Address
+use Address
 
 class Profile(
   int id,

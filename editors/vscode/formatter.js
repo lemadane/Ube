@@ -655,11 +655,11 @@ function separateImports(source) {
       cursor = skipped;
       continue;
     }
-    const importLine = source.slice(cursor).match(/^import\b[^\r\n]*\r?\n/);
+    const importLine = source.slice(cursor).match(/^use\b[^\r\n]*\r?\n/);
     if (importLine && /^[ \t]*$/.test(source.slice(source.lastIndexOf("\n", cursor - 1) + 1, cursor))) {
       result += importLine[0];
       cursor += importLine[0].length;
-      if (cursor < source.length && !/^[ \t]*(?:\r?\n|import\b)/.test(source.slice(cursor))) {
+      if (cursor < source.length && !/^[ \t]*(?:\r?\n|use\b)/.test(source.slice(cursor))) {
         result += "\n";
       }
       continue;

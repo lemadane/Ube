@@ -384,7 +384,7 @@ impl<'a> Lexer<'a> {
             "default" => TokenKind::Default,
             "yield" => TokenKind::Yield,
             "return" => TokenKind::Return,
-            "import" => TokenKind::Import,
+            "use" => TokenKind::Use,
             "as" => TokenKind::As,
             "is" => TokenKind::Is,
             "not" => TokenKind::Not,

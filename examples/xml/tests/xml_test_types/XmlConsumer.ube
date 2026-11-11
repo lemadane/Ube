@@ -1,4 +1,4 @@
-import XmlSource
+use XmlSource
 
 class XmlConsumer(XmlSource source) {
     string name() {

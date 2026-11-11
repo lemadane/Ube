@@ -1,4 +1,4 @@
-import UserLookup
+use UserLookup
 
 class Profile(UserLookup users) {
     string title(int id) {

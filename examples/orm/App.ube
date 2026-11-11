@@ -1,4 +1,4 @@
-import orm_types.User
+use orm_types.User
 
 class App {
     start() {

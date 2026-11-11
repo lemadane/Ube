@@ -1,5 +1,5 @@
-import profile_test_types.UserLookup
-import profile_test_types.Profile
+use profile_test_types.UserLookup
+use profile_test_types.Profile
 
 class ProfileTests {
     testTitle() {
