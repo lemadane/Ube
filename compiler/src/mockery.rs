@@ -82,6 +82,11 @@ fn expressions(expr: &Expr, requested: &mut HashSet<String>) {
             visit(index);
         }
         ExprKind::Lambda { body, .. } | ExprKind::BlockClosure { body, .. } => statements(body, requested),
+        ExprKind::Conditional { condition, when_true, when_false, .. } => {
+            visit(condition);
+            visit(when_true);
+            visit(when_false);
+        }
         ExprKind::If {
             condition,
             then_branch,

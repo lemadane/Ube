@@ -7,6 +7,7 @@ use crate::lexer::{Lexer, Token, TokenKind};
 pub enum Precedence {
     None,
     Assignment,     // =, ??=
+    Conditional,    // then ... else ...
     With,           // with
     NullCoalescing, // ??
     Or,             // or
@@ -24,6 +25,7 @@ impl Precedence {
     fn from_token(kind: &TokenKind) -> Precedence {
         match kind {
             TokenKind::Equal | TokenKind::QuestionQuestionEqual => Precedence::Assignment,
+            TokenKind::Identifier(name) if name == "then" => Precedence::Conditional,
             TokenKind::With => Precedence::With,
             TokenKind::QuestionQuestion => Precedence::NullCoalescing,
             TokenKind::Or => Precedence::Or,
@@ -1470,6 +1472,23 @@ impl<'a> Parser<'a> {
         let prec = Precedence::from_token(&tok.kind);
 
         match tok.kind {
+            TokenKind::Identifier(name) if name == "then" => {
+                self.advance();
+                let when_true = self.parse_expr(Precedence::None)?;
+                self.expect(&TokenKind::Else, "else after conditional then branch")?;
+                let when_false = self.parse_expr(Precedence::Assignment)?;
+                let span = Span::combine(left.span, when_false.span);
+                Ok(Expr {
+                    kind: ExprKind::Conditional {
+                        condition: Box::new(left),
+                        when_true: Box::new(when_true),
+                        when_false: Box::new(when_false),
+                        result_type: Default::default(),
+                    },
+                    span,
+                })
+            }
+
             TokenKind::OpenParen => {
                 self.advance();
                 let mut args = Vec::new();

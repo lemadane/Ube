@@ -464,6 +464,27 @@ in executable Ube code yet. Use explicit `if`/`else` branches.
 - **Mandatory `yield` Keyword**: Emitting values from expression blocks requires `yield expr` (e.g. `final status = if (score >= 50) { yield `Passed` } else { yield `Failed` }`).
 - **`for` Expression Comprehensions**: `final doubled = for (x in numbers) { yield x * 2 }` transforms collections into `List`.
 
+
+### Conditional expressions: `then` / `else`
+
+Use `condition then value else value` for a choice between two expressions:
+
+```ube
+class App {
+    start() {
+        final active = true
+        final status = active then 'ACTIVE' else 'INACTIVE'
+        print(status)
+    }
+}
+```
+
+The condition follows Ube's normal `if` rules: booleans test their value, and nullable/object conditions test presence. Bare numbers and strings require an explicit comparison. The condition is evaluated once. Only the selected branch executes. Both branches are required and must produce compatible, non-void values. Numeric branches promote to a common numeric type; a nullable branch makes the result nullable. Incompatible types are compile errors.
+
+The conditional binds more loosely than arithmetic, comparisons, logical operators, and `??`, and more tightly than assignment. Nested expressions associate to the right: `a then x else b then y else z` means `a then x else (b then y else z)`. Parenthesize complex nesting for readability. Conditionals work in arguments, returns, interpolated strings, and closures. The symbolic `condition ? yes : no` form is not supported. Ube's existing `??` null fallback is unchanged.
+
+`then` is contextual: it acts as an operator between expressions, while identifiers and qualified member names retain their usual behavior. Braced `if` expressions with `yield` remain supported.
+
 ### 17. Lambdas & Method References
 - **Brace Syntax**: `{ (x) -> x * 2 }`.
 - **Compiler Lowering**: Lowered to synthetic, immutable single-method closure classes.

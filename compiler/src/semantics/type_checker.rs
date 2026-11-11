@@ -3413,6 +3413,23 @@ impl TypeChecker {
                     return_type: Box::new(return_type),
                 })
             }
+            ExprKind::Conditional { condition, when_true, when_false, result_type } => {
+                if let Some(ty) = self.check_expr(cls, condition) {
+                    if !self.is_valid_condition_type(&ty) {
+                        self.diagnostics.push(Diagnostic::error(
+                            format!("Conditional requires a Bool or truthy condition, found '{}'", ty), Some(condition.span)));
+                    }
+                }
+                let left = self.check_expr(cls, when_true);
+                let right = self.check_expr(cls, when_false);
+                let joined = left.as_ref().zip(right.as_ref()).and_then(|(a, b)| Type::conditional_result(a, b));
+                if joined.is_none() && left.is_some() && right.is_some() {
+                    self.diagnostics.push(Diagnostic::error(
+                        format!("Conditional branches require compatible non-void values, found '{}' and '{}'", left.unwrap(), right.unwrap()), Some(expr.span)));
+                }
+                *result_type.borrow_mut() = joined.clone();
+                joined
+            }
             ExprKind::If {
                 condition,
                 then_branch,

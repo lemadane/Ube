@@ -657,3 +657,24 @@ Default XML roots are the concrete class name, `list`, `map`, or `value`. Fields
 `.toXml(XmlOptions())` accepts optional fluent configuration: `.root(name)`, `.attribute(field)`, `.rename(field, name)`, `.namespace(prefix, uri)`, and `.listItem(name)`. Field attribute/rename rules apply to the root data class. Names must be valid and prefixes bound. Parsed documents and elements serialize with `.toXml()` without options; use document editing methods to change them.
 
 Malformed input raises `XmlParseError`; unsupported XML encoding or customization raises `XmlError`. Encoding and parsing enforce documented bounds. Serialization is synchronous and does not provide an atomic snapshot of a concurrently mutated object graph. See [JSON](docs/json.md) and [XML](docs/xml.md) for supported types, exact mappings, limits, and examples.
+
+
+### Conditional expressions: `then` / `else`
+
+Use `condition then value else value` for a choice between two expressions:
+
+```ube
+class App {
+    start() {
+        final active = true
+        final status = active then 'ACTIVE' else 'INACTIVE'
+        print(status)
+    }
+}
+```
+
+The condition follows Ube's normal `if` rules: booleans test their value, and nullable/object conditions test presence. Bare numbers and strings require an explicit comparison. The condition is evaluated once. Only the selected branch executes. Both branches are required and must produce compatible, non-void values. Numeric branches promote to a common numeric type; a nullable branch makes the result nullable. Incompatible types are compile errors.
+
+The conditional binds more loosely than arithmetic, comparisons, logical operators, and `??`, and more tightly than assignment. Nested expressions associate to the right: `a then x else b then y else z` means `a then x else (b then y else z)`. Parenthesize complex nesting for readability. Conditionals work in arguments, returns, interpolated strings, and closures. The symbolic `condition ? yes : no` form is not supported. Ube's existing `??` null fallback is unchanged.
+
+`then` is contextual: it acts as an operator between expressions, while identifiers and qualified member names retain their usual behavior. Braced `if` expressions with `yield` remain supported.

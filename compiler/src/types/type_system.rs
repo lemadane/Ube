@@ -31,6 +31,23 @@ pub enum Type {
 }
 
 impl Type {
+    /// Common value representation for conditional branches; nullability is preserved.
+    pub fn conditional_result(a: &Type, b: &Type) -> Option<Type> {
+        if a == &Type::Void || b == &Type::Void { return None; }
+        if a == b { return Some(a.clone()); }
+        match (a, b) {
+            (Type::Nullable(inner), other) | (other, Type::Nullable(inner)) if **inner == Type::Void => {
+                Some(if matches!(other, Type::Nullable(_)) { other.clone() } else { Type::Nullable(Box::new(other.clone())) })
+            }
+            (Type::Nullable(a), Type::Nullable(b)) => Self::conditional_result(a, b).map(|ty| Type::Nullable(Box::new(ty))),
+            (Type::Nullable(inner), other) | (other, Type::Nullable(inner)) => Self::conditional_result(inner, other).map(|ty| Type::Nullable(Box::new(ty))),
+            (Type::Decimal, Type::Int | Type::Long | Type::Byte) | (Type::Int | Type::Long | Type::Byte, Type::Decimal) => Some(Type::Decimal),
+            (Type::Long, Type::Int | Type::Byte) | (Type::Int | Type::Byte, Type::Long) => Some(Type::Long),
+            (Type::Int, Type::Byte) | (Type::Byte, Type::Int) => Some(Type::Int),
+            _ => None,
+        }
+    }
+
     pub fn nullable_scalar_inner(&self) -> Option<&Type> {
         match self {
             Type::Nullable(inner) if matches!(inner.as_ref(), Type::Int | Type::Long | Type::Byte | Type::Bool | Type::Decimal) => Some(inner),

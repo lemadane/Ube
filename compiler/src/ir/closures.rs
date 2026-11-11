@@ -341,6 +341,11 @@ fn closure_references(expr: &Expr, names: &mut std::collections::HashSet<String>
             visit(index);
         }
         ExprKind::Lambda { body, .. } => closure_statement_references(body, names),
+        ExprKind::Conditional { condition, when_true, when_false, .. } => {
+            visit(condition);
+            visit(when_true);
+            visit(when_false);
+        }
         ExprKind::If {
             condition,
             then_branch,

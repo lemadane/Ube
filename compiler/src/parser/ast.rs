@@ -212,6 +212,12 @@ pub enum ExprKind {
         params: Vec<Param>,
         expression: Box<Expr>,
     },
+    Conditional {
+        condition: Box<Expr>,
+        when_true: Box<Expr>,
+        when_false: Box<Expr>,
+        result_type: std::rc::Rc<std::cell::RefCell<Option<crate::types::Type>>>,
+    },
     If {
         condition: Box<Expr>,
         then_branch: Vec<Stmt>,

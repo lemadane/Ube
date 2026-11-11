@@ -4058,6 +4058,48 @@ impl IrBuilder {
                 ));
                 IrOperand::Null
             }
+            ExprKind::Conditional { condition, when_true, when_false, result_type } => {
+                // Interpolation expressions are reparsed during lowering. Infer their
+                // branch representation on a clone, without emitting or executing them.
+                let checked_type = result_type.borrow().clone();
+                let ty = checked_type.or_else(|| {
+                    let mut probe = self.clone();
+                    let condition_type = probe.build_expr(condition).get_type();
+                    if !matches!(condition_type, Type::Bool | Type::Nullable(_) | Type::Class { .. } | Type::AnonymousObject { .. }) {
+                        return None;
+                    }
+                    let a = probe.build_expr(when_true).get_type();
+                    let b = probe.build_expr(when_false).get_type();
+                    Type::conditional_result(&a, &b)
+                });
+                let Some(ty) = ty else {
+                    self.diagnostics.push(Diagnostic::error("Conditional requires a valid condition and compatible non-void branch values", Some(expr.span)));
+                    return IrOperand::Null;
+                };
+                let slot = self.fresh_reg();
+                self.emit(IrInstruction::Alloca { dest: slot, ty: ty.clone() });
+                let yes = self.fresh_block();
+                let no = self.fresh_block();
+                let merge = self.fresh_block();
+                let value = self.build_expr(condition);
+                let cond = self.condition_to_bool(value);
+                self.emit(IrInstruction::Branch { cond, then_block: yes, else_block: no });
+                self.end_block();
+                for (block, branch) in [(yes, when_true), (no, when_false)] {
+                    self.current_block_id = Some(block);
+                    let value = self.build_expr(branch);
+                    let value = self.cast(value, ty.clone());
+                    if !self.is_current_terminated() {
+                        self.emit(IrInstruction::Store { val: value, ptr: slot });
+                        self.emit(IrInstruction::Jump { target: merge });
+                    }
+                    self.end_block();
+                }
+                self.current_block_id = Some(merge);
+                let dest = self.fresh_reg();
+                self.emit(IrInstruction::Load { dest, ptr: slot, ty: ty.clone() });
+                IrOperand::Register(dest, ty)
+            }
             ExprKind::If {
                 condition,
                 then_branch,
