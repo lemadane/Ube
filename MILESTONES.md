@@ -26,7 +26,7 @@ Keep the recently established rules consistent:
 
 - Typed declarations and application startup zero-initialize through one implementation. Explicit constructors apply defaults. Non-nullable cycles and implicit runtime-resource initialization produce diagnostics.
 - Backing fields are class-private. Public reads use `field()`; `var` writes use `field(value)`.
-- Single quotes delimit one-line strings and character values. Backticks delimit raw text blocks. Double quotes are reserved for JSON content, and semicolons are prohibited in code.
+- Single quotes delimit one-line strings and character values. Backticks delimit multiline text blocks with escapes and `${expression}` interpolation. Double quotes are reserved for JSON content, and semicolons are prohibited in code.
 - Loop `else` runs only for zero body entries. Documentation and executable examples cover normal completion, `break`, `continue`, and initially false conditions.
 
 Fix nullable scalar representation and task/channel transport as foundation work. This is a correctness requirement for existing types, not concurrency API expansion. Maintain existing async/task/channel regressions while stabilizing their exception and cleanup paths. Defer concurrency API expansion, new protocols, financial features, typed XML reconstruction and schema validation, advanced date/time APIs, and additional syntax.

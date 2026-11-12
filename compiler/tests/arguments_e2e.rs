@@ -10,7 +10,7 @@ const SOURCE: &str = r#"class App {
     start() {
         final args = Console.args()
         Console.printLine(args.len())
-        for (arg in args) { Console.print('<') Console.print(arg) Console.printLine('>') }
+        each (arg from args) { Console.print('<') Console.print(arg) Console.printLine('>') }
         if (args.len() > 0) {
             Console.printLine(args[0])
             Console.printLine(args.get(0))

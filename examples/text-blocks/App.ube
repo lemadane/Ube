@@ -1,0 +1,14 @@
+class App {
+    start() {
+        final name = 'Lem'
+        final count = 3
+        final message = `Hello ${name}
+Items: ${count}
+Doubled: ${count * 2}`
+        print(message)
+        print(`Literal marker: \${name}`)
+        print(`Backtick: \``)
+        final render = () -> `Captured: ${name}`
+        print(render())
+    }
+}

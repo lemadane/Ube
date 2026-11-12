@@ -9,6 +9,7 @@ pub struct Lexer<'a> {
     peek_char: Option<(usize, char)>,
     line: usize,
     column: usize,
+    source_offset: usize,
     previous_was_cr: bool,
     in_string_interpolation: usize,
 }
@@ -25,9 +26,18 @@ impl<'a> Lexer<'a> {
             peek_char,
             line: 1,
             column: 1,
+            source_offset: 0,
             previous_was_cr: false,
             in_string_interpolation: 0,
         }
+    }
+
+    pub(crate) fn at_position(source: &'a str, position: Position) -> Self {
+        let mut lexer = Self::new(source);
+        lexer.line = position.line;
+        lexer.column = position.column;
+        lexer.source_offset = position.index;
+        lexer
     }
 
     fn advance(&mut self) -> Option<(usize, char)> {
@@ -67,13 +77,13 @@ impl<'a> Lexer<'a> {
             self.column,
             self.current_char
                 .map(|(i, _)| i)
-                .unwrap_or(self.source.len()),
+                .unwrap_or(self.source.len()) + self.source_offset,
         );
 
         let ch = match self.peek() {
             Some(c) => c,
             None => {
-                let end_pos = Position::new(self.line, self.column, self.source.len());
+                let end_pos = Position::new(self.line, self.column, self.source.len() + self.source_offset);
                 return Token::new(TokenKind::Eof, Span::new(start_pos, end_pos));
             }
         };
@@ -229,7 +239,7 @@ impl<'a> Lexer<'a> {
             self.column,
             self.current_char
                 .map(|(i, _)| i)
-                .unwrap_or(self.source.len()),
+                .unwrap_or(self.source.len()) + self.source_offset,
         );
         Token::new(kind, Span::new(start_pos, end_pos))
     }
@@ -292,11 +302,33 @@ impl<'a> Lexer<'a> {
 
     fn read_text_block(&mut self) -> TokenKind {
         self.advance();
-        let mut content = String::new();
+        let start = self.current_char.map(|(i, _)| i).unwrap_or(self.source.len());
         while let Some(ch) = self.peek() {
-            self.advance();
-            if ch == '`' { return TokenKind::TextBlock(content); }
-            content.push(ch);
+            if ch == '`' {
+                let end = self.current_char.unwrap().0;
+                let content = self.source[start..end].to_string();
+                self.advance();
+                return TokenKind::TextBlock(content);
+            }
+            if ch == '\\' {
+                self.advance();
+                self.advance();
+            } else if ch == '$' && self.peek_next() == Some('{') {
+                self.advance();
+                self.advance();
+                let start = self.current_char.map(|(i, _)| i).unwrap_or(self.source.len());
+                match super::interpolation_end(&self.source[start..]) {
+                    Ok(end) => {
+                        let end = start + end;
+                        while self.current_char.is_some_and(|(i, _)| i <= end) {
+                            self.advance();
+                        }
+                    }
+                    Err(message) => return TokenKind::Error(message),
+                }
+            } else {
+                self.advance();
+            }
         }
         TokenKind::Error("Unterminated backtick text block".into())
     }
@@ -377,6 +409,7 @@ impl<'a> Lexer<'a> {
             "if" => TokenKind::If,
             "else" => TokenKind::Else,
             "for" => TokenKind::For,
+            "each" => TokenKind::Each,
             "break" => TokenKind::Break,
             "continue" => TokenKind::Continue,
             "switch" => TokenKind::Switch,
@@ -396,7 +429,7 @@ impl<'a> Lexer<'a> {
             "this" => TokenKind::This,
             "static" => TokenKind::Static,
             "with" => TokenKind::With,
-            "in" => TokenKind::In,
+            "from" => TokenKind::From,
             "try" => TokenKind::Try,
             "check" => TokenKind::Check,
             "throw" => TokenKind::Throw,

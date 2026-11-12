@@ -138,6 +138,7 @@ pub enum ExprKind {
     DecimalLiteral(f64),
     StringLiteral(String),
     TextBlock(String),
+    TemplateLiteral(Vec<Expr>),
     BoolLiteral(bool),
     NullLiteral,
     Identifier(String),

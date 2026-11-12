@@ -46,7 +46,7 @@
       "patterns": [
         {
           "name": "keyword.control.ube",
-          "match": "\\b(class|trait|try|catch|finally|throw|static|final|var|if|then|else|for|break|continue|switch|case|default|yield|return|use|as|is|with|in|async|await)\\b"
+          "match": "\\b(class|trait|try|catch|finally|throw|static|final|var|if|then|else|for|each|break|continue|switch|case|default|yield|return|use|as|is|with|from|async|await)\\b"
         },
         {
           "name": "keyword.operator.word.ube",
@@ -92,7 +92,25 @@
           "name": "string.quoted.other.backtick.ube",
           "begin": "`",
           "end": "`",
-          "patterns": []
+          "patterns": [
+            {
+              "name": "constant.character.escape.ube",
+              "match": "\\\\(?:u\\{[0-9a-fA-F]+\\}|u[0-9a-fA-F]{4}|x[0-9a-fA-F]{2}|.)"
+            },
+            {
+              "name": "meta.interpolation.ube",
+              "begin": "\\$\\{",
+              "end": "\\}",
+              "patterns": [
+                {
+                  "include": "#template-braces"
+                },
+                {
+                  "include": "$self"
+                }
+              ]
+            }
+          ]
         },
         {
           "name": "string.quoted.single.ube",
@@ -160,6 +178,18 @@
         {
           "name": "entity.name.function.ube",
           "match": "\\b[a-zA-Z_][a-zA-Z0-9_]*(?=\\s*\\()"
+        }
+      ]
+    },
+    "template-braces": {
+      "begin": "\\{",
+      "end": "\\}",
+      "patterns": [
+        {
+          "include": "#template-braces"
+        },
+        {
+          "include": "$self"
         }
       ]
     }

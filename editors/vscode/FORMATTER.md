@@ -19,7 +19,7 @@ The formatter follows the starter program's formatting needs:
 - Apply multiline parameter layout to class constructors and method declarations. Preserve `Func(A, B) -> T` signatures, grouped function types, closure parameters, and control-flow parentheses as language constructs rather than independent calls.
 - Wrap function types in parentheses: `Func(int) -> int makeAdder(int amount)` becomes `(Func(int) -> int) makeAdder(int amount)`. Apply this to parameters, locals, and nested function types too; preserve existing grouping.
 - Apply indentation consistently to comment-only lines.
-- Preserve string literals, comments, and source tokens. One-line strings and characters use single quotes; text blocks use raw backticks. Preserve their whitespace, backslashes, and line endings exactly. Double quotes are reserved for JSON content.
+- Preserve string literals, comments, and source tokens. One-line strings and characters use single quotes; interpolated text blocks use backticks. Preserve their whitespace, backslashes, and line endings exactly. Double quotes are reserved for JSON content.
 - Preserve `field()` getters, `field(value)` setters, and private `this._field` access. Formatting does not add constructors to zero-initialized declarations or evaluate constructor defaults.
 - Preserve the newline after a bare `return`; moving a following expression onto that line changes its meaning.
 - Ube prohibits statement semicolons. The formatter preserves invalid source tokens for compiler diagnostics and never inserts semicolons.

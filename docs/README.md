@@ -2,6 +2,16 @@
 
 Start with the [project README](../README.md) for language syntax, toolchain setup, and project commands. Guides below describe the implemented APIs and their current limits. Each runnable source must have the same filename as its declared class, including case.
 
+## Strings and text blocks
+
+- [Syntax, interpolation, escapes, and migration notes](../README.md#23-string-literals--text-blocks)
+- [Language specification](../LANGUAGE_SPEC_DRAFT.md#15-string-literals-and-interpolated-text-blocks)
+- [Runnable text-block example](../examples/text-blocks/App.ube)
+
+## Language loops
+
+Use `each (item from items)` for collection iteration, including comprehensions, and `for` for conditional and infinite loops. See the [loop syntax and examples](../README.md#8-each-and-for-loop-use-cases-with-break-and-continue) and the [runnable loop sample](../examples/loops/App.ube).
+
 ## Cache
 
 - [Cache reference](cache.md): constructors, methods, TTL, eviction, capacity, persistence, and test coverage

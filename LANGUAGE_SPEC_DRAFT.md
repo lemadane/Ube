@@ -440,22 +440,32 @@ class Direction {
 
 ---
 
-## 10. Unified `for` Loop & Control Flow (`break` & `continue`)
+## 10. `each` / `from` and `for` Loops & Control Flow (`break` & `continue`)
 
-Ube uses `for` as its **sole loop keyword**. There is no `while` or `do-while` keyword in the language. `break` exits the loop immediately, while `continue` skips to the next iteration.
+Ube uses `each (item from items)` for iteration and `for` for conditional and infinite loops. There is no `while` or `do-while` keyword in the language. `break` exits the loop immediately, while `continue` skips to the next iteration.
+
+An iteration header is `each (item from iterable)` or `each (index, item from iterable)`. The two-variable form binds a list index and element. Map key/value traversal uses the same syntax, but native map iteration is not yet supported. Numeric range syntax also uses `each (i from 0..5)`, but native code generation for ranges is not yet supported; use an explicit list or a conditional loop in runnable code. Parentheses and a braced body are required. A comprehension uses the same header in expression position and emits values with `yield`:
+
+```ube
+final doubled = each (value from [1, 2, 3]) {
+    yield value * 2
+}
+```
+
+Conditional loops use `for (condition) { ... }`; infinite loops use `for { ... }`. Both `each` and `for` support `break`, `continue`, and an optional `else` block. See the [runnable loop sample](examples/loops/App.ube).
 
 **Loop `else` means zero body entries.** An optional `else` block runs only if the loop body was never entered. This includes an empty collection or a condition that is initially false. Entering the body sets this state before its first statement: an immediate `break` or `continue` therefore prevents the fallback. Normal completion after one or more iterations also skips it. A return or propagated error follows its normal control-flow path, not the fallback. A nested loop tracks its own body-entry state independently.
 
 ```ube
 class App {
     start() {
-        for (item in []) {
+        each (item from []) {
             log(item)
         } else {
             log('empty') // Runs: zero iterations
         }
 
-        for (item in [1]) {
+        each (item from [1]) {
             break
         } else {
             log('empty') // Does not run: the body was entered
@@ -482,7 +492,7 @@ class App {
             }
         }
 
-        // 2. Conditional Condition Loop (Replaces while(condition))
+        // 2. Conditional Loop (Replaces while(condition))
         var remaining = 3
         for (remaining > 0) {
             remaining = remaining - 1
@@ -490,23 +500,19 @@ class App {
 
         // 3. Collection Element Iteration
         final names = ['Lem', 'Rhea', 'Alex']
-        for (name in names) {
+        each (name from names) {
             log('Name: ${name}')
         }
 
         // 4. Index & Item Destructuring Iteration
-        for (index, name in names) {
+        each (index, name from names) {
             log('${index}: ${name}')
         }
 
-        // 5. Map Key-Value Destructuring Iteration
-        final userScores = [1000L: 95, 1001L: 88]
-        for (id, score in userScores) {
-            log('ID ${id} -> Score ${score}')
-        }
+        // 5. Map traversal syntax is not yet supported by native execution.
 
-        // 6. Numeric Range Iteration
-        for (i in 0..5) {
+        // 6. Iterate explicit numeric values (native ranges are not yet supported)
+        each (i from [0, 1, 2, 3, 4]) {
             log('Index: ${i}')
         }
     }
@@ -627,18 +633,28 @@ class App {
 
 ---
 
-## 15. String Literals and Raw Text Blocks
+## 15. String Literals and Interpolated Text Blocks
 
 Single quotes delimit one-line strings and character values: `'Hello'`, `'A'`, and `''`. Characters use the string representation; there is no separate `char` type. Escape sequences such as `\n`, `\t`, `\r`, `\`, and `\'` are interpreted, and existing `${...}` interpolation is supported. Unescaped physical line breaks are errors.
 
-Backticks delimit raw text blocks. A block can be inline or span multiple physical lines. Every character between the delimiters is preserved, including opening/trailing newlines, indentation, CR/LF line endings, double quotes, and backslashes. Raw blocks do not decode escapes or perform interpolation. The next backtick closes the block unconditionally; backticks cannot be escaped inside it. An unterminated block is a lexical error.
+Backticks delimit interpolated text blocks, inline or across multiple lines. `${expression}` evaluates a Ube expression and inserts its formatted value. Physical line breaks and indentation are preserved without trimming. Escapes include `\n`, `\r`, `\t`, `\b`, `\f`, `\v`, `\\`, and an escaped backtick. Write `\${name}` to keep `${name}` literal. Hexadecimal `\xHH`, Unicode `\uHHHH`, and Unicode scalar `\u{...}` escapes are supported; numeric/NUL escapes and surrogate code points are rejected. A backslash followed by a physical line break continues the line without adding a newline. Expressions can contain quoted strings or nested text blocks, and are type-checked and captured in closures normally. Inserted values are not recursively interpolated. Tagged templates and `String.raw` are not implemented.
 
-Double quotes are reserved for JSON syntax, not standalone Ube literals. JSON payloads can be written inside raw text blocks and passed to `Json.toObject`; JSON escaping remains part of the payload and is interpreted by the JSON parser, not the Ube lexer. No dedicated JSON literal type is introduced by this rule.
+Double quotes are reserved for JSON syntax, not standalone Ube literals. JSON payloads can be written inside text blocks and passed to `Json.toObject`. Double each JSON backslash in Ube source so it reaches the JSON parser unchanged. No dedicated JSON literal type is introduced by this rule.
+
+```ube
+final name = 'Lem'
+final count = 3
+final greeting = `Hello ${name}
+Items: ${count * 2}`
+print(greeting)
+// Hello Lem
+// Items: 6
+```
 
 ```ube
 final character = 'A'
 final message = 'Hello\nWorld'
-final json = `{"name":"Ube","active":true,"line":"\n"}`
+final json = `{"name":"Ube","active":true,"line":"\\n"}`
 final sql = `select id, name
 from users
 where active = true`

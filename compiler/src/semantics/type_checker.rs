@@ -2280,6 +2280,14 @@ impl TypeChecker {
             ExprKind::LongLiteral(_) => Some(Type::Long),
             ExprKind::DecimalLiteral(_) => Some(Type::Decimal),
             ExprKind::StringLiteral(_) | ExprKind::TextBlock(_) => Some(Type::String),
+            ExprKind::TemplateLiteral(parts) => {
+                for part in parts {
+                    if self.check_expr(cls, part) == Some(Type::Void) {
+                        self.diagnostics.push(Diagnostic::error("Cannot interpolate a void expression", Some(part.span)));
+                    }
+                }
+                Some(Type::String)
+            }
             ExprKind::BoolLiteral(_) => Some(Type::Bool),
             ExprKind::NullLiteral => Some(Type::Nullable(Box::new(Type::Void))),
             ExprKind::This => {

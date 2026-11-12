@@ -268,7 +268,7 @@ fn xml_encoding_and_document_handles_work_across_async_calls() {
             try {Async.start(() -> this.fail()).await()}catch(XmlParseError e){print('worker XML error')}
             final json=Json.toObject('{"items":[1,2]}')
             print(Xml.toObject(json.toXml()).root().child('entry').childAt('item',1).text())
-            try {Json.toObject(`{"bad":"\u0001"}`).toXml()}catch(XmlError e){print('XML control character rejected')}
+            try {Json.toObject(`{"bad":"\\u0001"}`).toXml()}catch(XmlError e){print('XML control character rejected')}
         }
     }"#,
     );

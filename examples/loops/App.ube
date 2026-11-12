@@ -1,0 +1,44 @@
+class App {
+    start() {
+        final numbers = [10, 20, 30]
+
+        each (number from numbers) {
+            print(number)
+        }
+
+        each (index, number from numbers) {
+            print('${index}: ${number}')
+        }
+
+        each (number from [0, 1, 2]) {
+            if (number == 1) {
+                continue
+            }
+            print(number)
+        }
+
+        final doubled = each (number from numbers) {
+            yield number * 2
+        }
+        each (number from doubled) {
+            print(number)
+        }
+
+        each (number from []) {
+            print(number)
+        } else {
+            print('No items')
+        }
+
+        var remaining = 2
+        for (remaining > 0) {
+            print(remaining)
+            remaining = remaining - 1
+        }
+
+        for {
+            print('Done')
+            break
+        }
+    }
+}

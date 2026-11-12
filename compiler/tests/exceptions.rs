@@ -118,7 +118,7 @@ fn nested_finally_runs_once_for_return_and_catch_return() {
 #[test]
 fn loop_exits_cleanup_only_regions_being_exited() {
     runs(r#"class App { start() {
-      try { for (x in [1,2]) { try { if (x == 1) { continue } break } finally { Console.printLine(x) } } Console.printLine('done') }
+      try { each (x from [1,2]) { try { if (x == 1) { continue } break } finally { Console.printLine(x) } } Console.printLine('done') }
       finally { Console.printLine('outer') }
     } }"#, "1\n2\ndone\nouter\n");
 }
@@ -539,15 +539,15 @@ fn native_boolean_logic_keeps_not_and_or_precedence() {
 }
 
 #[test]
-fn native_backtick_text_blocks_preserve_json_and_do_not_interpolate() {
+fn native_backtick_text_blocks_preserve_escaped_json_and_literal_markers() {
     runs(r#"class Consumer { string echo(string value) { return value } }
     class App { start() {
       Console.printLine('A')
       Console.printLine('one line')
-      Console.printLine(`{"name":"Ube","value":"${notDeclared}","line":"\n"}`)
+      Console.printLine(`{"name":"Ube","value":"\${notDeclared}","line":"\\n"}`)
       Console.printLine(`first
   second`)
-      Console.printLine(`trailing\`)
+      Console.printLine(`trailing\\`)
       Console.printLine('after')
       final consumer = Consumer()
       Console.printLine(consumer.echo(`{"message":"hello","active":true}`))
@@ -1443,4 +1443,64 @@ fn native_math_arguments_match_decimal_and_integer_abis() {
         Console.printLine(Math.isEven(4))
         Console.printLine(Math.round(1.234,2))
     }}"#, "3\n8\ntrue\n4\ntrue\n1.23\n");
+}
+
+#[test]
+fn text_block_templates_interpolate_expressions_escapes_and_nested_templates() {
+    runs(r#"class App {
+      int next() { print('evaluated') return 4 }
+      start() {
+        final name = 'Lem'
+        final count = 3
+        print(`Hello ${name}
+Items: ${count * 2}`)
+        print(`escaped: \${missing} \` \\ \nend`)
+        print(`nested: ${`hi ${name}`} ${'}'} ${true then 'yes' else 'no'}`)
+        print(`once: ${this.next()}`)
+        print(`unicode: \u03bb \u{1F600} \x41`)
+        print(`joined\
+line`)
+        final raw = `\${name}`
+        print(`not recursive: ${raw}`)
+      }
+    }"#, "Hello Lem\nItems: 6\nescaped: ${missing} ` \\ \nend\nnested: hi Lem } yes\nevaluated\nonce: 4\nunicode: λ 😀 A\njoinedline\nnot recursive: ${name}\n");
+}
+
+#[test]
+fn text_block_templates_capture_locals_in_closures_and_async_tasks() {
+    runs(r#"class App { start() {
+      final name = 'Lem'
+      final count = 3
+      final render = () -> `Hello ${name}: ${count * 2}`
+      print(render())
+      final task = Async.start(() -> `Async ${name}: ${count}`)
+      print(task.await())
+    } }"#, "Hello Lem: 6\nAsync Lem: 3\n");
+}
+
+#[test]
+fn text_block_templates_reject_invalid_expressions_and_escapes() {
+    for (source, expected) in [
+        ("class App { start() { print(`Hello ${missing}`) } }", "Undeclared identifier"),
+        ("class App { start() { print(`Hello ${}`) } }", "expression"),
+        ("class App { start() { print(`Hello ${1 2}`) } }", "one expression"),
+        ("class App { start() { print(`Hello ${print('x')}`) } }", "void"),
+        (r"class App { start() { print(`\uZZZZ`) } }", "hexadecimal"),
+        (r"class App { start() { print(`\u{110000}`) } }", "Unicode"),
+        (r"class App { start() { print(`\0`) } }", "Numeric escapes"),
+    ] { rejects(source, expected); }
+}
+
+#[test]
+fn text_block_interpolation_diagnostics_keep_source_positions() {
+    let source = "class App { start() {\nprint(`first line\n${missing + 1}`)\n} }";
+    let mut parser = Parser::new(Lexer::new(source));
+    let program = parser.parse_program();
+    assert!(parser.diagnostics.is_empty(), "{:?}", parser.diagnostics);
+    let mut checker = TypeChecker::new();
+    assert!(!checker.check_program(&program));
+    let diagnostic = checker.diagnostics.iter().find(|d| d.message.contains("Undeclared identifier")).unwrap();
+    let span = diagnostic.span.unwrap();
+    assert_eq!(span.start.index, source.find("missing").unwrap());
+    assert_eq!((span.start.line, span.start.column), (3, 3));
 }

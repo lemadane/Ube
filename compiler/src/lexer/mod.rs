@@ -4,6 +4,24 @@ pub mod token;
 pub use lexer::Lexer;
 pub use token::{Token, TokenKind};
 
+// Find the closing brace using tokens so braces inside strings and nested
+// templates cannot terminate an interpolation expression.
+pub(crate) fn interpolation_end(source: &str) -> Result<usize, String> {
+    let mut lexer = Lexer::new(source);
+    let mut depth = 0;
+    loop {
+        let token = lexer.next_token();
+        match token.kind {
+            TokenKind::OpenBrace => depth += 1,
+            TokenKind::CloseBrace if depth == 0 => return Ok(token.span.start.index),
+            TokenKind::CloseBrace => depth -= 1,
+            TokenKind::Eof => return Err("Unterminated text block interpolation; expected '}'".into()),
+            TokenKind::Error(message) => return Err(message),
+            _ => {}
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -44,16 +62,16 @@ mod tests {
     }
 
     #[test]
-    fn text_blocks_preserve_json_escapes_and_interpolation_markers() {
+    fn text_block_tokens_preserve_escapes_for_template_parsing() {
         assert_eq!(lex(r#"`{"name":"Ube","line":"\n","path":"C:\tmp","value":"${name}"}`"#),
             TokenKind::TextBlock(r#"{"name":"Ube","line":"\n","path":"C:\tmp","value":"${name}"}"#.into()));
         assert_eq!(lex(r"`unknown\q\u0041`"), TokenKind::TextBlock(r"unknown\q\u0041".into()));
     }
 
     #[test]
-    fn a_backslash_does_not_escape_a_text_block_delimiter() {
-        let mut lexer = Lexer::new(r"`trailing\` 'next'");
-        assert_eq!(lexer.next_token().kind, TokenKind::TextBlock("trailing\\".into()));
+    fn a_backslash_escapes_a_text_block_delimiter() {
+        let mut lexer = Lexer::new(r"`escaped\` tick` 'next'");
+        assert_eq!(lexer.next_token().kind, TokenKind::TextBlock(r"escaped\` tick".into()));
         assert_eq!(lexer.next_token().kind, TokenKind::StringLiteral("next".into()));
     }
 

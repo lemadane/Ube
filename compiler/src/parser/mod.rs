@@ -1,5 +1,6 @@
 pub mod ast;
 pub mod parser;
+mod templates;
 
 pub use ast::*;
 pub use parser::Parser;
@@ -8,6 +9,38 @@ pub use parser::Parser;
 mod tests {
     use super::*;
     use crate::lexer::Lexer;
+
+    #[test]
+    fn each_from_supports_iteration_and_comprehensions() {
+        for (header, expected_index) in [("item from [10, 20]", None), ("index, item from [10, 20]", Some("index")), ("item from 0..5", None)] {
+            let source = format!("class App {{ start() {{ each ({header}) {{ continue }} else {{ print('empty') }} }} }}");
+            let mut parser = Parser::new(Lexer::new(&source));
+            let program = parser.parse_program();
+            assert!(parser.diagnostics.is_empty(), "{:?}", parser.diagnostics);
+            let Item::Class(class) = &program.items[0] else { panic!("Expected class") };
+            let StmtKind::For { loop_var, index_var, else_branch, .. } = &class.methods[0].body[0].kind else { panic!("Expected loop") };
+            assert_eq!(loop_var.as_deref(), Some("item"));
+            assert_eq!(index_var.as_deref(), expected_index);
+            assert!(else_branch.is_some());
+
+            let source = format!("class App {{ start() {{ final values = each ({header}) {{ yield item * 2 }} }} }}");
+            let mut parser = Parser::new(Lexer::new(&source));
+            parser.parse_program();
+            assert!(parser.diagnostics.is_empty(), "{:?}", parser.diagnostics);
+        }
+    }
+
+    #[test]
+    fn each_requires_from_and_iteration_variables() {
+        for header in ["for (item in items)", "for (item from items)", "each (item in items)", "each (index, item in items)", "each (true)", "each", "each (, item from items)"] {
+            for prefix in ["", "final values = "] {
+                let source = format!("class App {{ start() {{ {prefix}{header} {{ yield 1 }} }} }}");
+                let mut parser = Parser::new(Lexer::new(&source));
+                parser.parse_program();
+                assert!(!parser.diagnostics.is_empty(), "Unexpectedly accepted {source}");
+            }
+        }
+    }
 
     #[test]
     fn use_declarations_preserve_method_names() {

@@ -51,7 +51,7 @@ Ube/
 │       ├── main.rs                 # ube CLI driver (check, emit-ir, emit-llvm, build)
 │       ├── lib.rs                  # Compiler library exports
 │       ├── diagnostics/            # Span tracking & colorized diagnostic emitter
-│       ├── lexer/                  # Single-quoted strings/characters & raw backtick text blocks
+│       ├── lexer/                  # Single-quoted strings/characters & interpolated backtick text blocks
 │       ├── parser/                 # Unified class Pratt parser & AST nodes
 │       ├── resolver/               # Scope & symbol resolution
 │       ├── types/                  # Type system representations
@@ -170,11 +170,13 @@ Numbers become `0`, booleans `false`, strings `''`, and nullable references `nul
 
 ### Loop Fallback State
 
-Each `for` / `else` lowering allocates a boolean body-entry flag initialized to false and sets it to true at the start of the body, before user statements. The fallback checks this flag when the initial collection or condition permits no iterations. Normal completion after body entry skips `else`; `break` exits directly and `continue` still counts as an entered iteration. Each nested loop owns an independent flag. This tracks zero iterations, not search success or absence of `break`.
+The parser accepts `each (item from iterable)` and `each (index, item from iterable)` for iteration and comprehensions, while `for` handles conditional and infinite loops. Both forms use the existing `For` AST nodes; iteration variables distinguish collection traversal from conditional looping.
+
+Each `each` / `else` or `for` / `else` lowering allocates a boolean body-entry flag initialized to false and sets it to true at the start of the body, before user statements. The fallback checks this flag when the initial collection or condition permits no iterations. Normal completion after body entry skips `else`; `break` exits directly and `continue` still counts as an entered iteration. Each nested loop owns an independent flag. This tracks zero iterations, not search success or absence of `break`.
 
 ### Field Access, Syntax & Errors
 
-Generated backing fields such as `_age` are class-private. Public access requires `user.age()`; a `var` field also accepts `user.age(value)`. Direct `user.age` reads and assignments are rejected. One-line strings and characters use single quotes; backticks delimit raw text blocks with literal content. Double quotes are reserved for JSON content. Semicolons in code are errors; literals and comments may contain them.
+Generated backing fields such as `_age` are class-private. Public access requires `user.age()`; a `var` field also accepts `user.age(value)`. Direct `user.age` reads and assignments are rejected. One-line strings and characters use single quotes; backticks delimit multiline templates with escapes and `${expression}` interpolation. Double quotes are reserved for JSON content. Semicolons in code are errors; literals and comments may contain them.
 
 The compiler lowers `try` / typed `catch` / `finally` / `throw` into explicit control flow and a runtime pending-error channel, without unwinding through Rust. Cleanup runs across returns, loop exits, and propagated exceptions. Cleanup failures preserve pending errors as suppressed. Awaited failures retain their error objects. Cancellation is delivered once per worker so later cleanup awaits can complete; those awaits can still fail or time out.
 
@@ -286,3 +288,5 @@ pub enum IrInstruction {
     Return { val: Option<IrOperand> },
 }
 ```
+
+Text block tokens preserve source spelling until template parsing. The parser decodes escapes and creates `TemplateLiteral` nodes containing literal text and parsed expression children. Literal segments remain `TextBlock` nodes so escaped interpolation markers are never evaluated. Semantic analysis and closure/mock traversal visit expression children; IR lowering formats values and concatenates them in source order. Matching interpolation braces uses the lexer, so quoted braces and nested templates remain inside their expressions.

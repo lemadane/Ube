@@ -304,7 +304,7 @@ Keep `start()` parameterless and read application arguments through `Console.arg
 class App {
     start() {
         final args = Console.args()
-        for (arg in args) {
+        each (arg from args) {
             Console.printLine(arg)
         }
     }
@@ -426,13 +426,13 @@ See the [runnable context example](examples/log_context/App.ube).
 - Native `null` (never `nil`) with postfix `Type?` (`User?`).
 - Optional chaining (`?.`), null coalescing (`??`), and null-coalescing assignment (`??=`).
 
-### 12. Collections Policy & Unified `for` Loops (No `while` Keyword)
-- **`for` is the Sole Loop Keyword**: There is no `while` or `do-while` keyword in Ube.
-- **`for` / `else` (0-Iteration Fallback)**: `for (item in items) { ... } else { ... }`. The `else` block executes **only when the loop body is entered zero times**, such as an empty collection or an initially false condition. Once the body is entered, even an immediate `break` or `continue` prevents the fallback. See the [worked examples](#zero-iteration-fallback).
+### 12. Collections Policy & `each` / `for` Loops (No `while` Keyword)
+- **`each` / `from` Iteration and `for` Loops**: Use `each (item from items)` for collections, and `for (condition)` or `for { ... }` for conditional or infinite loops. There is no `while` or `do-while` keyword in Ube.
+- **Loop `else` (0-Iteration Fallback)**: `each (item from items) { ... } else { ... }`. The `else` block executes **only when the loop body is entered zero times**, such as an empty collection or an initially false condition. Once the body is entered, even an immediate `break` or `continue` prevents the fallback. See the [worked examples](#zero-iteration-fallback).
 - **`break` & `continue`**: `break` exits the nearest loop; `continue` skips to the next iteration.
 - **Collection limits**: Generic `Array<T>`, `List<T>`, and `Map<K, V>` declarations are not public language types. Use `List` and `Map`; native binary-buffer exports are runtime implementation APIs.
 - **`List`**: Dynamic growable sequence (`[1, 2, 3]` literal syntax, `.add()`, `.remove()`).
-- **`Map`**: Key-value hash map (`[1000L: 'Lem']` literal syntax, key-value `for (k, v in map)` iteration; integer bracket lookup returns `int?`, preserving missing entries separately from stored zero).
+- **`Map`**: Key-value hash map (`[1000L: 'Lem']` literal syntax, key-value `each (k, v from map)` syntax is parsed but native map iteration is not yet supported; integer bracket lookup returns `int?`, preserving missing entries separately from stored zero).
 
 ### 13. Pattern Matching Status
 
@@ -458,11 +458,11 @@ in executable Ube code yet. Use explicit `if`/`else` branches.
 - **`throw` Keyword**: `throw 'msg'` wraps a string in `GenericError`; `throw CustomError(...)` preserves the error object. Error objects structurally provide `string message()`.
 
 
-### 16. First-Class `if` Expressions & `for` Comprehensions (Mandatory `{}` & `yield`)
+### 16. First-Class `if` Expressions & `each` Comprehensions (Mandatory `{}` & `yield`)
 - **Expression Evaluation**: Both `if` and `for` can be evaluated directly as expressions (`final x = if (...) { ... }`).
-- **Mandatory Braces `{}`**: Block-form `if` expressions and `for` expressions require `{}` open and close braces; `condition then value else value` uses expression branches without braces.
+- **Mandatory Braces `{}`**: Block-form `if` expressions and loop expressions require `{}` open and close braces; `condition then value else value` uses expression branches without braces.
 - **Mandatory `yield` Keyword**: Emitting values from expression blocks requires `yield expr` (e.g. `final status = if (score >= 50) { yield `Passed` } else { yield `Failed` }`).
-- **`for` Expression Comprehensions**: `final doubled = for (x in numbers) { yield x * 2 }` transforms collections into `List`.
+- **`each` Expression Comprehensions**: `final doubled = each (x from numbers) { yield x * 2 }` transforms collections into `List`.
 
 
 ### Conditional expressions: `then` / `else`
@@ -538,17 +538,29 @@ See [JSON](docs/json.md), [XML mapping rules and limits](docs/xml.md), and the [
 
 ### 23. String Literals & Text Blocks
 
+Runnable example: [text blocks](examples/text-blocks/App.ube), using `ube run examples/text-blocks/App.ube`.
+
 One-line strings and character values use single quotes: `'Hello'`, `'A'`, and `''`. A character is represented as a one-character string; there is no separate `char` type. Single-quoted strings support escapes such as `\n`, `\t`, `\r`, `\`, and `\'`, and existing `${...}` interpolation. A physical line break inside a single-quoted literal is an error.
 
-Backticks delimit raw text blocks, inline or across multiple lines. They preserve all content exactly, including whitespace, line endings, double quotes, backslashes, and `${...}`. There is no escape processing, interpolation, indentation removal, or implicit trimming. The next backtick always closes the block, even after a backslash; a backtick cannot appear inside it.
+Backticks delimit interpolated text blocks, inline or across multiple lines. `${expression}` evaluates a Ube expression and inserts its formatted value. Physical line breaks and indentation are preserved without trimming. Escapes include `\n`, `\r`, `\t`, `\b`, `\f`, `\v`, `\\`, and an escaped backtick. Write `\${name}` to keep `${name}` literal. Hexadecimal `\xHH`, Unicode `\uHHHH`, and Unicode scalar `\u{...}` escapes are supported; numeric/NUL escapes and surrogate code points are rejected. A backslash followed by a physical line break continues the line without adding a newline. Expressions can contain quoted strings or nested text blocks, and are type-checked and captured in closures normally. Inserted values are not recursively interpolated. Tagged templates and `String.raw` are not implemented.
 
 Double quotes are reserved for JSON syntax and are rejected as standalone Ube string delimiters. JSON payloads may contain ordinary double quotes inside a backtick block, then be passed to `Json.toObject`. This does not introduce a separate JSON literal type.
+
+```ube
+final name = 'Lem'
+final count = 3
+final greeting = `Hello ${name}
+Items: ${count * 2}`
+print(greeting)
+// Hello Lem
+// Items: 6
+```
 
 ```ube
 final ordinary = 'Hello\nWorld'
 final character = 'A'
 
-final json = `{"name":"Ube","active":true,"path":"C:\\tmp"}`
+final json = `{"name":"Ube","active":true,"path":"C:\\\\tmp"}`
 
 final sql = `select id, name
 from users
@@ -570,7 +582,7 @@ World
 `
 ```
 
-To include a backtick in a one-line string, write it between single quotes. Double quotes and backslashes inside raw blocks need no Ube escaping; JSON's own escaping rules still apply to JSON data.
+To include a backtick in a text block, prefix it with a backslash. Double quotes need no Ube escaping. Double each JSON backslash in Ube source so it reaches the JSON parser unchanged. Existing raw-block code must escape literal backslashes and `${...}` when migrating.
 
 ### 24. Unified SQL (`SQL`, `SQLParams`, `SQLTransaction`, `SQLResult`, `SQLQuery`)
 - **Shared database execution**: `SQL.open(url)` supports PostgreSQL, MySQL/MariaDB, and SQLite. Network drivers provide pools and prepared statements; SQLite retains one connection per client.
@@ -911,9 +923,29 @@ class App {
 }
 ```
 
-### 8. All `for` Loop Use Cases (With `break` and `continue`)
+### 8. `each` and `for` Loop Use Cases (With `break` and `continue`)
 
-Ube uses `for` as its **sole loop keyword** (no `while` or `do-while`).
+Ube uses `each (item from items)` for iteration and `for` for conditional and infinite loops (no `while` or `do-while`).
+
+| Form | Purpose |
+| --- | --- |
+| `each (item from items)` | Visit collection elements |
+| `each (index, item from items)` | Visit list elements with their indexes |
+| `each (key, value from map)` | Map traversal syntax (native iteration is not yet supported) |
+| `each (i from 0..5)` | Range syntax (parsed; native code generation is not yet supported) |
+| `final values = each (item from items) { yield item * 2 }` | Build a list with a comprehension |
+| `for (condition)` | Repeat while a condition is true |
+| `for { ... }` | Repeat until control flow exits the loop |
+
+Iteration requires `each`, parentheses, and `from`. Both loop forms require a braced body and support `break`, `continue`, and an optional zero-iteration `else` block.
+
+Run the [complete loop sample](examples/loops/App.ube) from the repository root:
+
+```bash
+cargo build -p ube-compiler -p ube-runtime
+./target/debug/ube-compiler run examples/loops/App.ube
+```
+
 
 ```ube
 class App {
@@ -931,7 +963,7 @@ class App {
             log('Infinite loop step: ${counter}')
         }
 
-        // Case 2: Conditional Condition Loop (Replaces while(condition))
+        // Case 2: Conditional Loop (Replaces while(condition))
         var remaining = 3
         for (remaining > 0) {
             log('Remaining: ${remaining}')
@@ -940,7 +972,7 @@ class App {
 
         // Case 3: Element Iteration Over List/Array
         final names = ['Lem', 'Rhea', 'Alex']
-        for (name in names) {
+        each (name from names) {
             if (name == 'Rhea') {
                 continue
             }
@@ -948,27 +980,23 @@ class App {
         }
 
         // Case 4: Index & Item Destructuring Iteration
-        for (index, name in names) {
+        each (index, name from names) {
             log('${index}: ${name}')
         }
 
-        // Case 5: Map Key-Value Destructuring Iteration
-        final scores = [1000L: 95, 1001L: 88]
-        for (id, score in scores) {
-            log('ID ${id} -> Score ${score}')
-        }
+        // Case 5: Map traversal syntax is not yet supported by native execution.
 
-        // Case 6: Numeric Range Iteration
-        for (i in 0..5) {
+        // Case 6: Iterate explicit numeric values (native ranges are not yet supported)
+        each (i from [0, 1, 2, 3, 4]) {
             if (i == 3) {
                 break
             }
             log('Range index: ${i}')
         }
 
-        // Case 7: for / else 0-Iteration Fallback Clause
+        // Case 7: each / else 0-Iteration Fallback Clause
         final emptyItems = []
-        for (item in emptyItems) {
+        each (item from emptyItems) {
             log('Item: ${item}')
         } else {
             log('No items found (else executed for 0 iterations)')
@@ -979,7 +1007,7 @@ class App {
 
 #### Zero-iteration fallback
 
-**Read `for ... else` as: “if the body never starts, run this fallback.”** Reaching the body once is enough to disable the fallback. It does not mean “no break” or “no matching item.”
+**Read `each ... else` and `for ... else` as: “if the body never starts, run this fallback.”** Reaching the body once is enough to disable the fallback. It does not mean “no break” or “no matching item.”
 
 | What happened? | Does `else` run? |
 | --- | --- |
@@ -996,7 +1024,7 @@ Each example below can be placed inside `App.start()`.
 
 ```ube
 final items = []
-for (item in items) {
+each (item from items) {
     log(item)
 } else {
     log('no items')
@@ -1013,7 +1041,7 @@ no items
 
 ```ube
 final items = [10, 20]
-for (item in items) {
+each (item from items) {
     log(item)
 } else {
     log('no items')
@@ -1030,7 +1058,7 @@ Output:
 **3. Immediate break: fallback does not run**
 
 ```ube
-for (item in [10, 20]) {
+each (item from [10, 20]) {
     log(item)
     break
 } else {
@@ -1051,7 +1079,7 @@ The first iteration has already started when `break` executes. There is no fallb
 **4. Every iteration continues: fallback does not run**
 
 ```ube
-for (item in [10, 20]) {
+each (item from [10, 20]) {
     continue
 } else {
     log('no items')
@@ -1098,7 +1126,7 @@ finished
 
 ```ube
 var found = false
-for (item in [1, 3, 5]) {
+each (item from [1, 3, 5]) {
     if (item == 2) {
         found = true
         break

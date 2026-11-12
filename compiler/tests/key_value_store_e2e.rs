@@ -382,7 +382,7 @@ fn native_lists_serialize_scalars_objects_nested_lists_and_reject_cycles() {
         added.add(Person(7,'Bob'))
         Gc.collect()
         Console.printLine(added.toJson())
-        final doubled=for(x in [1,2,3]){yield x*2}
+        final doubled=each (x from [1,2,3]){yield x*2}
         Console.printLine(doubled.toJson())
     }}"#);
     let output=program.run(&[]);

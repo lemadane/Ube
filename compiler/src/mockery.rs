@@ -112,6 +112,9 @@ fn expressions(expr: &Expr, requested: &mut HashSet<String>) {
                 statements(body, requested);
             }
         }
+        ExprKind::TemplateLiteral(parts) => {
+            for part in parts { visit(part); }
+        }
         ExprKind::IntLiteral(_)
         | ExprKind::LongLiteral(_)
         | ExprKind::DecimalLiteral(_)

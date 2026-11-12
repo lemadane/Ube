@@ -11,14 +11,35 @@ function isEscaped(source, index) {
   return backslashes % 2 === 1;
 }
 
-function skipQuotedString(source, index, end) {
-  const quote = source[index];
-  for (let cursor = index + 1; cursor < end; cursor += 1) {
-    if (source[cursor] === quote && (quote === "`" || !isEscaped(source, cursor))) {
+// A template interpolation contains code, which can itself contain templates.
+// Keep the complete literal opaque to formatting, including nested expressions.
+function advanceQuoted(source, cursor, end, frames) {
+  const frame = frames[frames.length - 1];
+  const ch = source[cursor];
+  if (frame.quote) {
+    if (ch === "\\") return Math.min(cursor + 1, end - 1);
+    if (ch === frame.quote) frames.pop();
+    else if (frame.quote === "`" && ch === "$" && source[cursor + 1] === "{") {
+      frames.push({ depth: 1 });
       return cursor + 1;
     }
+  } else {
+    if (ch === "'" || ch === '"' || ch === "`") frames.push({ quote: ch });
+    else if (ch === "{") frame.depth += 1;
+    else if (ch === "}" && --frame.depth === 0) frames.pop();
+    else if (ch === "/" && source[cursor + 1] === "/") return skipLineComment(source, cursor, end) - 1;
+    else if (ch === "/" && source[cursor + 1] === "*") return skipBlockComment(source, cursor, end) - 1;
   }
-  return end;
+  return cursor;
+}
+
+function skipQuotedString(source, index, end) {
+  const frames = [{ quote: source[index] }];
+  let cursor = index + 1;
+  while (cursor < end && frames.length) {
+    cursor = advanceQuoted(source, cursor, end, frames) + 1;
+  }
+  return cursor;
 }
 
 function skipLineComment(source, index, end) {
@@ -198,7 +219,7 @@ function isGroupedFunctionParenthesis(source, openIndex, closeIndex, end) {
 
 function isCallParenthesis(source, openIndex, closeIndex, end) {
   const previous = previousToken(source, openIndex);
-  if (["Func", "if", "for", "while", "catch", "switch", "match", "and", "or", "not"].includes(previous.text)) {
+  if (["Func", "if", "for", "each", "while", "catch", "switch", "match", "and", "or", "not"].includes(previous.text)) {
     return false;
   }
   if (isGroupedFunctionParenthesis(source, openIndex, closeIndex, end)) {
@@ -215,6 +236,7 @@ function markArgumentLines(argument, extraIndent) {
   let marked = `${ARGUMENT_LINE}${extraIndent}:${argument}`;
   let result = "";
   let quote = null;
+  let quoteFrames = [];
   let inLineComment = false;
   let inBlockComment = false;
   let discardIndent = false;
@@ -234,15 +256,17 @@ function markArgumentLines(argument, extraIndent) {
         inBlockComment = false;
       }
     } else if (quote) {
-      if (character === quote && !isEscaped(marked, cursor)) {
-        quote = null;
-      }
+      const next = advanceQuoted(marked, cursor, marked.length, quoteFrames);
+      result += marked.slice(cursor + 1, next + 1);
+      cursor = next;
+      if (!quoteFrames.length) quote = null;
     } else if (character === "/" && marked[cursor + 1] === "/") {
       inLineComment = true;
     } else if (character === "/" && marked[cursor + 1] === "*") {
       inBlockComment = true;
     } else if (character === '"' || character === "`" || character === "'") {
       quote = character;
+      quoteFrames = [{ quote }];
     }
     if (character === "\n" && !quote) {
       result += `${ARGUMENT_LINE}${extraIndent}:`;
@@ -254,6 +278,7 @@ function markArgumentLines(argument, extraIndent) {
 
 function appendClosingParenthesis(argument) {
   let quote = null;
+  let quoteFrames = [];
   let inBlockComment = false;
   let lineComment = -1;
   let lastNewline = -1;
@@ -273,9 +298,8 @@ function appendClosingParenthesis(argument) {
         cursor += 1;
       }
     } else if (quote) {
-      if (character === quote && (quote === "`" || !isEscaped(argument, cursor))) {
-        quote = null;
-      }
+      cursor = advanceQuoted(argument, cursor, argument.length, quoteFrames);
+      if (!quoteFrames.length) quote = null;
     } else if (character === "/" && argument[cursor + 1] === "/") {
       lineComment = cursor;
       cursor += 1;
@@ -284,6 +308,7 @@ function appendClosingParenthesis(argument) {
       cursor += 1;
     } else if (character === '"' || character === "`" || character === "'") {
       quote = character;
+      quoteFrames = [{ quote }];
     }
   }
   if (lineComment > lastNewline) {
@@ -448,9 +473,8 @@ function countBraces(line, lexicalState) {
       continue;
     }
     if (lexicalState.quote) {
-      if (line[cursor] === lexicalState.quote && (lexicalState.quote === "`" || !isEscaped(line, cursor))) {
-        lexicalState.quote = null;
-      }
+      cursor = advanceQuoted(line, cursor, line.length, lexicalState.quoteFrames);
+      if (!lexicalState.quoteFrames.length) lexicalState.quote = null;
       continue;
     }
 
@@ -464,6 +488,7 @@ function countBraces(line, lexicalState) {
     }
     if (line[cursor] === '"' || line[cursor] === "`" || line[cursor] === "'") {
       lexicalState.quote = line[cursor];
+      lexicalState.quoteFrames = [{ quote: line[cursor] }];
       continue;
     }
     if (line[cursor] === "{") {
@@ -655,7 +680,7 @@ function expandDeclarationBlocks(source) {
     if (["class", "trait"].includes(token)) pendingType = true;
     if (frame?.statementBlock && previous === ")" &&
         /^[A-Za-z_]/.test(token) &&
-        !["and", "or", "is", "as", "in"].includes(token)) {
+        !["and", "or", "is", "as", "from"].includes(token)) {
       breaks.add(cursor);
     }
     if (["{", "(", "["].includes(token)) {

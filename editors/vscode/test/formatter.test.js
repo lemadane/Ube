@@ -326,11 +326,11 @@ test("tracks braces after a text block and preserves its contents", () => {
   assert.equal(formatUbeDocument(expected), expected);
 });
 
-test("raw text blocks close after a backslash and preserve JSON content", () => {
+test("text blocks preserve escaped backslashes and JSON content", () => {
   const source = [
     "class App {",
     "start() {",
-    "log(`C:\\tmp\\`, '{\"ok\":true}')",
+    "log(`C:\\\\tmp\\\\`, '{\"ok\":true}')",
     "}",
     "}"
   ].join("\n");
@@ -338,7 +338,7 @@ test("raw text blocks close after a backslash and preserve JSON content", () => 
     "class App {",
     "    start() {",
     "        log(",
-    "          `C:\\tmp\\`,",
+    "          `C:\\\\tmp\\\\`,",
     "          '{\"ok\":true}')",
     "    }",
     "}",
@@ -682,4 +682,31 @@ test("indents multiline then/else expressions without changing braced statements
     assert.equal(formatUbeDocument(expected), expected);
     assert.equal(formatUbeDocument(expected.split('\n').map(line => line.trim()).join('\n')), expected);
   }
+});
+
+test("keeps each/from headers intact, including indexed iteration", () => {
+  for (const source of [
+    "each (item from values) { print(item) }\n",
+    "each (index, item from values) { print(item) }\n",
+    "final doubled = each (item from values) { yield item * 2 }\n",
+  ]) {
+    assert.equal(formatUbeDocument(source), source);
+  }
+});
+
+test("preserves escaped backticks and nested template interpolation", () => {
+  const source = [
+    'class App {',
+    '    start() {',
+    '        final name = \'Lem\'',
+    '        final message = `Hello ${`nested ${name}`}',
+    '  literal \\${name} and \\` backtick',
+    '  ${name}`',
+    '        print(message)',
+    '    }',
+    '}',
+    ''
+  ].join('\n');
+  assert.equal(formatUbeDocument(source), source);
+  assert.equal(formatUbeDocument(formatUbeDocument(source)), source);
 });

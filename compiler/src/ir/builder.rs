@@ -1828,6 +1828,19 @@ impl IrBuilder {
             ExprKind::LongLiteral(v) => IrOperand::ConstantLong(*v),
             ExprKind::DecimalLiteral(v) => IrOperand::ConstantDecimal(*v),
             ExprKind::TextBlock(value) => IrOperand::ConstantString(value.clone()),
+            ExprKind::TemplateLiteral(parts) => {
+                let mut result = None;
+                for part in parts {
+                    let value = self.build_expr(part);
+                    let text = self.format_output_value(value);
+                    result = Some(if let Some(previous) = result {
+                        self.runtime("ube_string_concat", vec![previous, text], Type::String)
+                    } else {
+                        text
+                    });
+                }
+                result.unwrap_or_else(|| IrOperand::ConstantString(String::new()))
+            }
             ExprKind::StringLiteral(v) => {
                 if v.contains("${") {
                     let mut parts = Vec::new();
