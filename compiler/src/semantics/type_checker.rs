@@ -1758,6 +1758,9 @@ impl TypeChecker {
                 Item::Import(_) => None,
             };
             if let Some((name, span)) = declaration {
+                if name == "SQLStatement" {
+                    self.diagnostics.push(Diagnostic::error("SQLStatement is reserved for checked SQL templates", Some(span)));
+                }
                 if name == "Html" {
                     self.diagnostics.push(Diagnostic::error("Html is reserved for checked HTML templates", Some(span)));
                 }
@@ -2208,10 +2211,7 @@ impl TypeChecker {
                                 if !self.is_assignable_to(&act, &expected_ret)
                                     && (act != Type::Void
                                         || matches!(expected_ret, Type::Function { .. })
-                                        || expected_ret
-                                            == (Type::Class {
-                                                name: "Html".into(),
-                                            }))
+                                        || matches!(&expected_ret, Type::Class { name } if name == "Html" || name == "SQLStatement"))
                                 {
                                     self.diagnostics.push(Diagnostic::error(
                                         format!(
@@ -2238,17 +2238,11 @@ impl TypeChecker {
                 if let Some(ty) = self.check_expr(cls, expr) {
                     if let Some(yields) = self.expression_yields.last_mut() {
                         yields.push(ty);
-                    } else if self.current_return_type
-                        == Some(Type::Class {
-                            name: "Html".into(),
-                        })
-                        && ty
-                            != (Type::Class {
-                                name: "Html".into(),
-                            })
+                    } else if matches!(&self.current_return_type, Some(Type::Class { name }) if name == "Html" || name == "SQLStatement")
+                        && Some(&ty) != self.current_return_type.as_ref()
                     {
                         self.diagnostics.push(Diagnostic::error(
-                            "An Html method must yield Html",
+                            "A template method must yield its declared template type",
                             Some(expr.span),
                         ));
                     }
@@ -2322,6 +2316,15 @@ impl TypeChecker {
                     self.diagnostics.push(Diagnostic::error("Range step must not be zero", Some(step.span)));
                 }
                 Some(Type::Class { name: "__RangeIterator".into() })
+            }
+            ExprKind::SqlTemplate(parts) => {
+                for (part, literal) in parts {
+                    let ty = self.check_expr(cls, part);
+                    if !literal && !matches!(ty, Some(Type::String | Type::Byte | Type::Int | Type::Long | Type::Decimal | Type::Bool)) {
+                        self.diagnostics.push(Diagnostic::error("SQL interpolation requires a non-null string, byte, int, long, decimal, or bool", Some(part.span)));
+                    }
+                }
+                Some(Type::Class { name: "SQLStatement".into() })
             }
             ExprKind::HtmlTemplate(parts) => {
                 for (part, context) in parts {
@@ -3568,22 +3571,22 @@ impl TypeChecker {
                     self.symbol_table.pop_scope();
                 }
                 let yields = self.expression_yields.pop().unwrap();
-                let html = Type::Class {
-                    name: "Html".into(),
-                };
-                if yields.contains(&html) {
-                    if yields.iter().any(|ty| ty != &html)
-                        || !then_branch.iter().any(|s| self.stmt_definitely_returns(s))
-                        || !else_branch
-                            .as_ref()
-                            .is_some_and(|b| b.iter().any(|s| self.stmt_definitely_returns(s)))
-                    {
-                        self.diagnostics.push(Diagnostic::error(
-                            "HTML if expressions must yield Html on both branches",
-                            Some(expr.span),
-                        ));
+                for template_type in [
+                    Type::Class { name: "Html".into() },
+                    Type::Class { name: "SQLStatement".into() },
+                ] {
+                    if yields.contains(&template_type) {
+                        if yields.iter().any(|ty| ty != &template_type)
+                            || !then_branch.iter().any(|s| self.stmt_definitely_returns(s))
+                            || !else_branch.as_ref().is_some_and(|b| b.iter().any(|s| self.stmt_definitely_returns(s)))
+                        {
+                            self.diagnostics.push(Diagnostic::error(
+                                format!("Template if expressions must yield {:?} on both branches", template_type),
+                                Some(expr.span),
+                            ));
+                        }
+                        return Some(template_type);
                     }
-                    return Some(html);
                 }
                 yield_ty.or(Some(Type::Int))
             }
@@ -3667,7 +3670,7 @@ impl TypeChecker {
     }
 
     fn is_assignable_to(&self, from: &Type, to: &Type) -> bool {
-        if matches!(to, Type::Class { name } if name == "Html") {
+        if matches!(to, Type::Class { name } if name == "Html" || name == "SQLStatement") {
             return from == to;
         }
         if matches!(to, Type::Function { .. }) {

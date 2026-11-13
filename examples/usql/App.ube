@@ -1,0 +1,31 @@
+class App {
+    SQLStatement find(string name) {
+        return sql`SELECT id, name FROM users WHERE name = ${name}`
+    }
+
+    start() {
+        final db = SQL.open('sqlite::memory:')
+        try {
+            db.execute(sql`CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)`)
+            final name = 'O\'Brien'
+            final tx = db.begin()
+            try {
+                tx.execute(sql`INSERT INTO users (id, name) VALUES (${1}, ${name})`)
+                tx.commit()
+            } finally {
+                tx.close()
+            }
+            final statement = this.find(name)
+            final rows = db.query(statement)
+            try {
+                while (rows.next()) {
+                    print(`${rows.getInt(0)}: ${rows.getString(1)}`)
+                }
+            } finally {
+                rows.close()
+            }
+        } finally {
+            db.close()
+        }
+    }
+}

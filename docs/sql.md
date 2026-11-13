@@ -77,8 +77,8 @@ params.clear()
 params.close()
 ```
 
-Always pass a `SQLParams` handle, including an empty one for statements without
-parameters. Values are bound through the driver and never concatenated into
+For the two-argument string overloads, always pass a `SQLParams` handle, including an empty one for statements without
+parameters. Alternatively, [USQL templates](usql.md) construct a typed `SQLStatement` for the one-argument `db.query(statement)` and `db.execute(statement)` overloads, including transaction equivalents. Values are bound through the driver and never concatenated into
 SQL. Ordinary Ube string interpolation is **not** automatic SQL binding.
 
 | Method | Binding |

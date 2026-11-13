@@ -1853,6 +1853,25 @@ impl IrBuilder {
             ExprKind::LongLiteral(v) => IrOperand::ConstantLong(*v),
             ExprKind::DecimalLiteral(v) => IrOperand::ConstantDecimal(*v),
             ExprKind::TextBlock(value) => IrOperand::ConstantString(value.clone()),
+            ExprKind::SqlTemplate(parts) => {
+                let ty = Type::Class { name: "SQLStatement".into() };
+                let mut statement = self.runtime("ube_sql_template_empty", vec![], ty.clone());
+                for (part, literal) in parts {
+                    let mut value = self.build_expr(part);
+                    let suffix = if *literal { "literal" } else {
+                        match value.get_type() {
+                            Type::Byte | Type::Int => { value = self.cast(value, Type::Int); "int" },
+                            Type::Long => "long",
+                            Type::Decimal => "decimal",
+                            Type::Bool => "bool",
+                            Type::String => "string",
+                            _ => unreachable!("checked SQL interpolation"),
+                        }
+                    };
+                    statement = self.runtime(&format!("ube_sql_template_{suffix}"), vec![statement, value], ty.clone());
+                }
+                statement
+            }
             ExprKind::HtmlTemplate(parts) => {
                 let mut result = IrOperand::ConstantString(String::new());
                 for (part, context) in parts {

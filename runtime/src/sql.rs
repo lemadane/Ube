@@ -1,5 +1,7 @@
 //! Shared SQL execution engine. Builders and ORMs can target this same ABI.
 //! Runtime handles are monotonic IDs; database IO never holds the registry lock.
+mod templates;
+
 use futures_util::TryStreamExt;
 use sqlx::{
     any::{AnyArguments, AnyConnectOptions, AnyPoolOptions, AnyTypeInfoKind as Kind},
@@ -700,9 +702,12 @@ fn execute(
     query: bool,
     tx: bool,
 ) -> Result<Outcome> {
-    let id = h as usize;
     let sql = text(sql)?;
     let params = parameters(params)?; // Snapshot: later mutations never affect in-flight queries.
+    execute_owned(h, sql, params, query, tx)
+}
+fn execute_owned(h: Handle, sql: String, params: Vec<Param>, query: bool, tx: bool) -> Result<Outcome> {
+    let id = h as usize;
     if tx {
         let transaction = transaction(id)?;
         validate_sql(&sql, transaction.client.dialect)?;

@@ -77,6 +77,7 @@ const BUILTIN_CLASS_NAMES: &[&str] = &[
     "Statistics",
     "SQL",
     "SQLParams",
+    "SQLStatement",
     "SQLTransaction",
     "SQLResult",
     "SQLQuery",
@@ -645,7 +646,7 @@ pub fn auth_methods(class: &str) -> Vec<BuiltinMethod> {
 }
 
 /// Shared execution ABI for raw SQL, query builders, and ORM adapters.
-pub const SQL_CLASSES: &[&str] = &["SQL", "SQLParams", "SQLTransaction", "SQLResult", "SQLQuery"];
+pub const SQL_CLASSES: &[&str] = &["SQL", "SQLParams", "SQLTransaction", "SQLResult", "SQLQuery", "SQLStatement"];
 pub fn sql_methods(class: &str) -> Vec<BuiltinMethod> {
     use crate::types::Type;
     let object = |name: &str| Type::Class { name: name.into() };
@@ -658,6 +659,8 @@ pub fn sql_methods(class: &str) -> Vec<BuiltinMethod> {
             method("dialect", "ube_sql_dialect", vec![], Type::String, false),
             method("placeholder", "ube_sql_placeholder", vec![Type::Int], Type::String, false),
             method("quoteIdentifier", "ube_sql_quote_identifier", vec![Type::String], Type::String, false),
+            method("query", "ube_sql_statement_query", vec![object("SQLStatement")], object("SQLResult"), false),
+            method("execute", "ube_sql_statement_execute", vec![object("SQLStatement")], Type::Long, false),
             method("execute", "ube_sql_execute", vec![Type::String, object("SQLParams")], Type::Long, false),
             method("query", "ube_sql_query", vec![Type::String, object("SQLParams")], object("SQLResult"), false),
             method("begin", "ube_sql_begin", vec![], object("SQLTransaction"), false),
@@ -678,6 +681,8 @@ pub fn sql_methods(class: &str) -> Vec<BuiltinMethod> {
         ],
         "SQLTransaction" => vec![
             method("table", "ube_sql_transaction_table", vec![Type::String], object("SQLQuery"), false),
+            method("query", "ube_sql_transaction_statement_query", vec![object("SQLStatement")], object("SQLResult"), false),
+            method("execute", "ube_sql_transaction_statement_execute", vec![object("SQLStatement")], Type::Long, false),
             method("execute", "ube_sql_transaction_execute", vec![Type::String, object("SQLParams")], Type::Long, false),
             method("query", "ube_sql_transaction_query", vec![Type::String, object("SQLParams")], object("SQLResult"), false),
             method("savepoint", "ube_sql_transaction_savepoint", vec![Type::String], Type::Void, false),

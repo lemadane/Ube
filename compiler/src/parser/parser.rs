@@ -1118,11 +1118,11 @@ impl<'a> Parser<'a> {
                 span: tok.span,
             }),
             TokenKind::Identifier(name) => {
-                if name == "html" {
+                if name == "html" || name == "sql" {
                     if let TokenKind::TextBlock(source) = self.current_token.kind.clone() {
                         let span = self.current_token.span;
                         self.advance();
-                        return self.parse_html_template(&source, span);
+                        return if name == "sql" { self.parse_sql_template(&source, span) } else { self.parse_html_template(&source, span) };
                     }
                 }
                 if (name == "log" || name == "print") && self.check(&TokenKind::OpenParen) {

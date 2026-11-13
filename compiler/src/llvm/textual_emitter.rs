@@ -390,6 +390,10 @@ impl TextualLlvmEmitter {
         for (suffix, ty) in [("int", "i32"), ("long", "i64"), ("decimal", "double"), ("bool", "i1"), ("string", "i8*")] {
             self.output.push_str(&format!("declare %OrmQuery* @ube_orm_or_where_{suffix}(%OrmQuery*, i8*, i8*, {ty})\n"));
         }
+        self.output.push_str("declare %SQLStatement* @ube_sql_template_empty()\n");
+        for (suffix, ty) in [("literal", "i8*"), ("string", "i8*"), ("int", "i32"), ("long", "i64"), ("decimal", "double"), ("bool", "i1")] {
+            self.output.push_str(&format!("declare %SQLStatement* @ube_sql_template_{suffix}(%SQLStatement*, {ty})\n"));
+        }
         for &class in crate::builtins::SQL_CLASSES {
             for method in crate::builtins::sql_methods(class) {
                 let mut params = Vec::new();
@@ -607,6 +611,7 @@ impl TextualLlvmEmitter {
             ("OrmRows", "i8*"),
             ("SQL", "i8*"),
             ("SQLParams", "i8*"),
+            ("SQLStatement", "i8*"),
             ("SQLTransaction", "i8*"),
             ("SQLResult", "i8*"),
             ("SQLQuery", "i8*"),
@@ -818,6 +823,9 @@ impl TextualLlvmEmitter {
             for instruction in &block.instructions {
                 if matches!(instruction, IrInstruction::Alloca { .. }) { continue; }
                 let escaping = match instruction {
+                    // SQL template calls borrow their GC-managed statement and snapshot
+                    // bindings synchronously; they never retain a pointer outside the call.
+                    IrInstruction::CallRuntime { symbol, args, .. } if symbol.starts_with("ube_sql_") => args.iter().filter(|arg| arg.get_type() != (Type::Class { name: "SQLStatement".into() })).cloned().collect(),
                     IrInstruction::CallRuntime { symbol, args, .. } if !matches!(symbol.as_str(), "ube_object_register" | "ube_object_is" | "ube_object_satisfies" | "ube_object_method") && !symbol.starts_with("ube_gc_") => args.clone(),
                     IrInstruction::SpawnAsyncCall { receiver, args, .. } => std::iter::once(receiver.clone()).chain(args.iter().cloned()).collect(),
                     IrInstruction::SpawnAsyncExpression { captures, .. } => captures.clone(),

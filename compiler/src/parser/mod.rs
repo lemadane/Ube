@@ -2,6 +2,7 @@ pub mod ast;
 pub mod parser;
 mod templates;
 mod html;
+mod sql;
 
 pub use ast::*;
 pub use parser::Parser;

@@ -42,6 +42,7 @@ Use `each (item in items)` for collection iteration, including comprehensions, `
 - [Runnable persistent-object example](../examples/key-value-store/README.md)
 
 - [SQL](sql.md): SQL access and parameters
+- [USQL](usql.md): SQL templates with automatic typed parameter binding and a [runnable example](../examples/usql/App.ube)
 - [Query builder](query-builder.md): model-free SELECT queries, projections, filters, and transactions
 - [SQLite](sqlite.md): embedded SQL storage
 - [ORM](orm.md): models, grouped predicates, projections, aggregates, joins, and transactions

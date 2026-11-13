@@ -730,3 +730,9 @@ Do not prefix a ternary expression with `if`; use `condition then yes else no`. 
 The compiler validates a bounded HTML grammar and rejects unsupported interpolation contexts. URL attributes require a single complete-value interpolation and are validated at runtime. `Response.ok(Html)` and `Response.html(Html)` send the HTML content type. Ordinary string templates and `Response.ok(string)` retain their behavior. See [USSR](docs/ussr.md) for the precise grammar restrictions and current collection limitations.
 
 Supported HTMX attributes also accept the `data-hx-*` spelling with identical interpolation restrictions. Request URL aliases receive URL validation; unsupported dynamic HTMX attributes remain rejected even with the `data-` prefix.
+
+## USQL SQL templates
+
+`sql` followed by a backtick template is a built-in expression producing the reserved `SQLStatement` type. Literal SQL segments remain separate from typed bindings. Interpolation accepts non-null strings, bytes, integers, longs, decimals, and booleans, evaluated once in source order. Templates reject interpolation in quoted SQL or comments, embedded tokens, and unsupported value types. SQL grammar and schema validation remain runtime database responsibilities.
+
+`SQLStatement` values are immutable and garbage-collected. `SQL.query/execute` and `SQLTransaction.query/execute` accept a statement as a single argument; existing string-plus-`SQLParams` overloads remain available. Placeholder generation occurs at execution using the selected database dialect. See [USQL](docs/usql.md) for lexical restrictions, lifecycle, and examples.

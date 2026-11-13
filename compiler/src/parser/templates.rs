@@ -5,18 +5,24 @@ use crate::lexer::{interpolation_end, Lexer, TokenKind};
 
 impl Parser<'_> {
     pub(super) fn parse_text_block(&mut self, source: &str, span: Span) -> Result<Expr, ()> {
-        self.parse_template(source, span, false).map_err(|message| {
+        self.parse_template(source, span, "text").map_err(|message| {
             self.diagnostics.push(Diagnostic::error(message, Some(span)));
         })
     }
 
     pub(super) fn parse_html_template(&mut self, source: &str, span: Span) -> Result<Expr, ()> {
-        self.parse_template(source, span, true).map_err(|message| {
+        self.parse_template(source, span, "html").map_err(|message| {
             self.diagnostics.push(Diagnostic::error(message, Some(span)));
         })
     }
 
-    fn parse_template(&mut self, source: &str, span: Span, html: bool) -> Result<Expr, String> {
+    pub(super) fn parse_sql_template(&mut self, source: &str, span: Span) -> Result<Expr, ()> {
+        self.parse_template(source, span, "sql").map_err(|message| {
+            self.diagnostics.push(Diagnostic::error(message, Some(span)));
+        })
+    }
+
+    fn parse_template(&mut self, source: &str, span: Span, kind: &str) -> Result<Expr, String> {
         let mut literal_flags = Vec::new();
         let mut parts = Vec::new();
         let mut literal = String::new();
@@ -81,7 +87,15 @@ impl Parser<'_> {
                 literal.push(ch);
             }
         }
-        if html {
+        if kind == "sql" {
+            if !literal.is_empty() {
+                parts.push(Expr { kind: ExprKind::TextBlock(literal), span });
+                literal_flags.push(true);
+            }
+            super::sql::validate(&parts, &literal_flags)?;
+            return Ok(Expr { kind: ExprKind::SqlTemplate(parts.into_iter().zip(literal_flags).collect()), span });
+        }
+        if kind == "html" {
             if !literal.is_empty() {
                 parts.push(Expr { kind: ExprKind::TextBlock(literal), span });
                 literal_flags.push(true);

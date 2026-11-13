@@ -587,8 +587,9 @@ World
 
 To include a backtick in a text block, prefix it with a backslash. Double quotes need no Ube escaping. Double each JSON backslash in Ube source so it reaches the JSON parser unchanged. Existing raw-block code must escape literal backslashes and `${...}` when migrating.
 
-### 24. Unified SQL (`SQL`, `SQLParams`, `SQLTransaction`, `SQLResult`, `SQLQuery`)
+### 24. Unified SQL (`SQL`, `SQLParams`, `SQLStatement`, `SQLTransaction`, `SQLResult`, `SQLQuery`)
 - **Shared database execution**: `SQL.open(url)` supports PostgreSQL, MySQL/MariaDB, and SQLite. Network drivers provide pools and prepared statements; SQLite retains one connection per client.
+- **USQL templates**: `` sql`SELECT id FROM users WHERE name = ${name}` `` creates an immutable `SQLStatement` with bound values. Execute with `db.query(statement)` or `db.execute(statement)`, including transaction equivalents. See [USQL](docs/usql.md) and [the example](examples/usql/App.ube).
 - **Typed bindings and results**: `SQLParams.create()` holds bound scalar values; `db.query(sql, params)` provides checked typed getters and explicit NULL handling. Values are never concatenated into SQL.
 - **Transactions**: `db.begin()` reserves a connection. Use `tx.commit()` and `tx.close()` in `finally`; savepoints and rollback are supported. Failures during execution invalidate and attempt to roll back the transaction.
 - **Model-free queries**: `db.table('users').select('name').where('active', '=', true).orderBy('name', 'asc').limit(20)` builds a SELECT without a model class. Execute with `all()`, `first()`, or `count()`; use `tx.table(...)` inside a transaction. See [the query builder API](docs/query-builder.md) and [runnable example](examples/query-builder/App.ube).

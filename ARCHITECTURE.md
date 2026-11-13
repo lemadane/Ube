@@ -299,3 +299,9 @@ Text block tokens preserve source spelling until template parsing. The parser de
 The scanner classifies `data-hx-*` using the corresponding `hx-*` attribute rules while preserving the source spelling in rendered markup. This prevents HTMX aliases from bypassing URL validation or the dynamic attribute allowlist through the ordinary `data-*` allowance.
 
 `Html` uses the string pointer ABI while retaining its distinct compiler type. `Response.ok` selects the HTML runtime constructor based on its argument's type. The response runtime carries a content type through shared dispatch to HTTP/1.1, HTTP/2, and HTTP/3. See [the USSR guide](docs/ussr.md) for capabilities and limits.
+
+## USQL statement pipeline
+
+The template parser preserves literal/interpolation boundaries in `ExprKind::SqlTemplate`. A conservative SQL scanner checks interpolation positions across supported quoting modes; semantic analysis restricts bindings to supported non-null scalars and returns reserved type `SQLStatement`. IR lowering evaluates each expression once and appends an immutable typed node.
+
+Runtime statement nodes contain a traced predecessor pointer and inline scalar/text payloads, so normal GC reclaims partial and completed statements without registry handles or finalizers. SQL runtime calls borrow statement pointers synchronously and do not permanently escape them. Execution snapshots the chain into dialect-specific SQL placeholders plus driver parameter values, then enters the same execution path as raw SQL. Transactions, error handling, and result cursors are shared. See [USQL](docs/usql.md).
