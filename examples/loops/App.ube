@@ -30,11 +30,11 @@ class App {
             print('No items')
         }
 
-        from (i = 0 to 10, by 3) {
+        for (i = 0 to 10, by 3) {
             print(i)
         }
 
-        final descending = from (i = 10 to 0, by -3) {
+        final descending = for (i = 10 to 0, by -3) {
             yield i
         }
         each (value in descending) {

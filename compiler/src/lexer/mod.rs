@@ -29,10 +29,11 @@ mod tests {
     fn lex(source: &str) -> TokenKind { Lexer::new(source).next_token().kind }
 
     #[test]
-    fn while_replaces_the_for_keyword() {
+    fn loop_keywords_distinguish_while_each_and_for() {
         assert_eq!(lex("while"), TokenKind::While);
         assert_eq!(lex("each"), TokenKind::Each);
-        assert!(matches!(lex("for"), TokenKind::Error(message) if message.contains("use while")));
+        assert_eq!(lex("for"), TokenKind::For);
+        assert_eq!(lex("from"), TokenKind::Identifier("from".into()));
     }
 
     #[test]

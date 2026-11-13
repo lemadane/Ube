@@ -722,11 +722,11 @@ test("preserves conditional and infinite while loops", () => {
   }
 });
 
-test("preserves numeric from/to/by headers and each/in iteration", () => {
+test("preserves numeric for/to/by headers and each/in iteration", () => {
   for (const source of [
-    "from (i = 0 to 10, by 3) { print(i) }\n",
-    "from (i = 10 to 0, by -3) { continue }\n",
-    "final list = from (i = 0 to 4) { yield i }\n",
+    "for (i = 0 to 10, by 3) { print(i) }\n",
+    "for (i = 10 to 0, by -3) { continue }\n",
+    "final list = for (i = 0 to 4) { yield i }\n",
     "each (index, item in items) { print(item) }\n",
   ]) {
     assert.equal(formatUbeDocument(source), source);

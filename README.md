@@ -426,9 +426,9 @@ See the [runnable context example](examples/log_context/App.ube).
 - Native `null` (never `nil`) with postfix `Type?` (`User?`).
 - Optional chaining (`?.`), null coalescing (`??`), and null-coalescing assignment (`??=`).
 
-### 12. Collections Policy & `each` / `while` / `from` Loops
+### 12. Collections Policy & `each` / `while` / `for` Loops
 - **`each` / `in` Iteration and `while` Loops**: Use `each (item in items)` for collections, and `while (condition)` or `while { ... }` for conditional or infinite loops. There is no classic three-part `for` or `do-while` loop in Ube.
-- **Numeric ranges**: `from (i = 0 to 10, by 3) { ... }` visits `0, 3, 6, 9`. Endpoints are inclusive; omit `, by ...` for a step of `1`.
+- **Numeric ranges**: `for (i = 0 to 10, by 3) { ... }` visits `0, 3, 6, 9`. Endpoints are inclusive; omit `, by ...` for a step of `1`.
 - **Loop `else` (0-Iteration Fallback)**: `each (item in items) { ... } else { ... }`. The `else` block executes **only when the loop body is entered zero times**, such as an empty collection or an initially false condition. Once the body is entered, even an immediate `break` or `continue` prevents the fallback. See the [worked examples](#zero-iteration-fallback).
 - **`break` & `continue`**: `break` exits the nearest loop; `continue` skips to the next iteration.
 - **Collection limits**: Generic `Array<T>`, `List<T>`, and `Map<K, V>` declarations are not public language types. Use `List` and `Map`; native binary-buffer exports are runtime implementation APIs.
@@ -927,16 +927,16 @@ class App {
 
 ### 8. `each` and `while` Loop Use Cases (With `break` and `continue`)
 
-Ube uses `each (item in items)` for collection iteration, `from` for numeric ranges, and `while` for conditional and infinite loops (no classic three-part `for` or `do-while`).
+Ube uses `each (item in items)` for collection iteration, `for` for numeric ranges, and `while` for conditional and infinite loops (no classic three-part `for` or `do-while`).
 
 | Form | Purpose |
 | --- | --- |
 | `each (item in items)` | Visit collection elements |
 | `each (index, item in items)` | Visit list elements with their indexes |
 | `each (key, value in map)` | Map traversal syntax (native iteration is not yet supported) |
-| `from (i = 0 to 5)` | Visit integers 0 through 5, inclusive |
-| `from (i = 10 to 0, by -3)` | Visit 10, 7, 4, 1 |
-| `final values = from (i = 0 to 4, by 2) { yield i }` | Build a list from a numeric range |
+| `for (i = 0 to 5)` | Visit integers 0 through 5, inclusive |
+| `for (i = 10 to 0, by -3)` | Visit 10, 7, 4, 1 |
+| `final values = for (i = 0 to 4, by 2) { yield i }` | Build a list from a numeric range |
 | `final values = each (item in items) { yield item * 2 }` | Build a list with a comprehension |
 | `while (condition)` | Repeat while a condition is true |
 | `while { ... }` | Repeat until control flow exits the loop |
@@ -993,7 +993,7 @@ class App {
         // Case 5: Map traversal syntax is not yet supported by native execution.
 
         // Case 6: Numeric range (inclusive endpoint)
-        from (i = 0 to 4) {
+        for (i = 0 to 4) {
             if (i == 3) {
                 break
             }
@@ -1013,7 +1013,7 @@ class App {
 
 #### Zero-iteration fallback
 
-**Read `each ... else`, `while ... else`, and `from ... else` as: “if the body never starts, run this fallback.”** Reaching the body once is enough to disable the fallback. It does not mean “no break” or “no matching item.”
+**Read `each ... else`, `while ... else`, and `for ... else` as: “if the body never starts, run this fallback.”** Reaching the body once is enough to disable the fallback. It does not mean “no break” or “no matching item.”
 
 | What happened? | Does `else` run? |
 | --- | --- |

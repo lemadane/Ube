@@ -14,32 +14,32 @@ fn runs(source: &str, expected: &str) {
 }
 
 #[test]
-fn each_in_and_from_by_execute_through_cli() {
+fn each_in_and_for_by_execute_through_cli() {
     runs(r#"class App { start() {
         final items = [10, 20]
         each (index, item in items) { print(`${index}: ${item}`) }
         final doubled = each (item in items) { yield item * 2 }
         each (item in doubled) { print(item) }
-        from (i = 0 to 10, by 3) { print(i) }
-        final values = from (i = 2 to 4) { yield i }
+        for (i = 0 to 10, by 2) { print(i) }
+        final values = for (i = 2 to 4) { yield i }
         each (value in values) { print(value) }
-    } }"#, "0: 10\n1: 20\n20\n40\n0\n3\n6\n9\n2\n3\n4\n");
+    } }"#, "0: 10\n1: 20\n20\n40\n0\n2\n4\n6\n8\n10\n2\n3\n4\n");
 }
 
 #[test]
 fn inclusive_bounds_descending_steps_continue_and_else() {
     runs(r#"class App { start() {
-        from (i = 10 to 0, by -3) { print(i) }
-        from (i = 0 to 6, by 3) { print(i) }
-        from (i = 4 to 4, by -2) { print(i) }
-        from (i = 5 to 1) { print('bad') } else { print('ascending empty') }
-        from (i = 1 to 5, by -1) { print('bad') } else { print('descending empty') }
-        from (i = 0 to 4) {
+        for (i = 10 to 0, by -3) { print(i) }
+        for (i = 0 to 6, by 3) { print(i) }
+        for (i = 4 to 4, by -2) { print(i) }
+        for (i = 5 to 1) { print('bad') } else { print('ascending empty') }
+        for (i = 1 to 5, by -1) { print('bad') } else { print('descending empty') }
+        for (i = 0 to 4) {
             if (i == 1) { continue }
             if (i == 3) { break }
             print(i)
         } else { print('bad') }
-        from (i = 0 to 0) { continue } else { print('bad') }
+        for (i = 0 to 0) { continue } else { print('bad') }
     } }"#, "10\n7\n4\n1\n0\n3\n6\n4\nascending empty\ndescending empty\n0\n2\n");
 }
 
@@ -51,7 +51,7 @@ fn bounds_are_evaluated_once_and_loop_variables_are_scoped() {
             var limit = 4
             var step = 2
             final i = 99
-            from (i = this.bound('start', 0) to this.bound('end', limit), by this.bound('step', step)) {
+            for (i = this.bound('start', 0) to this.bound('end', limit), by this.bound('step', step)) {
                 limit = 0
                 step = 0
                 print(i)
@@ -59,9 +59,9 @@ fn bounds_are_evaluated_once_and_loop_variables_are_scoped() {
             print(i)
             final begin = 1
             final end = 3
-            final render = () -> { return from (j = begin to end) { yield j * 10 } }
+            final render = () -> { return for (j = begin to end) { yield j * 10 } }
             each (value in render()) { print(value) }
-            final task = Async.start(() -> { return from (j = begin to end, by 2) { yield j } })
+            final task = Async.start(() -> { return for (j = begin to end, by 2) { yield j } })
             final values = task.await()
             each (value in values) { print(value) }
         }
@@ -71,11 +71,11 @@ fn bounds_are_evaluated_once_and_loop_variables_are_scoped() {
 #[test]
 fn range_boundaries_do_not_wrap_or_loop_forever() {
     runs(r#"class App { start() {
-        from (i = 2147483646 to 2147483647, by 3) { print(i) }
-        from (i = 2147483647 to 2147483647) { print(i) }
+        for (i = 2147483646 to 2147483647, by 3) { print(i) }
+        for (i = 2147483647 to 2147483647) { print(i) }
         final minimum = -2147483647 - 1
-        from (i = minimum to minimum, by -1) { print(i) }
-        from (i = minimum + 1 to minimum, by -3) { print(i) }
+        for (i = minimum to minimum, by -1) { print(i) }
+        for (i = minimum + 1 to minimum, by -3) { print(i) }
     } }"#, "2147483646\n2147483647\n-2147483648\n-2147483647\n");
 }
 
@@ -83,14 +83,14 @@ fn range_boundaries_do_not_wrap_or_loop_forever() {
 fn dynamic_zero_step_is_catchable_and_cleanup_survives_loop_exits() {
     runs(r#"class App { int zero() { return 0 } start() {
         try {
-            from (i = 0 to 2, by this.zero()) { print('bad') } else { print('bad else') }
+            for (i = 0 to 2, by this.zero()) { print('bad') } else { print('bad else') }
         } catch (Error err) { print(err.message()) } finally { print('zero cleanup') }
-        from (i = 1 to 2) {
+        for (i = 1 to 2) {
             try { if (i == 1) { continue } break }
             finally { print(`cleanup ${i}`) }
         }
-        from (i = 0 to 1) {
-            from (j = 0 to 1) { print(`${i}:${j}`) break }
+        for (i = 0 to 1) {
+            for (j = 0 to 1) { print(`${i}:${j}`) break }
         }
     } }"#, "Range step must not be zero\nzero cleanup\ncleanup 1\ncleanup 2\n0:0\n1:0\n");
 }
@@ -98,16 +98,18 @@ fn dynamic_zero_step_is_catchable_and_cleanup_survives_loop_exits() {
 #[test]
 fn invalid_range_headers_types_and_old_each_syntax_are_rejected() {
     for (body, expected) in [
+        ("from (i = 0 to 3) {}", "Expected"),
+        ("final values = from (i = 0 to 3) { yield i }", "Expected"),
         ("each (item from [1]) { print(item) }", "Expected in"),
-        ("from (i = 0 to 3, by 0) {}", "Range step must not be zero"),
-        ("from (i = 0 to 3, by 'x') {}", "Range step must be int"),
-        ("from (i = 0L to 3) {}", "Range start must be int"),
-        ("from (i = 0 to 3.5) {}", "Range end must be int"),
-        ("from (i = 0 to 3, by true) {}", "Range step must be int"),
-        ("from (i = 0 until 3) {}", "Expected 'to'"),
-        ("from (i = 0 to 3, 2) {}", "Expected 'by'"),
-        ("from (i = 0 to 3) { i = 10 }", "immutable"),
-        ("from (i = 0 to 3) {} print(i)", "Undeclared identifier"),
+        ("for (i = 0 to 3, by 0) {}", "Range step must not be zero"),
+        ("for (i = 0 to 3, by 'x') {}", "Range step must be int"),
+        ("for (i = 0L to 3) {}", "Range start must be int"),
+        ("for (i = 0 to 3.5) {}", "Range end must be int"),
+        ("for (i = 0 to 3, by true) {}", "Range step must be int"),
+        ("for (i = 0 until 3) {}", "Expected 'to'"),
+        ("for (i = 0 to 3, 2) {}", "Expected 'by'"),
+        ("for (i = 0 to 3) { i = 10 }", "immutable"),
+        ("for (i = 0 to 3) {} print(i)", "Undeclared identifier"),
     ] {
         let source = format!("class App {{ start() {{ {body} }} }}");
         let directory = tempfile::tempdir().unwrap();

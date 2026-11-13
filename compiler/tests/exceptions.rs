@@ -1529,7 +1529,7 @@ fn while_loops_reject_legacy_for_and_invalid_headers() {
     for header in ["for (true)", "for", "for (i = 0; i < 3; i++)"] {
         for prefix in ["", "final values = "] {
             let source = format!("class App {{ start() {{ {prefix}{header} {{ break }} }} }}");
-            rejects(&source, "use while");
+            assert!(!diagnostics(&source).is_empty(), "Unexpectedly accepted {source}");
         }
     }
     for header in ["while true", "while (item from [1])", "while (i = 0; i < 3)"] {

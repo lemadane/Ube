@@ -139,7 +139,7 @@ pub enum ExprKind {
     StringLiteral(String),
     TextBlock(String),
     TemplateLiteral(Vec<Expr>),
-    // Internal iterable for a from-loop; never materialized as a collection.
+    // Internal iterable for a for-range loop; never materialized as a collection.
     RangeIterator { start: Box<Expr>, end: Box<Expr>, step: Box<Expr> },
     BoolLiteral(bool),
     NullLiteral,

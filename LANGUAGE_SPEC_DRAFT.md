@@ -442,9 +442,9 @@ class Direction {
 
 ## 10. `each` / `in` and `while` Loops & Control Flow (`break` & `continue`)
 
-Ube uses `each (item in items)` for collection iteration, `from` for numeric ranges, and `while` for conditional and infinite loops. There is no classic three-part `for` or `do-while` loop in the language. `break` exits the loop immediately, while `continue` skips to the next iteration.
+Ube uses `each (item in items)` for collection iteration, `for` for numeric ranges, and `while` for conditional and infinite loops. There is no classic three-part `for` or `do-while` loop in the language. `break` exits the loop immediately, while `continue` skips to the next iteration.
 
-An iteration header is `each (item in iterable)` or `each (index, item in iterable)`. The two-variable form binds a list index and element. Map key/value traversal uses the same syntax, but native map iteration is not yet supported. Numeric ranges use `from (i = 0 to 5)`. The separate `0..5` expression still has no native iteration support. Parentheses and a braced body are required. A comprehension uses the same header in expression position and emits values with `yield`:
+An iteration header is `each (item in iterable)` or `each (index, item in iterable)`. The two-variable form binds a list index and element. Map key/value traversal uses the same syntax, but native map iteration is not yet supported. Numeric ranges use `for (i = 0 to 5)`. The separate `0..5` expression still has no native iteration support. Parentheses and a braced body are required. A comprehension uses the same header in expression position and emits values with `yield`:
 
 ```ube
 final doubled = each (value in [1, 2, 3]) {
@@ -469,10 +469,10 @@ Use `final list = while (condition) { ... }` for a conditional collection loop. 
 Numeric range loops support an optional step and an inclusive endpoint:
 
 ```ube
-from (i = 0 to 10, by 3) {
+for (i = 0 to 10, by 3) {
     print(i) // 0, 3, 6, 9
 }
-final descending = from (i = 10 to 0, by -3) {
+final descending = for (i = 10 to 0, by -3) {
     yield i // List containing 10, 7, 4, 1
 }
 ```
@@ -537,7 +537,7 @@ class App {
         // 5. Map traversal syntax is not yet supported by native execution.
 
         // 6. Numeric range (inclusive endpoint)
-        from (i = 0 to 4) {
+        for (i = 0 to 4) {
             log('Index: ${i}')
         }
     }

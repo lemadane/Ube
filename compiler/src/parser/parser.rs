@@ -151,7 +151,7 @@ impl<'a> Parser<'a> {
                 | TokenKind::If
                 | TokenKind::While
                 | TokenKind::Each
-                | TokenKind::From
+                | TokenKind::For
                 | TokenKind::Return => return,
                 _ => self.advance(),
             }
@@ -641,7 +641,7 @@ impl<'a> Parser<'a> {
         match self.current_token.kind {
             TokenKind::Final | TokenKind::Var => self.parse_local_decl(),
             TokenKind::If => self.parse_if_stmt(),
-            TokenKind::While | TokenKind::Each | TokenKind::From => self.parse_loop_stmt(),
+            TokenKind::While | TokenKind::Each | TokenKind::For => self.parse_loop_stmt(),
             TokenKind::Break => self.parse_break_stmt(),
             TokenKind::Continue => self.parse_continue_stmt(),
             TokenKind::Return => self.parse_return_stmt(),
@@ -945,7 +945,7 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_loop_header(&mut self, keyword: TokenKind) -> Result<(Option<String>, Option<String>, Option<Expr>), ()> {
-        if keyword == TokenKind::From {
+        if keyword == TokenKind::For {
             self.expect(&TokenKind::OpenParen, "(")?;
             let variable = self.expect_identifier()?;
             let span = self.current_token.span;
@@ -1365,7 +1365,7 @@ impl<'a> Parser<'a> {
                     span: Span::combine(start_span, end_span),
                 })
             }
-            TokenKind::While | TokenKind::Each | TokenKind::From => {
+            TokenKind::While | TokenKind::Each | TokenKind::For => {
                 let start_span = tok.span;
                 let (loop_var, index_var, condition_or_iterable) =
                     self.parse_loop_header(tok.kind)?;
@@ -1548,10 +1548,6 @@ impl<'a> Parser<'a> {
                     }
                     TokenKind::Static => { self.advance(); "static".into() }
                     TokenKind::In => { self.advance(); "in".into() }
-                    TokenKind::From => {
-                        self.advance();
-                        "from".to_string()
-                    }
                     TokenKind::Async => {
                         self.advance();
                         "async".to_string()

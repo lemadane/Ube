@@ -30,7 +30,7 @@ pub enum TokenKind {
     This,
     Static,
     With,
-    From,
+    For,
     In,
     Try,
     Check,

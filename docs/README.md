@@ -10,7 +10,7 @@ Start with the [project README](../README.md) for language syntax, toolchain set
 
 ## Language loops
 
-Use `each (item in items)` for collection iteration, including comprehensions, `while` for conditional and infinite loops, and `from (i = 0 to 10, by 3)` for inclusive integer ranges. See the [loop syntax and examples](../README.md#8-each-and-while-loop-use-cases-with-break-and-continue) and the [runnable loop sample](../examples/loops/App.ube).
+Use `each (item in items)` for collection iteration, including comprehensions, `while` for conditional and infinite loops, and `for (i = 0 to 10, by 3)` for inclusive integer ranges. See the [loop syntax and examples](../README.md#8-each-and-while-loop-use-cases-with-break-and-continue) and the [runnable loop sample](../examples/loops/App.ube).
 
 ## Cache
 
