@@ -46,6 +46,11 @@ Use `each (item in items)` for collection iteration, including comprehensions, `
 - [SQLite](sqlite.md): embedded SQL storage
 - [ORM](orm.md): models, grouped predicates, projections, aggregates, joins, and transactions
 
+## HTML rendering
+
+- [USSR](ussr.md): compiled HTML templates, typed components, escaping, HTML responses, HTMX, and limits
+- [Runnable Todo components](../examples/ussr/README.md)
+
 ## Networking
 
 - [Request bodies](request-bodies.md): body framing, limits, and error handling

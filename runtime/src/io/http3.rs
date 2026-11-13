@@ -252,6 +252,7 @@ mod tests {
             let worker = thread::spawn(move || {
                 let routes = [
                     ("GET", "/protocol"),
+                    ("GET", "/html"),
                     ("GET", "/large"),
                     ("POST", "/large"),
                     ("HEAD", "/large"),
@@ -322,6 +323,7 @@ mod tests {
     ) -> *mut UbeResponse {
         let path = unsafe { CStr::from_ptr((*request).url) }.to_str().unwrap();
         let (status, body) = match path {
+            "/html" => return crate::io::ube_response_html(c"<p>HTML</p>".as_ptr()),
             "/large" => (200, "x".repeat(256 * 1024)),
             "/set" => {
                 let session = crate::io::ube_request_session(request);
@@ -439,6 +441,12 @@ mod tests {
                 assert_eq!(replies[4].0.status().as_u16(), 404);
                 assert_eq!(replies[5].0.status().as_u16(), 204);
                 assert!(replies[5].1.is_empty());
+                let (html, body) = request(sender.clone(), "GET", "/html", None).await;
+                assert_eq!(
+                    html.headers()[http::header::CONTENT_TYPE],
+                    "text/html; charset=utf-8"
+                );
+                assert_eq!(body, b"<p>HTML</p>");
                 let (response, _) = request(sender.clone(), "GET", "/set", None).await;
                 let cookie = response.headers()[http::header::SET_COOKIE]
                     .to_str()

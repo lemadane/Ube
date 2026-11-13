@@ -1,0 +1,26 @@
+use Todo
+
+class TodoPage {
+    Html render(bool completed) {
+        return html`
+            <!doctype html>
+            <html lang="en">
+                <head>
+                    <meta charset="utf-8">
+                    <meta name="viewport" content="width=device-width, initial-scale=1">
+                    <title>Ube SSR Todos</title>
+                    <script src="https://cdn.jsdelivr.net/npm/htmx.org@2.0.11/dist/htmx.min.js"></script>
+                    <style>
+                        body { font-family: sans-serif; max-width: 40rem; margin: 3rem auto; }
+                        .todo { display: flex; gap: 1rem; padding: 1rem; }
+                        .completed span:first-child { text-decoration: line-through; }
+                    </style>
+                </head>
+                <body>
+                    <h1>Ube SSR Todos</h1>
+                    <ul>${Todo().render('Learn Ube & HTML', completed)}</ul>
+                </body>
+            </html>
+        `
+    }
+}

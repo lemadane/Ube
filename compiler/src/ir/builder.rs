@@ -329,9 +329,15 @@ impl IrBuilder {
     }
 
     fn emit(&mut self, instr: IrInstruction) {
-        let check = matches!(instr, IrInstruction::LoadStatic { .. } | IrInstruction::JsonEncode { .. } | IrInstruction::XmlEncode { .. } | IrInstruction::CallMethod { .. } | IrInstruction::CallTrait { .. })
-            || matches!(&instr, IrInstruction::CallRuntime { symbol, .. }
-                if symbol.starts_with("ube_kv_") || symbol.starts_with("ube_json") || symbol.starts_with("ube_xml") || symbol == "ube_to_xml" || symbol.starts_with("ube_cache_") || symbol.starts_with("ube_args_") || symbol.starts_with("ube_observability_") || symbol.starts_with("ube_metrics_") || symbol.starts_with("ube_task_outcome") || symbol.starts_with("ube_env_") || symbol.starts_with("ube_rest_") || symbol.starts_with("ube_mockery_") || symbol.starts_with("ube_testicle_") || symbol.starts_with("ube_exchange_") || symbol.starts_with("ube_money_") || symbol.starts_with("ube_orm_") || symbol.starts_with("ube_sql_") || symbol.starts_with("ube_jwt_") || symbol.starts_with("ube_oauth2_") || symbol.starts_with("ube_session_") || matches!(symbol.as_str(), "ube_request_session" | "ube_request_query" | "ube_request_header" | "ube_request_body" | "ube_response_redirect") || symbol.starts_with("ube_console_") || symbol.starts_with("ube_output_") || symbol.starts_with("ube_log_") || symbol.starts_with("ube_sqlite_") || symbol.starts_with("ube_file_") || symbol.starts_with("ube_directory_")
+        let check = matches!(
+            instr,
+            IrInstruction::LoadStatic { .. }
+                | IrInstruction::JsonEncode { .. }
+                | IrInstruction::XmlEncode { .. }
+                | IrInstruction::CallMethod { .. }
+                | IrInstruction::CallTrait { .. }
+        ) || matches!(&instr, IrInstruction::CallRuntime { symbol, .. }
+                if symbol == "ube_html_escape" || symbol.starts_with("ube_kv_") || symbol.starts_with("ube_json") || symbol.starts_with("ube_xml") || symbol == "ube_to_xml" || symbol.starts_with("ube_cache_") || symbol.starts_with("ube_args_") || symbol.starts_with("ube_observability_") || symbol.starts_with("ube_metrics_") || symbol.starts_with("ube_task_outcome") || symbol.starts_with("ube_env_") || symbol.starts_with("ube_rest_") || symbol.starts_with("ube_mockery_") || symbol.starts_with("ube_testicle_") || symbol.starts_with("ube_exchange_") || symbol.starts_with("ube_money_") || symbol.starts_with("ube_orm_") || symbol.starts_with("ube_sql_") || symbol.starts_with("ube_jwt_") || symbol.starts_with("ube_oauth2_") || symbol.starts_with("ube_session_") || matches!(symbol.as_str(), "ube_request_session" | "ube_request_query" | "ube_request_header" | "ube_request_body" | "ube_response_redirect") || symbol.starts_with("ube_console_") || symbol.starts_with("ube_output_") || symbol.starts_with("ube_log_") || symbol.starts_with("ube_sqlite_") || symbol.starts_with("ube_file_") || symbol.starts_with("ube_directory_")
                     || symbol.starts_with("ube_stream_") || symbol.starts_with("ube_server_"));
         self.current_instructions.push(instr);
         if check {

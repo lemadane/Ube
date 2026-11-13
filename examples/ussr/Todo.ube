@@ -1,0 +1,13 @@
+class Todo {
+    Html render(string title, bool completed) {
+        return html`
+            <li class="${completed then 'todo completed' else 'todo'}">
+                <span>${title}</span>
+                <span>${completed then 'Done' else 'Pending'}</span>
+                <button hx-post="/toggle" hx-target="closest li" hx-swap="outerHTML">
+                    Toggle
+                </button>
+            </li>
+        `
+    }
+}

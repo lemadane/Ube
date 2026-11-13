@@ -30,6 +30,7 @@ pub struct TypeChecker {
     current_return_type: Option<Type>,
     in_expression_closure: bool,
     closure_returns: Option<Vec<Type>>,
+    expression_yields: Vec<Vec<Type>>,
     in_static_context: bool,
     orm_declarations: HashMap<String, ClassDecl>,
     zero_init_classes: std::collections::HashSet<String>,
@@ -47,6 +48,7 @@ impl TypeChecker {
             current_return_type: None,
             in_expression_closure: false,
             closure_returns: None,
+            expression_yields: Vec::new(),
             in_static_context: false,
             orm_declarations: HashMap::new(),
             zero_init_classes: Default::default(),
@@ -2204,7 +2206,13 @@ impl TypeChecker {
                             let actual_ty = self.check_expr(cls, e);
                             if let Some(act) = actual_ty {
                                 if !self.is_assignable_to(&act, &expected_ret)
-                                    && (act != Type::Void || matches!(expected_ret, Type::Function { .. })) {
+                                    && (act != Type::Void
+                                        || matches!(expected_ret, Type::Function { .. })
+                                        || expected_ret
+                                            == (Type::Class {
+                                                name: "Html".into(),
+                                            }))
+                                {
                                     self.diagnostics.push(Diagnostic::error(
                                         format!(
                                             "Mismatched return type: expected '{:?}', found '{:?}'",
@@ -2227,7 +2235,24 @@ impl TypeChecker {
                 }
             }
             StmtKind::Yield(expr) => {
-                self.check_expr(cls, expr);
+                if let Some(ty) = self.check_expr(cls, expr) {
+                    if let Some(yields) = self.expression_yields.last_mut() {
+                        yields.push(ty);
+                    } else if self.current_return_type
+                        == Some(Type::Class {
+                            name: "Html".into(),
+                        })
+                        && ty
+                            != (Type::Class {
+                                name: "Html".into(),
+                            })
+                    {
+                        self.diagnostics.push(Diagnostic::error(
+                            "An Html method must yield Html",
+                            Some(expr.span),
+                        ));
+                    }
+                }
             }
             StmtKind::Try { body, catches, finally_body } => {
                 self.symbol_table.push_scope();
@@ -3358,7 +3383,12 @@ impl TypeChecker {
                 }
                 None => None,
             },
-            ExprKind::BlockClosure { params, body, return_type } => {
+            ExprKind::BlockClosure {
+                params,
+                body,
+                return_type,
+            } => {
+                let saved_yields = std::mem::take(&mut self.expression_yields);
                 let saved_symbols = self.symbol_table.clone();
                 let saved_loop_depth = std::mem::replace(&mut self.loop_depth, 0);
                 let saved_expression = std::mem::replace(&mut self.in_expression_closure, false);
@@ -3394,9 +3424,14 @@ impl TypeChecker {
                 self.in_expression_closure = saved_expression;
                 self.closure_returns = saved_returns;
                 self.current_return_type = saved_return_type;
-                Some(Type::Function { params: param_types, return_type: Box::new(inferred) })
+                self.expression_yields = saved_yields;
+                Some(Type::Function {
+                    params: param_types,
+                    return_type: Box::new(inferred),
+                })
             }
             ExprKind::Closure { params, expression } => {
+                let saved_yields = std::mem::take(&mut self.expression_yields);
                 let saved_symbols = self.symbol_table.clone();
                 let saved_loop_depth = self.loop_depth;
                 let saved_closure = self.in_expression_closure;
@@ -3419,9 +3454,14 @@ impl TypeChecker {
                 self.symbol_table = saved_symbols;
                 self.loop_depth = saved_loop_depth;
                 self.in_expression_closure = saved_closure;
-                result.map(|return_type| Type::Function { params: param_types, return_type: Box::new(return_type) })
+                self.expression_yields = saved_yields;
+                result.map(|return_type| Type::Function {
+                    params: param_types,
+                    return_type: Box::new(return_type),
+                })
             }
             ExprKind::Lambda { parameter, body } => {
+                let saved_yields = std::mem::take(&mut self.expression_yields);
                 let outer_closure = std::mem::replace(&mut self.in_expression_closure, false);
                 let saved_returns = self.closure_returns.take();
                 let outer_return_type = self.current_return_type.clone();
@@ -3459,6 +3499,7 @@ impl TypeChecker {
 
                 self.symbol_table.pop_scope();
                 self.current_return_type = outer_return_type;
+                self.expression_yields = saved_yields;
                 self.in_expression_closure = outer_closure;
                 self.closure_returns = saved_returns;
                 Some(Type::Function {
@@ -3502,6 +3543,7 @@ impl TypeChecker {
                         ));
                     }
                 }
+                self.expression_yields.push(Vec::new());
                 let mut yield_ty = None;
                 self.symbol_table.push_scope();
                 for s in then_branch {
@@ -3525,6 +3567,24 @@ impl TypeChecker {
                     }
                     self.symbol_table.pop_scope();
                 }
+                let yields = self.expression_yields.pop().unwrap();
+                let html = Type::Class {
+                    name: "Html".into(),
+                };
+                if yields.contains(&html) {
+                    if yields.iter().any(|ty| ty != &html)
+                        || !then_branch.iter().any(|s| self.stmt_definitely_returns(s))
+                        || !else_branch
+                            .as_ref()
+                            .is_some_and(|b| b.iter().any(|s| self.stmt_definitely_returns(s)))
+                    {
+                        self.diagnostics.push(Diagnostic::error(
+                            "HTML if expressions must yield Html on both branches",
+                            Some(expr.span),
+                        ));
+                    }
+                    return Some(html);
+                }
                 yield_ty.or(Some(Type::Int))
             }
             ExprKind::For {
@@ -3534,6 +3594,7 @@ impl TypeChecker {
                 body,
                 else_branch,
             } => {
+                self.expression_yields.push(Vec::new());
                 self.symbol_table.push_scope();
                 let element_ty = if loop_var.is_some() && condition_or_iterable.as_ref().is_some_and(|expr| matches!(self.check_expr(cls, expr), Some(Type::Class { name }) if name == "ConsoleArgs")) { Type::String } else { Type::Int };
                 if let Some(lvar) = loop_var {
@@ -3568,6 +3629,7 @@ impl TypeChecker {
                     self.symbol_table.pop_scope();
                 }
 
+                self.expression_yields.pop();
                 Some(Type::Class {
                     name: "List".into(),
                 })
@@ -3605,6 +3667,9 @@ impl TypeChecker {
     }
 
     fn is_assignable_to(&self, from: &Type, to: &Type) -> bool {
+        if matches!(to, Type::Class { name } if name == "Html") {
+            return from == to;
+        }
         if matches!(to, Type::Function { .. }) {
             return from == to;
         }

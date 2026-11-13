@@ -721,3 +721,12 @@ The condition follows Ube's normal `if` rules: booleans test their value, and nu
 The conditional binds more loosely than arithmetic, comparisons, logical operators, and `??`, and more tightly than assignment. Nested expressions associate to the right: `a then x else b then y else z` means `a then x else (b then y else z)`. Parenthesize complex nesting for readability. Conditionals work in arguments, returns, interpolated strings, and closures. The symbolic `condition ? yes : no` form is not supported. Ube's existing `??` null fallback is unchanged.
 
 Do not prefix a ternary expression with `if`; use `condition then yes else no`. Line breaks are allowed before `then` and `else`, and parentheses around the condition are optional. `then` remains contextual, so qualified member names retain their usual behavior. Braced `if` expressions with `yield` remain supported.
+
+
+## USSR HTML templates
+
+`html` followed by a backtick template is a built-in expression producing reserved type `Html`. Interpolations are parsed and type-checked as Ube expressions. Non-null scalar values are escaped for HTML; `Html` values compose only in element content. Component methods use ordinary typed parameters and an `Html` return type. `then`/`else` expressions select conditional fragments.
+
+The compiler validates a bounded HTML grammar and rejects unsupported interpolation contexts. URL attributes require a single complete-value interpolation and are validated at runtime. `Response.ok(Html)` and `Response.html(Html)` send the HTML content type. Ordinary string templates and `Response.ok(string)` retain their behavior. See [USSR](docs/ussr.md) for the precise grammar restrictions and current collection limitations.
+
+Supported HTMX attributes also accept the `data-hx-*` spelling with identical interpolation restrictions. Request URL aliases receive URL validation; unsupported dynamic HTMX attributes remain rejected even with the `data-` prefix.

@@ -623,6 +623,7 @@ mod tests {
             let thread = thread::spawn(move || {
                 let routes = [
                     ("GET", "/protocol"),
+                    ("GET", "/html"),
                     ("GET", "/session"),
                     ("GET", "/large"),
                     ("GET", "/empty"),
@@ -668,6 +669,7 @@ mod tests {
         let protocol = unsafe { CString::from_raw(ube_request_protocol(request)) };
         assert!(!ube_request_is_http3(request));
         let (status, body) = match url {
+            "/html" => return crate::io::ube_response_html(c"<p>HTML</p>".as_ptr()),
             "/session" => {
                 let handle = crate::io::ube_request_session(request);
                 crate::sessions::ube_session_set(handle, c"theme".as_ptr(), c"dark".as_ptr());
@@ -741,6 +743,17 @@ mod tests {
                 assert_eq!(results[2], (404, b"Not Found".to_vec()));
                 assert_eq!(results[3], (200, vec![]));
                 assert_eq!(results[4], (204, vec![]));
+                let request = http::Request::builder()
+                    .uri("http://localhost/html")
+                    .body(())
+                    .unwrap();
+                let html = client.send_request(request, true).unwrap().0.await.unwrap();
+                assert_eq!(
+                    html.headers()[http::header::CONTENT_TYPE],
+                    "text/html; charset=utf-8"
+                );
+                let mut body = html.into_body();
+                assert_eq!(body.data().await.unwrap().unwrap(), "<p>HTML</p>");
                 // HTTP/1.1 works while the HTTP/2 connection stays open.
                 h1(tokio::net::TcpStream::connect(server.address)
                     .await

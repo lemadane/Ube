@@ -290,3 +290,12 @@ pub enum IrInstruction {
 ```
 
 Text block tokens preserve source spelling until template parsing. The parser decodes escapes and creates `TemplateLiteral` nodes containing literal text and parsed expression children. Literal segments remain `TextBlock` nodes so escaped interpolation markers are never evaluated. Semantic analysis and closure/mock traversal visit expression children; IR lowering formats values and concatenates them in source order. Matching interpolation braces uses the lexer, so quoted braces and nested templates remain inside their expressions.
+
+
+## USSR rendering pipeline
+
+`html` templates preserve literal/expression boundaries in `ExprKind::HtmlTemplate`. The parser's HTML scanner classifies interpolations as content, quoted attributes, or complete URL values. The semantic checker returns the reserved `Html` type and rejects unsupported values or contexts. IR lowering formats and escapes scalars, composes typed fragments, and preserves ordinary exception propagation for URL validation failures. The initial renderer concatenates strings and does not stream.
+
+The scanner classifies `data-hx-*` using the corresponding `hx-*` attribute rules while preserving the source spelling in rendered markup. This prevents HTMX aliases from bypassing URL validation or the dynamic attribute allowlist through the ordinary `data-*` allowance.
+
+`Html` uses the string pointer ABI while retaining its distinct compiler type. `Response.ok` selects the HTML runtime constructor based on its argument's type. The response runtime carries a content type through shared dispatch to HTTP/1.1, HTTP/2, and HTTP/3. See [the USSR guide](docs/ussr.md) for capabilities and limits.

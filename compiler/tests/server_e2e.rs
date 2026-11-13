@@ -1814,3 +1814,60 @@ fn documented_transfer_example_uploads_reads_metadata_and_deletes() {
     let missing = send_request(address, "GET /files/example.txt HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n");
     assert!(String::from_utf8_lossy(&missing).starts_with("HTTP/1.1 404"));
 }
+
+#[test]
+fn ussr_components_serve_html_pages_and_htmx_fragments() {
+    let port = TcpListener::bind(("127.0.0.1", 0))
+        .unwrap()
+        .local_addr()
+        .unwrap()
+        .port();
+    let source = r#"
+        class App {
+            Html row(string title, bool completed) {
+                return html`<li class="todo"><span>${title}</span><span>${completed then 'Done' else 'Pending'}</span><button hx-post="/toggle" hx-target="closest li" hx-swap="outerHTML">Toggle</button></li>`
+            }
+            start() {
+                final server = Server()
+                server.get('/', (Request request) -> Response.ok(html`<!doctype html><html><body><ul>${this.row('<test>', false)}</ul></body></html>`))
+                server.post('/toggle', (Request request) -> Response.ok(this.row('<test>', true)))
+                server.get('/plain', (Request request) -> Response.ok('<b>plain</b>'))
+                server.get('/alias', (Request request) -> Response.html(html`<p>alias</p>`))
+                server.get('/unsafe', (Request request) -> Response.ok(html`<a href="${request.query('url')}">link</a>`))
+                server.start(PORT)
+            }
+        }
+    "#.replace("PORT", &port.to_string());
+    let directory = TestDirectory::new();
+    let binary = compile_ube_server(&source, directory.path());
+    let mut server = RunningServer(
+        Command::new(binary)
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap(),
+    );
+    let address = SocketAddr::from(([127, 0, 0, 1], port));
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while TcpStream::connect_timeout(&address, Duration::from_millis(100)).is_err() {
+        assert!(server.0.try_wait().unwrap().is_none(), "server exited");
+        assert!(Instant::now() < deadline, "server startup timed out");
+        thread::sleep(Duration::from_millis(25));
+    }
+    for (method, path, body) in [
+        ("GET", "/", "<!doctype html><html><body><ul><li class=\"todo\"><span>&lt;test&gt;</span><span>Pending</span><button hx-post=\"/toggle\" hx-target=\"closest li\" hx-swap=\"outerHTML\">Toggle</button></li></ul></body></html>"),
+        ("POST", "/toggle", "<li class=\"todo\"><span>&lt;test&gt;</span><span>Done</span><button hx-post=\"/toggle\" hx-target=\"closest li\" hx-swap=\"outerHTML\">Toggle</button></li>"),
+        ("GET", "/alias", "<p>alias</p>"),
+        ("GET", "/plain", "<b>plain</b>"),
+    ] {
+        let response = String::from_utf8(send_request(address, &format!("{method} {path} HTTP/1.1\r\nHost: localhost\r\nHX-Request: true\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"))).unwrap();
+        let kind = if path == "/plain" { "text/plain" } else { "text/html" };
+        assert!(response.starts_with("HTTP/1.1 200"), "{response}");
+        assert!(response.contains(&format!("Content-Type: {kind}; charset=utf-8\r\n")), "{response}");
+        assert!(response.contains(&format!("Content-Length: {}\r\n", body.len())), "{response}");
+        assert!(response.ends_with(body), "{response}");
+    }
+    let rejected = String::from_utf8(send_request(address, "GET /unsafe?url=javascript%3Aalert(1) HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n")).unwrap();
+    assert!(rejected.starts_with("HTTP/1.1 500"), "{rejected}");
+    assert!(!rejected.contains("javascript"), "{rejected}");
+}
