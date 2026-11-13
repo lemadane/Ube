@@ -428,6 +428,9 @@ impl IrBuilder {
     }
 
     fn format_output_value(&mut self, mut value: IrOperand) -> IrOperand {
+        if value.get_type() == (Type::Class { name: "Html".into() }) {
+            return self.runtime("ube_html_identity", vec![value], Type::String);
+        }
         if let Type::Class { name } = value.get_type() {
             if name == "Error" || self.trait_members.get("Error").is_some_and(|members| members.contains(&name)) {
                 value = self.build_trait_call("Error", "message", value, vec![]);
@@ -1844,6 +1847,20 @@ impl IrBuilder {
             ExprKind::LongLiteral(v) => IrOperand::ConstantLong(*v),
             ExprKind::DecimalLiteral(v) => IrOperand::ConstantDecimal(*v),
             ExprKind::TextBlock(value) => IrOperand::ConstantString(value.clone()),
+            ExprKind::HtmlTemplate(parts) => {
+                let mut result = IrOperand::ConstantString(String::new());
+                for (part, context) in parts {
+                    let value = self.build_expr(part);
+                    let text = if *context == 0 || value.get_type() == (Type::Class { name: "Html".into() }) {
+                        value
+                    } else {
+                        let text = self.format_output_value(value);
+                        self.runtime("ube_html_escape", vec![text, IrOperand::ConstantInt(*context as i64)], Type::String)
+                    };
+                    result = self.runtime("ube_string_concat", vec![result, text], Type::String);
+                }
+                self.runtime("ube_html_identity", vec![result], Type::Class { name: "Html".into() })
+            }
             ExprKind::TemplateLiteral(parts) => {
                 let mut result = None;
                 for part in parts {
@@ -3490,6 +3507,9 @@ impl IrBuilder {
                         {
                             if member == "redirect" {
                                 return self.runtime("ube_response_redirect", arg_ops, Type::Class { name: "Response".into() });
+                            }
+                            if member == "html" || (member == "ok" && arg_ops.first().is_some_and(|arg| arg.get_type() == (Type::Class { name: "Html".into() }))) {
+                                return self.runtime("ube_response_html", arg_ops, Type::Class { name: "Response".into() });
                             }
                             let status_code = match member.as_str() {
                                 "created" => 201,

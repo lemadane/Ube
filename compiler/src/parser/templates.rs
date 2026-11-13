@@ -5,12 +5,19 @@ use crate::lexer::{interpolation_end, Lexer, TokenKind};
 
 impl Parser<'_> {
     pub(super) fn parse_text_block(&mut self, source: &str, span: Span) -> Result<Expr, ()> {
-        self.parse_template(source, span).map_err(|message| {
+        self.parse_template(source, span, false).map_err(|message| {
             self.diagnostics.push(Diagnostic::error(message, Some(span)));
         })
     }
 
-    fn parse_template(&mut self, source: &str, span: Span) -> Result<Expr, String> {
+    pub(super) fn parse_html_template(&mut self, source: &str, span: Span) -> Result<Expr, ()> {
+        self.parse_template(source, span, true).map_err(|message| {
+            self.diagnostics.push(Diagnostic::error(message, Some(span)));
+        })
+    }
+
+    fn parse_template(&mut self, source: &str, span: Span, html: bool) -> Result<Expr, String> {
+        let mut literal_flags = Vec::new();
         let mut parts = Vec::new();
         let mut literal = String::new();
         let mut cursor = 0;
@@ -54,6 +61,7 @@ impl Parser<'_> {
                 cursor += 1;
                 if !literal.is_empty() {
                     parts.push(Expr { kind: ExprKind::TextBlock(std::mem::take(&mut literal)), span });
+                    literal_flags.push(true);
                 }
                 let end = cursor + interpolation_end(&source[cursor..])?;
                 let origin = template_position(source, cursor, span);
@@ -67,10 +75,18 @@ impl Parser<'_> {
                     return Err("Expected one expression inside ${...}".into());
                 }
                 parts.push(expression);
+                literal_flags.push(false);
                 cursor = end + 1;
             } else {
                 literal.push(ch);
             }
+        }
+        if html {
+            if !literal.is_empty() {
+                parts.push(Expr { kind: ExprKind::TextBlock(literal), span });
+                literal_flags.push(true);
+            }
+            return Ok(Expr { kind: ExprKind::HtmlTemplate(super::html::validate(parts, literal_flags)?), span });
         }
         if parts.is_empty() {
             return Ok(Expr { kind: ExprKind::TextBlock(literal), span });

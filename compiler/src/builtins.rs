@@ -66,6 +66,7 @@ const BUILTIN_CLASS_NAMES: &[&str] = &[
     "Rate",
     "Request",
     "Response",
+    "Html",
     "RestInPeace",
     "RestInPeaceRequest",
     "RestInPeaceResponse",

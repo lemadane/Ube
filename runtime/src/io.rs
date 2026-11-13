@@ -383,6 +383,7 @@ pub struct UbeResponse {
     pub status: i32,
     pub body: *mut c_char,
     location: Option<String>,
+    content_type: &'static str,
 }
 
 #[repr(C)]
@@ -686,6 +687,7 @@ pub extern "C" fn ube_response_redirect(location: *const c_char) -> *mut UbeResp
         status: 302,
         body: CString::new("").unwrap().into_raw(),
         location: Some(location),
+        content_type: "text/plain; charset=utf-8",
     }))
 }
 
@@ -703,7 +705,16 @@ pub extern "C" fn ube_response_create(status: i32, body_ptr: *const c_char) -> *
         status,
         body,
         location: None,
+        content_type: "text/plain; charset=utf-8",
     }))
+}
+
+/// Html values can only be produced by checked templates in generated code.
+#[no_mangle]
+pub extern "C" fn ube_response_html(body: *const c_char) -> *mut UbeResponse {
+    let response = ube_response_create(200, body);
+    unsafe { (*response).content_type = "text/html; charset=utf-8"; }
+    response
 }
 
 struct ServerContext<'a> {
@@ -742,17 +753,17 @@ fn dispatch_request(
     cookies: &str,
     headers: Vec<(String, String)>,
     body: Option<Vec<u8>>,
-) -> (u16, Vec<u8>, Option<String>, Option<String>) {
+) -> (u16, Vec<u8>, Option<String>, Option<String>, &'static str) {
     let path = url.split('?').next().unwrap_or(url);
     let Some(route) = context
         .routes
         .iter()
         .find(|route| route.method == method && route.path == path)
     else {
-        return (404, b"Not Found".to_vec(), None, None);
+        return (404, b"Not Found".to_vec(), None, None, "text/plain; charset=utf-8");
     };
     let (Ok(method_string), Ok(url_string)) = (CString::new(method), CString::new(url)) else {
-        return (400, b"Bad Request".to_vec(), None, None);
+        return (400, b"Bad Request".to_vec(), None, None, "text/plain; charset=utf-8");
     };
     let mut request = UbeRequest {
         method: method_string.into_raw(),
@@ -774,7 +785,7 @@ fn dispatch_request(
     let cookie = crate::sessions::finish(request.session, context.secure);
     let failed = crate::exceptions::take_pending() != 0;
     if response.is_null() {
-        return (500, b"Internal Server Error".to_vec(), cookie, None);
+        return (500, b"Internal Server Error".to_vec(), cookie, None, "text/plain; charset=utf-8");
     }
     let response = unsafe { Box::from_raw(response) };
     let body = if response.body.is_null() {
@@ -784,14 +795,14 @@ fn dispatch_request(
         body.as_bytes().to_vec()
     };
     if failed {
-        return (500, b"Internal Server Error".to_vec(), cookie, None);
+        return (500, b"Internal Server Error".to_vec(), cookie, None, "text/plain; charset=utf-8");
     }
     let status = if (200..600).contains(&response.status) {
         response.status as u16
     } else {
         500
     };
-    (status, body, cookie, response.location)
+    (status, body, cookie, response.location, response.content_type)
 }
 
 #[no_mangle]
@@ -1073,6 +1084,7 @@ pub extern "C" fn ube_response_stream(
         status,
         body: CString::new(body_desc).unwrap().into_raw(),
         location: None,
+        content_type: "text/plain; charset=utf-8",
     }))
 }
 

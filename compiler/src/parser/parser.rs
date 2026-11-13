@@ -1118,6 +1118,13 @@ impl<'a> Parser<'a> {
                 span: tok.span,
             }),
             TokenKind::Identifier(name) => {
+                if name == "html" {
+                    if let TokenKind::TextBlock(source) = self.current_token.kind.clone() {
+                        let span = self.current_token.span;
+                        self.advance();
+                        return self.parse_html_template(&source, span);
+                    }
+                }
                 if (name == "log" || name == "print") && self.check(&TokenKind::OpenParen) {
                     return self.parse_class_instantiation(tok.span, name, None);
                 }

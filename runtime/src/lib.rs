@@ -20,6 +20,7 @@ pub mod observability;
 pub mod memory;
 pub mod net;
 pub mod strings;
+pub mod html;
 pub mod sqlite;
 pub mod sql;
 pub mod sql_builder;

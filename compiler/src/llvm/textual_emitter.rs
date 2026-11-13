@@ -490,6 +490,9 @@ impl TextualLlvmEmitter {
             .push_str("declare i1 @ube_request_is_http3(i8*)\n");
         self.output.push_str("declare i32 @ube_server_http3_port(%Server*)\n");
         self.output.push_str("declare %Response* @ube_response_redirect(i8*)\n");
+        self.output.push_str("declare %Response* @ube_response_html(i8*)\n");
+        self.output.push_str("declare i8* @ube_html_escape(i8*, i32)\n");
+        self.output.push_str("declare i8* @ube_html_identity(i8*)\n");
         self.output.push_str("declare %Session* @ube_request_session(%Request*)\n");
         self.output.push_str("declare i8* @ube_session_get(%Session*, i8*)\n");
         self.output.push_str("declare void @ube_session_set(%Session*, i8*, i8*)\n");
@@ -1655,7 +1658,7 @@ impl TextualLlvmEmitter {
             Type::Async(_) => "i8*".to_string(),
             Type::Channel(_) => "i8*".to_string(),
             Type::Class { name }
-                if matches!(name.as_str(), "Async" | "Channel" | "List" | "Map" | "TaskOutcome" | "TaskOutcomes" | "ConsoleArgs" | "Cache" | "KeyValueStore" | "Xml" | "XmlDocument" | "XmlElement" | "XmlOptions") =>
+                if matches!(name.as_str(), "Html" | "Async" | "Channel" | "List" | "Map" | "TaskOutcome" | "TaskOutcomes" | "ConsoleArgs" | "Cache" | "KeyValueStore" | "Xml" | "XmlDocument" | "XmlElement" | "XmlOptions") =>
             {
                 "i8*".to_string()
             }

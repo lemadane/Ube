@@ -340,7 +340,7 @@ async fn serve_h1<S: AsyncRead + AsyncWrite + Unpin>(
 ) -> io::Result<()> {
     let mut reader = BufReader::new(stream);
     let parsed = tokio::time::timeout(IO_TIMEOUT, read_h1_request(&mut reader)).await;
-    let (status, body, cookie, location) = match parsed {
+    let (status, body, cookie, location, content_type) = match parsed {
         Ok(Ok(request)) => {
             let cookies = request
                 .headers
@@ -364,7 +364,7 @@ async fn serve_h1<S: AsyncRead + AsyncWrite + Unpin>(
                 Ok(Err(status)) => status,
                 _ => 408,
             };
-            (status, Vec::new(), None, None)
+            (status, Vec::new(), None, None, "text/plain; charset=utf-8")
         }
     };
     let stream = reader.get_mut();
@@ -384,7 +384,7 @@ async fn serve_h1<S: AsyncRead + AsyncWrite + Unpin>(
         .map(|value| format!("Alt-Svc: {value}\r\n"))
         .unwrap_or_default();
     tokio::time::timeout(IO_TIMEOUT, async {
-    stream.write_all(format!("HTTP/1.1 {status} {reason}\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Length: {}\r\n{cookie}{location}{alt_svc}Connection: close\r\n\r\n", body.len()).as_bytes()).await?;
+    stream.write_all(format!("HTTP/1.1 {status} {reason}\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\n{cookie}{location}{alt_svc}Connection: close\r\n\r\n", body.len()).as_bytes()).await?;
     stream.write_all(&body).await?;
     stream.shutdown().await
     }).await.map_err(error)?
@@ -516,12 +516,12 @@ async fn serve_h2<S: AsyncRead + AsyncWrite + Unpin>(
                 let cookies = request.headers().get_all(http::header::COOKIE).iter()
                     .filter_map(|value| value.to_str().ok()).collect::<Vec<_>>().join("; ");
                 let headers = request.headers().iter().map(|(name, value)| value.to_str().map(|value| (name.as_str().to_owned(), value.to_owned()))).collect::<Result<Vec<_>, _>>();
-                let (status, body, cookie, location) = match (headers, payload) {
+                let (status, body, cookie, location, content_type) = match (headers, payload) {
                     (Ok(headers), Ok(payload)) => dispatch_request(method, url, "HTTP/2", context, &cookies, headers, Some(payload)),
-                    (_, Err(status)) => (status, Vec::new(), None, None),
-                    _ => (400, Vec::new(), None, None),
+                    (_, Err(status)) => (status, Vec::new(), None, None, "text/plain; charset=utf-8"),
+                    _ => (400, Vec::new(), None, None, "text/plain; charset=utf-8"),
                 };
-                responses.spawn(send_h2_response(request.into_body(), respond, status, body, head, cookie, location, context.alt_svc.clone()));
+                responses.spawn(send_h2_response(request.into_body(), respond, status, body, head, cookie, location, content_type, context.alt_svc.clone()));
             },
             _ = stopped.tick() => if !running.load(Ordering::Acquire) {
                 connection.graceful_shutdown();
@@ -551,12 +551,13 @@ async fn send_h2_response(
     head: bool,
     cookie: Option<String>,
     location: Option<String>,
+    content_type: &'static str,
     alt_svc: Option<String>,
 ) -> io::Result<()> {
     let no_body = head || status == 204 || status == 304;
     let mut response = http::Response::builder()
         .status(status)
-        .header("content-type", "text/plain; charset=utf-8");
+        .header("content-type", content_type);
     if status != 204 {
         response = response.header("content-length", body.len());
     }

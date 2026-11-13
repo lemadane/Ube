@@ -1460,6 +1460,10 @@ impl TypeChecker {
             },
         );
 
+        self.classes.insert("Html".into(), ClassInfo {
+            name: "Html".into(), fields: HashMap::new(), methods: HashMap::new(),
+            param_types: vec![], min_constructor_args: 0, max_constructor_args: 0,
+        });
         let mut response_methods = HashMap::new();
         response_methods.insert(
             "ok".into(),
@@ -1752,6 +1756,9 @@ impl TypeChecker {
                 Item::Import(_) => None,
             };
             if let Some((name, span)) = declaration {
+                if name == "Html" {
+                    self.diagnostics.push(Diagnostic::error("Html is reserved for checked HTML templates", Some(span)));
+                }
                 if name == "Func" {
                     self.diagnostics.push(Diagnostic::error("Func is reserved for function types", Some(span)));
                 }
@@ -2291,6 +2298,18 @@ impl TypeChecker {
                 }
                 Some(Type::Class { name: "__RangeIterator".into() })
             }
+            ExprKind::HtmlTemplate(parts) => {
+                for (part, context) in parts {
+                    if *context == 0 { continue; }
+                    let ty = self.check_expr(cls, part);
+                    let valid = matches!(ty, Some(Type::String | Type::Int | Type::Long | Type::Byte | Type::Bool | Type::Decimal))
+                        || (*context == 1 && ty == Some(Type::Class { name: "Html".into() }));
+                    if !valid {
+                        self.diagnostics.push(Diagnostic::error("HTML interpolation requires a non-null scalar, or Html in a text position", Some(part.span)));
+                    }
+                }
+                Some(Type::Class { name: "Html".into() })
+            }
             ExprKind::TemplateLiteral(parts) => {
                 for part in parts {
                     if self.check_expr(cls, part) == Some(Type::Void) {
@@ -2490,6 +2509,16 @@ impl TypeChecker {
                             }
                             if let Some(result) = self.check_orm_call(&obj_ty, object, member, args, &arg_types, expr.span) { return result; }
                             if let Type::Class { name } = &obj_ty {
+                                if name == "Response" && ["ok", "html"].contains(&member.as_str()) {
+                                    let class_receiver = matches!(&object.kind, ExprKind::Identifier(n) if n == "Response" && self.symbol_table.lookup(n).is_none());
+                                    let html = Type::Class { name: "Html".into() };
+                                    let valid = args.len() == 1 && arg_types.len() == 1 &&
+                                        (arg_types[0] == html || (member == "ok" && arg_types[0] == Type::String));
+                                    if !class_receiver || !valid {
+                                        self.diagnostics.push(Diagnostic::error("Response.ok expects one String or Html; Response.html expects one Html", Some(expr.span)));
+                                    }
+                                    return Some(Type::Class { name: "Response".into() });
+                                }
                                 if (name == "List" || name == "Map") && member == "len" && args.is_empty() {
                                     return Some(Type::Int);
                                 }
@@ -2900,6 +2929,9 @@ impl TypeChecker {
                                     if let Some((param_types, ret_ty)) =
                                         info.methods.get(member).cloned()
                                     {
+                                        if self.orm_declarations.contains_key(name) && args.len() != param_types.len() {
+                                            self.diagnostics.push(Diagnostic::error(format!("Method '{}' expects {} arguments", member, param_types.len()), Some(expr.span)));
+                                        }
                                         for (i, (arg_ty, param_ty)) in
                                             arg_types.iter().zip(param_types.iter()).enumerate()
                                         {
@@ -3135,6 +3167,10 @@ impl TypeChecker {
                     if let Some(t) = self.check_expr(cls, arg) {
                         arg_types.push(t);
                     }
+                }
+                if class_name == "Html" {
+                    self.diagnostics.push(Diagnostic::error("Create Html with an html`...` template, not Html()", Some(expr.span)));
+                    return None;
                 }
                 if let Some(info) = self.classes.get(class_name).cloned() {
                     if args.len() > info.max_constructor_args {

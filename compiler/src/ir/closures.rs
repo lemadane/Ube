@@ -410,6 +410,9 @@ fn closure_references(expr: &Expr, names: &mut std::collections::HashSet<String>
             visit(end);
             visit(step);
         }
+        ExprKind::HtmlTemplate(parts) => {
+            for (part, _) in parts { closure_references(part, names); }
+        }
         ExprKind::TemplateLiteral(parts) => {
             for part in parts { closure_references(part, names); }
         }

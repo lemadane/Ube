@@ -117,6 +117,9 @@ fn expressions(expr: &Expr, requested: &mut HashSet<String>) {
             visit(end);
             visit(step);
         }
+        ExprKind::HtmlTemplate(parts) => {
+            for (part, _) in parts { visit(part); }
+        }
         ExprKind::TemplateLiteral(parts) => {
             for part in parts { visit(part); }
         }

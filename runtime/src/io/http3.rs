@@ -157,7 +157,7 @@ async fn serve_request(
                     .map(|value| (name.as_str().to_owned(), value.to_owned()))
             })
             .collect::<Result<Vec<_>, _>>();
-        let (status, body, cookie, location) = match (headers, payload) {
+        let (status, body, cookie, location, content_type) = match (headers, payload) {
             (Ok(headers), Ok(payload)) => dispatch_request(
                 request.method().as_str(),
                 request
@@ -171,13 +171,13 @@ async fn serve_request(
                 headers,
                 Some(payload),
             ),
-            (_, Err(status)) => (status, Vec::new(), None, None),
-            _ => (400, b"Bad Request".to_vec(), None, None),
+            (_, Err(status)) => (status, Vec::new(), None, None, "text/plain; charset=utf-8"),
+            _ => (400, b"Bad Request".to_vec(), None, None, "text/plain; charset=utf-8"),
         };
         let no_body = head || status == 204 || status == 304;
         let mut response = http::Response::builder()
             .status(status)
-            .header(http::header::CONTENT_TYPE, "text/plain; charset=utf-8");
+            .header(http::header::CONTENT_TYPE, content_type);
         if status != 204 {
             response = response.header(http::header::CONTENT_LENGTH, body.len());
         }

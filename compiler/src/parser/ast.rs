@@ -139,6 +139,8 @@ pub enum ExprKind {
     StringLiteral(String),
     TextBlock(String),
     TemplateLiteral(Vec<Expr>),
+    // Context: 0 literal markup, 1 text, 2 quoted attribute, 3 complete URL.
+    HtmlTemplate(Vec<(Expr, u8)>),
     // Internal iterable for a for-range loop; never materialized as a collection.
     RangeIterator { start: Box<Expr>, end: Box<Expr>, step: Box<Expr> },
     BoolLiteral(bool),
