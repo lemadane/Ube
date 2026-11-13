@@ -142,7 +142,7 @@ const CLIENT: &str = r#"class App { start() {
     if (args[1] == 'worker') {
         Console.printLine(cache.add('winner', 'claimed', 0))
         var i = 0
-        for (i < 25) { cache.increment('counter', 1) i = i + 1 }
+        while (i < 25) { cache.increment('counter', 1) i = i + 1 }
     }
     if (args[1] == 'offline') { cache.set('offline', 'gone', 400) }
     if (args[1] == 'report') {

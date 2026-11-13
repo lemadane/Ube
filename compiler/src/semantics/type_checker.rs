@@ -2280,6 +2280,17 @@ impl TypeChecker {
             ExprKind::LongLiteral(_) => Some(Type::Long),
             ExprKind::DecimalLiteral(_) => Some(Type::Decimal),
             ExprKind::StringLiteral(_) | ExprKind::TextBlock(_) => Some(Type::String),
+            ExprKind::RangeIterator { start, end, step } => {
+                for (name, value) in [("start", start), ("end", end), ("step", step)] {
+                    if self.check_expr(cls, value) != Some(Type::Int) {
+                        self.diagnostics.push(Diagnostic::error(format!("Range {name} must be int"), Some(value.span)));
+                    }
+                }
+                if matches!(step.kind, ExprKind::IntLiteral(0)) {
+                    self.diagnostics.push(Diagnostic::error("Range step must not be zero", Some(step.span)));
+                }
+                Some(Type::Class { name: "__RangeIterator".into() })
+            }
             ExprKind::TemplateLiteral(parts) => {
                 for part in parts {
                     if self.check_expr(cls, part) == Some(Type::Void) {

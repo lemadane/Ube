@@ -23,15 +23,15 @@ class App {
         final sent = gate.send(1).await() final warmed = warm.await()
         print('warm') final begin = Console.readLine()
         final tasks = [] var index = 0
-        for (index < COUNT) { tasks.add(this.work(ready, gate)) index = index + 1 }
+        while (index < COUNT) { tasks.add(this.work(ready, gate)) index = index + 1 }
         index = 0
-        for (index < COUNT) { final started = ready.receive().await() index = index + 1 }
+        while (index < COUNT) { final started = ready.receive().await() index = index + 1 }
         print('parked') final release = Console.readLine()
         index = 0
-        for (index < COUNT) { final sent = gate.send(1).await() index = index + 1 }
+        while (index < COUNT) { final sent = gate.send(1).await() index = index + 1 }
         final results = Async.all(tasks).await()
         var total = 0 index = 0
-        for (index < COUNT) { total = total + results[index] index = index + 1 }
+        while (index < COUNT) { total = total + results[index] index = index + 1 }
         print(total) final finished = Console.readLine()
     }
 }

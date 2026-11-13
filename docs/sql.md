@@ -165,7 +165,7 @@ final rows = db.query(
   'SELECT id, name FROM users',
   params)
 try {
-    for (rows.next()) {
+    while (rows.next()) {
         print(
           rows.getInt(0))
         print(

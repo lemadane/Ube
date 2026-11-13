@@ -292,7 +292,7 @@ fn test_e2e_control_flow_and_dynamic_alloc() {
                     Console.printLine('Condition false')
                 }
 
-                for {
+                while {
                     break
                 }
             }
@@ -335,7 +335,7 @@ fn test_e2e_nested_cfg_and_logical_ops() {
                     Console.printLine('Outer A')
                 }
 
-                for {
+                while {
                     break
                     Console.printLine('UNREACHABLE DEAD CODE')
                 }
@@ -3677,7 +3677,7 @@ fn test_e2e_break_inside_try_cleans_up_loop_exit() {
         
         class App {
             start() {
-                each (x from [1]) {
+                each (x in [1]) {
                     try {
                         Console.printLine('Before break')
                         break
@@ -3726,7 +3726,7 @@ fn test_e2e_for_else_empty_collection_executes_else() {
         class App {
             start() {
                 final emptyItems = []
-                each (item from emptyItems) {
+                each (item in emptyItems) {
                     Console.printLine('Loop body executed')
                 } else {
                     Console.printLine('Else block executed for 0 iterations')
@@ -3768,7 +3768,7 @@ fn test_e2e_for_else_non_empty_collection_skips_else() {
         class App {
             start() {
                 final items = [10, 20, 30]
-                each (item from items) {
+                each (item in items) {
                     Console.printLine('Loop body item ${item}')
                 } else {
                     Console.printLine('Else block should be skipped')
@@ -3853,7 +3853,7 @@ fn test_e2e_for_expression_comprehension_with_braces_and_yield() {
         class App {
             start() {
                 final numbers = [1, 2, 3]
-                final doubled = each (x from numbers) {
+                final doubled = each (x in numbers) {
                     yield x * 2
                 }
                 Console.printLine('Doubled list length: ${doubled.len()}')

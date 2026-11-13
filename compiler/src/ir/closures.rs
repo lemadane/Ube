@@ -405,6 +405,11 @@ fn closure_references(expr: &Expr, names: &mut std::collections::HashSet<String>
                 rest = &rest[end + 1..];
             }
         }
+        ExprKind::RangeIterator { start, end, step } => {
+            visit(start);
+            visit(end);
+            visit(step);
+        }
         ExprKind::TemplateLiteral(parts) => {
             for part in parts { closure_references(part, names); }
         }

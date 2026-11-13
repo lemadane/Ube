@@ -149,8 +149,9 @@ impl<'a> Parser<'a> {
                 | TokenKind::Trait
                 | TokenKind::Use
                 | TokenKind::If
-                | TokenKind::For
+                | TokenKind::While
                 | TokenKind::Each
+                | TokenKind::From
                 | TokenKind::Return => return,
                 _ => self.advance(),
             }
@@ -640,7 +641,7 @@ impl<'a> Parser<'a> {
         match self.current_token.kind {
             TokenKind::Final | TokenKind::Var => self.parse_local_decl(),
             TokenKind::If => self.parse_if_stmt(),
-            TokenKind::For | TokenKind::Each => self.parse_for_stmt(),
+            TokenKind::While | TokenKind::Each | TokenKind::From => self.parse_loop_stmt(),
             TokenKind::Break => self.parse_break_stmt(),
             TokenKind::Continue => self.parse_continue_stmt(),
             TokenKind::Return => self.parse_return_stmt(),
@@ -933,8 +934,38 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn parse_loop_header(&mut self, is_each: bool) -> Result<(Option<String>, Option<String>, Option<Expr>), ()> {
-        if is_each {
+    fn expect_contextual(&mut self, word: &str) -> Result<(), ()> {
+        if matches!(&self.current_token.kind, TokenKind::Identifier(name) if name == word) {
+            self.advance();
+            Ok(())
+        } else {
+            self.diagnostics.push(Diagnostic::error(format!("Expected '{word}' in range loop"), Some(self.current_token.span)));
+            Err(())
+        }
+    }
+
+    fn parse_loop_header(&mut self, keyword: TokenKind) -> Result<(Option<String>, Option<String>, Option<Expr>), ()> {
+        if keyword == TokenKind::From {
+            self.expect(&TokenKind::OpenParen, "(")?;
+            let variable = self.expect_identifier()?;
+            let span = self.current_token.span;
+            self.expect(&TokenKind::Equal, "=")?;
+            let start = self.parse_expr(Precedence::None)?;
+            self.expect_contextual("to")?;
+            let end = self.parse_expr(Precedence::None)?;
+            let step = if self.match_token(&TokenKind::Comma) {
+                self.expect_contextual("by")?;
+                self.parse_expr(Precedence::None)?
+            } else {
+                Expr { kind: ExprKind::IntLiteral(1), span }
+            };
+            let end_span = self.expect(&TokenKind::CloseParen, ")")?.span;
+            let iterable = Expr {
+                kind: ExprKind::RangeIterator { start: Box::new(start), end: Box::new(end), step: Box::new(step) },
+                span: Span::combine(span, end_span),
+            };
+            Ok((Some(variable), None, Some(iterable)))
+        } else if keyword == TokenKind::Each {
             self.expect(&TokenKind::OpenParen, "(")?;
             let first = self.expect_identifier()?;
             let (index_var, loop_var) = if self.match_token(&TokenKind::Comma) {
@@ -942,7 +973,7 @@ impl<'a> Parser<'a> {
             } else {
                 (None, first)
             };
-            self.expect(&TokenKind::From, "from")?;
+            self.expect(&TokenKind::In, "in")?;
             let iterable = self.parse_expr(Precedence::None)?;
             self.expect(&TokenKind::CloseParen, ")")?;
             Ok((Some(loop_var), index_var, Some(iterable)))
@@ -955,11 +986,11 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn parse_for_stmt(&mut self) -> Result<Stmt, ()> {
+    fn parse_loop_stmt(&mut self) -> Result<Stmt, ()> {
         let start_span = self.current_token.span;
-        let is_each = self.current_token.kind == TokenKind::Each;
+        let keyword = self.current_token.kind.clone();
         self.advance();
-        let (loop_var, index_var, condition_or_iterable) = self.parse_loop_header(is_each)?;
+        let (loop_var, index_var, condition_or_iterable) = self.parse_loop_header(keyword)?;
 
         self.expect(&TokenKind::OpenBrace, "{")?;
         let mut body = Vec::new();
@@ -1334,10 +1365,10 @@ impl<'a> Parser<'a> {
                     span: Span::combine(start_span, end_span),
                 })
             }
-            TokenKind::For | TokenKind::Each => {
+            TokenKind::While | TokenKind::Each | TokenKind::From => {
                 let start_span = tok.span;
                 let (loop_var, index_var, condition_or_iterable) =
-                    self.parse_loop_header(tok.kind == TokenKind::Each)?;
+                    self.parse_loop_header(tok.kind)?;
 
                 self.expect(&TokenKind::OpenBrace, "{")?;
                 let mut body = Vec::new();
@@ -1516,6 +1547,7 @@ impl<'a> Parser<'a> {
                         m
                     }
                     TokenKind::Static => { self.advance(); "static".into() }
+                    TokenKind::In => { self.advance(); "in".into() }
                     TokenKind::From => {
                         self.advance();
                         "from".to_string()

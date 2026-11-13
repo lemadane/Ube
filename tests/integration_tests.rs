@@ -8,7 +8,7 @@ class App {
     int compute(int count) {
         var total = 0
         var index = 1
-        for (index <= count) {
+        while (index <= count) {
             total = total + index
             index = index + 1
         }

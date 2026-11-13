@@ -78,7 +78,7 @@ fn native_frame_keeps_locals_loops_branches_and_multiple_awaits() {
         class App {
             async int receive(Channel<int> inbox, int offset) {
                 var sum = offset var index = 0
-                for (index < 3) {
+                while (index < 3) {
                     final value = inbox.receive().await()
                     if (value > 0) { sum = sum + value } else { sum = sum - value }
                     index = index + 1
@@ -177,15 +177,15 @@ fn thousands_of_suspended_methods_use_bounded_worker_threads() {
                 final sent = gate.send(1).await() final warmed = warm.await()
                 print('warm') final begin = Console.readLine()
                 final tasks = [] var index = 0
-                for (index < 2048) { tasks.add(this.work(ready, gate)) index = index + 1 }
+                while (index < 2048) { tasks.add(this.work(ready, gate)) index = index + 1 }
                 index = 0
-                for (index < 2048) { final started = ready.receive().await() index = index + 1 }
+                while (index < 2048) { final started = ready.receive().await() index = index + 1 }
                 print('parked') final release = Console.readLine()
                 index = 0
-                for (index < 2048) { final sent = gate.send(1).await() index = index + 1 }
+                while (index < 2048) { final sent = gate.send(1).await() index = index + 1 }
                 final results = Async.all(tasks).await()
                 var total = 0 index = 0
-                for (index < 2048) { total = total + results[index] index = index + 1 }
+                while (index < 2048) { total = total + results[index] index = index + 1 }
                 print(total)
             }
         }
@@ -271,7 +271,7 @@ fn instruction_budget_allows_another_task_to_win_on_one_worker() {
         class App {
             async int spin(Channel<int> ready, Channel<int> gate) {
                 final sent = ready.send(1).await() final started = gate.receive().await()
-                var index = 0 for (index < 100000) { index = index + 1 }
+                var index = 0 while (index < 100000) { index = index + 1 }
                 return index
             }
             async int quick(Channel<int> gate) { final started = gate.receive().await() return 7 }

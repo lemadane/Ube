@@ -29,6 +29,13 @@ mod tests {
     fn lex(source: &str) -> TokenKind { Lexer::new(source).next_token().kind }
 
     #[test]
+    fn while_replaces_the_for_keyword() {
+        assert_eq!(lex("while"), TokenKind::While);
+        assert_eq!(lex("each"), TokenKind::Each);
+        assert!(matches!(lex("for"), TokenKind::Error(message) if message.contains("use while")));
+    }
+
+    #[test]
     fn use_is_the_dependency_keyword() {
         assert_eq!(lex("use"), TokenKind::Use);
         assert_eq!(lex("import"), TokenKind::Identifier("import".into()));

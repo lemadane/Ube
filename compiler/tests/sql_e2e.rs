@@ -149,7 +149,7 @@ class App {
             final rows = db.query('SELECT id, name, note FROM users ORDER BY id', params)
             try {
                 print(rows.rowCount())
-                for (rows.next()) {
+                while (rows.next()) {
                     print(rows.getInt(rows.columnIndex('id')))
                     print(rows.getString(rows.columnIndex('name')))
                     print(rows.isNull(rows.columnIndex('note')))
@@ -225,7 +225,7 @@ class App {
             try {
                 final rows = selected.all()
                 try {
-                    for (rows.next()) {
+                    while (rows.next()) {
                         final item = rows.get()
                         print(item.name())
                         print(item.age() ?? 0)
@@ -286,7 +286,7 @@ class App {
                 print(query.count())
                 final rows = query.all()
                 try {
-                    for (rows.next()) {
+                    while (rows.next()) {
                         final user = rows.get()
                         print(user.id())
                         print(user.name())
@@ -343,7 +343,7 @@ class App {
                 print(base.count())
                 print(paid.count())
                 final rows = paid.all()
-                try { for (rows.next()) { print(rows.get().name()) } } finally { rows.close() }
+                try { while (rows.next()) { print(rows.get().name()) } } finally { rows.close() }
                 final lineQuery = paid.join(lines,'line','o.id','orderId')
                 try {
                     print(lineQuery.count())
@@ -410,7 +410,7 @@ class App {
             final rows = query.all()
             try {
                 print(rows.columnCount())
-                for (rows.next()) { print(rows.getString(0)) print(rows.getDecimal(1)) }
+                while (rows.next()) { print(rows.getString(0)) print(rows.getDecimal(1)) }
             } finally { rows.close() }
             print(query.count())
             final first = query.first()
@@ -516,13 +516,13 @@ class App {
                 names.orWhere('name', '=', 'Eve')
                 print(active.count())
                 final entities = active.all()
-                try { for (entities.next()) { print(entities.get().name()) } } finally { entities.close() }
+                try { while (entities.next()) { print(entities.get().name()) } } finally { entities.close() }
                 final projection = this.names(active).select('email')
                 try {
                     final rows = projection.all()
                     try {
                         print(rows.columnCount())
-                        for (rows.next()) { print(rows.getString(rows.columnIndex('name'))) print(rows.isNull(1)) }
+                        while (rows.next()) { print(rows.getString(rows.columnIndex('name'))) print(rows.isNull(1)) }
                     } finally { rows.close() }
                     projection.limit(0)
                     final empty = projection.first()
@@ -560,7 +560,7 @@ class App {
                 final rows = projection.all()
                 try {
                     print(rows.rowCount())
-                    for (rows.next()) { if (rows.isNull(rows.columnIndex('o.amount'))) { print(rows.getString(0)) } }
+                    while (rows.next()) { if (rows.isNull(rows.columnIndex('o.amount'))) { print(rows.getString(0)) } }
                 } finally { rows.close() }
             } finally { projection.close() joined.close() base.close() }
 

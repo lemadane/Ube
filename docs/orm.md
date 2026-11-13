@@ -122,7 +122,7 @@ final query = users.query()
 try {
     final rows = query.all()
     try {
-        for (rows.next()) {
+        while (rows.next()) {
             final user = rows.get()
             print(
               user.name())
@@ -235,7 +235,7 @@ final selected = base.select('name')
 try {
     final rows = selected.all()
     try {
-        for (rows.next()) {
+        while (rows.next()) {
             print(
               rows.getString(
                 rows.columnIndex('name')))
@@ -308,7 +308,7 @@ final paid = base.join(
 try {
     final rows = paid.all()
     try {
-        for (rows.next()) { print(
+        while (rows.next()) { print(
               rows.get()
                 .name()) }
     } finally {

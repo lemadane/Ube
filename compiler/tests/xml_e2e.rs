@@ -555,11 +555,11 @@ fn encoding_limits_and_error_recovery_hold_with_optimized_native_code() {
     class App {start(){
         var nested=[]
         var depth=0
-        for(depth<66){nested=[nested] depth=depth+1}
+        while(depth<66){nested=[nested] depth=depth+1}
         try {nested.toXml()}catch(XmlError e){print('depth limit')}
         final many=[]
         var count=0
-        for(count<100001){many.add(count) count=count+1}
+        while(count<100001){many.add(count) count=count+1}
         try {many.toXml()}catch(XmlError e){print('node limit')}
         final text=File.read(Console.args()[0])
         try {text.toXml()}catch(XmlError e){print('output limit')}

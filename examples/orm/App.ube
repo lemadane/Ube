@@ -32,7 +32,7 @@ class App {
             try {
                 final rows = query.all()
                 try {
-                    for (rows.next()) {
+                    while (rows.next()) {
                         final found = rows.get()
                         print(
                           found.name())

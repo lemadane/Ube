@@ -1547,7 +1547,8 @@ impl IrBuilder {
                     None
                 };
                 let exit_block = self.fresh_block();
-                let iterable = if loop_var.is_some() {
+                let range = condition_or_iterable.as_ref().and_then(|expr| self.build_range_state(expr));
+                let iterable = if loop_var.is_some() && range.is_none() {
                     condition_or_iterable
                         .as_ref()
                         .map(|expr| self.build_expr(expr))
@@ -1604,8 +1605,9 @@ impl IrBuilder {
                     let error = self.runtime("ube_exception_poll_cancel", vec![], Type::Bytes);
                     self.check_exception(error);
                 }
-                let cond_op = if let (Some(list), Some(index_ptr)) = (&iterable, iterable_index_ptr)
-                {
+                let cond_op = if let Some(state) = &range {
+                    self.range_condition(state)
+                } else if let (Some(list), Some(index_ptr)) = (&iterable, iterable_index_ptr) {
                     let index_reg = self.fresh_reg();
                     self.emit(IrInstruction::Load {
                         dest: index_reg,
@@ -1652,6 +1654,14 @@ impl IrBuilder {
                 }
 
                 self.push_var_scope();
+                if let (Some(state), Some(name)) = (&range, loop_var) {
+                    let value = self.range_load(state);
+                    let value = self.cast(value, Type::Int);
+                    let slot = self.fresh_reg();
+                    self.emit(IrInstruction::Alloca { dest: slot, ty: Type::Int });
+                    self.emit(IrInstruction::Store { val: value, ptr: slot });
+                    self.insert_var(name.clone(), slot, Type::Int);
+                }
                 if let (Some(list), Some(index_ptr)) = (&iterable, iterable_index_ptr) {
                     let index_reg = self.fresh_reg();
                     self.emit(IrInstruction::Load {
@@ -1698,6 +1708,12 @@ impl IrBuilder {
                 }
                 if let Some(cb) = self.current_block_id {
                     self.finish_block(cb);
+                }
+                if let (Some(increment), Some(state)) = (increment_block, &range) {
+                    self.current_block_id = Some(increment);
+                    self.range_advance(state);
+                    self.emit(IrInstruction::Jump { target: header_block });
+                    self.finish_block(increment);
                 }
                 if let (Some(increment), Some(index_ptr)) = (increment_block, iterable_index_ptr) {
                     self.current_block_id = Some(increment);
@@ -4288,3 +4304,5 @@ impl IrBuilder {
 }
 
 include!("closures.rs");
+
+include!("ranges.rs");

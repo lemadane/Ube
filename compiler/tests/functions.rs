@@ -251,7 +251,7 @@ class App {
     start() {
         var operation = () -> 0
         var index = 0
-        for (index < 1000) {
+        while (index < 1000) {
             final unrelated = Holder(index)
             operation = () -> 7
             index = index + 1

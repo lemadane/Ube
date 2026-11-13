@@ -219,7 +219,7 @@ function isGroupedFunctionParenthesis(source, openIndex, closeIndex, end) {
 
 function isCallParenthesis(source, openIndex, closeIndex, end) {
   const previous = previousToken(source, openIndex);
-  if (["Func", "if", "for", "each", "while", "catch", "switch", "match", "and", "or", "not"].includes(previous.text)) {
+  if (["Func", "if", "each", "while", "from", "catch", "switch", "match", "and", "or", "not"].includes(previous.text)) {
     return false;
   }
   if (isGroupedFunctionParenthesis(source, openIndex, closeIndex, end)) {
@@ -680,7 +680,7 @@ function expandDeclarationBlocks(source) {
     if (["class", "trait"].includes(token)) pendingType = true;
     if (frame?.statementBlock && previous === ")" &&
         /^[A-Za-z_]/.test(token) &&
-        !["and", "or", "is", "as", "from"].includes(token)) {
+        !["and", "or", "is", "as", "in", "from", "to", "by"].includes(token)) {
       breaks.add(cursor);
     }
     if (["{", "(", "["].includes(token)) {

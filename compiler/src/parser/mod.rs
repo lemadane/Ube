@@ -11,8 +11,8 @@ mod tests {
     use crate::lexer::Lexer;
 
     #[test]
-    fn each_from_supports_iteration_and_comprehensions() {
-        for (header, expected_index) in [("item from [10, 20]", None), ("index, item from [10, 20]", Some("index")), ("item from 0..5", None)] {
+    fn each_in_supports_iteration_and_comprehensions() {
+        for (header, expected_index) in [("item in [10, 20]", None), ("index, item in [10, 20]", Some("index")), ("item in 0..5", None)] {
             let source = format!("class App {{ start() {{ each ({header}) {{ continue }} else {{ print('empty') }} }} }}");
             let mut parser = Parser::new(Lexer::new(&source));
             let program = parser.parse_program();
@@ -31,8 +31,8 @@ mod tests {
     }
 
     #[test]
-    fn each_requires_from_and_iteration_variables() {
-        for header in ["for (item in items)", "for (item from items)", "each (item in items)", "each (index, item in items)", "each (true)", "each", "each (, item from items)"] {
+    fn each_requires_in_and_iteration_variables() {
+        for header in ["while (item in items)", "while (item from items)", "each (item from items)", "each (index, item from items)", "each (true)", "each", "each (, item from items)"] {
             for prefix in ["", "final values = "] {
                 let source = format!("class App {{ start() {{ {prefix}{header} {{ yield 1 }} }} }}");
                 let mut parser = Parser::new(Lexer::new(&source));
@@ -81,8 +81,8 @@ mod tests {
             "class App { start() { Console.printLine('hello'); } }",
             "class App { start() { final value = 1; } }",
             "class App { start() { return; } }",
-            "class App { start() { for (true) { break; } } }",
-            "class App { start() { for (true) { continue; } } }",
+            "class App { start() { while (true) { break; } } }",
+            "class App { start() { while (true) { continue; } } }",
             "trait Printable { printDetails(); }",
             "class App { start(); }",
             "class App { start() { server.use('/api', (Request request) -> { Console.printLine('hello'); }) } }",

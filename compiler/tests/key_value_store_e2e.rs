@@ -128,7 +128,7 @@ fn serialization_rejects_cycles_resources_and_nonfinite_values_without_losing_st
         Console.printLine('quoted "text"'.toJson())
         var chain=Node(null,'end')
         var i=0
-        for(i<100){chain=Node(chain,'node') i=i+1}
+        while(i<100){chain=Node(chain,'node') i=i+1}
         try {chain.toJson()}catch(JsonError err){Console.printLine('depth rejected')}
         Console.printLine(Node(null,'after error').toJson())
         cache.close()
@@ -157,7 +157,7 @@ class App {
     int work(KeyValueStore store,int worker){
         if(store.add('claim',worker.toJson())){store.increment('winners',1)}
         var i=0
-        for(i<250){store.set('worker:${worker}:${i}',this.payload(i)) store.increment('counter',1) if(i % 50 == 0){Gc.collect()} i=i+1}
+        while(i<250){store.set('worker:${worker}:${i}',this.payload(i)) store.increment('counter',1) if(i % 50 == 0){Gc.collect()} i=i+1}
         return i
     }
     start(){
@@ -167,13 +167,13 @@ class App {
             store.set('deleted','{"old":1}') store.delete('deleted')
             store.set('updated','{"version":1}') store.set('updated','{"version":2}')
             var i=0
-            for(i<5000){store.set('record:${i}',this.payload(i)) if(i % 100 == 0){Gc.collect()} Console.printLine(i) i=i+1}
+            while(i<5000){store.set('record:${i}',this.payload(i)) if(i % 100 == 0){Gc.collect()} Console.printLine(i) i=i+1}
         }
         if(args[1]=='verify' or args[1]=='verify-all'){
             var limit=1000
             if(args[1]=='verify-all'){limit=5000}
             var i=0
-            for(i<limit){
+            while(i<limit){
                 final value=Json.toObject(store.get('record:${i}') ?? '')
                 if(value.getInt('id')!=i){throw 'wrong id'}
                 if(value.getString('text')!='quotes " slash \\ newline\n 世界'){throw 'wrong text'}
@@ -198,7 +198,7 @@ class App {
             Console.printLine(store.get('counter') ?? 'missing')
             Console.printLine(store.get('winners') ?? 'missing')
             var worker=0
-            for(worker<4){var i=0 for(i<250){if(Json.toObject(store.get('worker:${worker}:${i}') ?? '').getInt('id')!=i){throw 'concurrent record lost'} i=i+1} worker=worker+1}
+            while(worker<4){var i=0 while(i<250){if(Json.toObject(store.get('worker:${worker}:${i}') ?? '').getInt('id')!=i){throw 'concurrent record lost'} i=i+1} worker=worker+1}
         }
         store.close()
     }
@@ -382,7 +382,7 @@ fn native_lists_serialize_scalars_objects_nested_lists_and_reject_cycles() {
         added.add(Person(7,'Bob'))
         Gc.collect()
         Console.printLine(added.toJson())
-        final doubled=each (x from [1,2,3]){yield x*2}
+        final doubled=each (x in [1,2,3]){yield x*2}
         Console.printLine(doubled.toJson())
     }}"#);
     let output=program.run(&[]);

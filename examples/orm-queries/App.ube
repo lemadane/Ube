@@ -48,7 +48,7 @@ class App {
             try {
                 final rows = selected.all()
                 try {
-                    for (rows.next()) {
+                    while (rows.next()) {
                         print(
                           rows.getString(
                             rows.columnIndex('name')))

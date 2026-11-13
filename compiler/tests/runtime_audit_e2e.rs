@@ -391,7 +391,7 @@ fn nullable_channels_cancellation_and_cleanup_survive_repeated_native_execution(
                 var iteration = 0
                 var closed = 0
                 var cancelled = 0
-                for (iteration < 32) {
+                while (iteration < 32) {
                     final numbers = Channel<int?>(1)
                     final flags = Channel<bool?>(1)
                     final number = this.number(iteration)
@@ -458,7 +458,7 @@ fn generated_objects_keep_live_graphs_and_reclaim_unreachable_cycles() {
                 if (not mixed.active() or mixed.count() != 7 or mixed.flag() or mixed.child().value() != 42) { throw 'mixed object layout corrupted' }
                 final baseline = Gc.objects()
                 var iteration = 0
-                for (iteration < 1000) {
+                while (iteration < 1000) {
                     this.cycle(iteration)
                     kept = this.make(iteration)
                     if (kept.value() != iteration) { throw 'return root lost' }
@@ -486,7 +486,7 @@ fn generated_tracing_heap_survives_parallel_collection_and_async_object_handoffs
         class App {
             int work(int seed) {
                 var iteration = 0
-                for (iteration < 200) {
+                while (iteration < 200) {
                     final left = Node(null, seed + iteration)
                     final right = Node(left, seed + iteration + 1)
                     left.next(right)
@@ -534,7 +534,7 @@ fn loop_scoped_locals_reuse_stack_storage_through_the_real_cli() {
             start() {
                 var iteration = 0
                 var total = 0L
-                for (iteration < 1000000) {
+                while (iteration < 1000000) {
                     final next = iteration + 1
                     total = total + 1L
                     iteration = next
@@ -558,7 +558,7 @@ fn generated_temporary_objects_are_collected_automatically() {
             int read(int value) { final entry = Entry(value) return entry.value() }
             start() {
                 var iteration = 0
-                for (iteration < 5000) {
+                while (iteration < 5000) {
                     if (this.read(iteration) != iteration) { throw 'live temporary lost' }
                     iteration = iteration + 1
                 }
@@ -580,7 +580,7 @@ fn concurrent_collection_mutations_are_memory_safe_and_keep_all_entries() {
             fill(List values, Channel<int> start, int seed) {
                 final signal = start.receive().await()
                 var i = 0
-                for (i < 10000) { values.add(seed + i) i = i + 1 }
+                while (i < 10000) { values.add(seed + i) i = i + 1 }
             }
             start() {
                 final values = [] final start = Channel<int>(2)
@@ -713,11 +713,11 @@ fn shared_nullable_fields_remain_coherent_between_generated_workers() {
         class App {
             write(Shared state) {
                 var i = 0
-                for (i < 5000) { state.number(7) state.number(null) i = i + 1 }
+                while (i < 5000) { state.number(7) state.number(null) i = i + 1 }
             }
             read(Shared state) {
                 var i = 0
-                for (i < 5000) {
+                while (i < 5000) {
                     final value = state.number()
                     if ((value ?? 7) != 7) { throw 'torn scalar field' }
                     i = i + 1

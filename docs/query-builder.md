@@ -19,7 +19,7 @@ final query = db.table('users')
 try {
     final rows = query.all()
     try {
-        for (rows.next()) { print(
+        while (rows.next()) { print(
               rows.getString(0)) }
     } finally {
         rows.close()

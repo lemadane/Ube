@@ -440,32 +440,57 @@ class Direction {
 
 ---
 
-## 10. `each` / `from` and `for` Loops & Control Flow (`break` & `continue`)
+## 10. `each` / `in` and `while` Loops & Control Flow (`break` & `continue`)
 
-Ube uses `each (item from items)` for iteration and `for` for conditional and infinite loops. There is no `while` or `do-while` keyword in the language. `break` exits the loop immediately, while `continue` skips to the next iteration.
+Ube uses `each (item in items)` for collection iteration, `from` for numeric ranges, and `while` for conditional and infinite loops. There is no classic three-part `for` or `do-while` loop in the language. `break` exits the loop immediately, while `continue` skips to the next iteration.
 
-An iteration header is `each (item from iterable)` or `each (index, item from iterable)`. The two-variable form binds a list index and element. Map key/value traversal uses the same syntax, but native map iteration is not yet supported. Numeric range syntax also uses `each (i from 0..5)`, but native code generation for ranges is not yet supported; use an explicit list or a conditional loop in runnable code. Parentheses and a braced body are required. A comprehension uses the same header in expression position and emits values with `yield`:
+An iteration header is `each (item in iterable)` or `each (index, item in iterable)`. The two-variable form binds a list index and element. Map key/value traversal uses the same syntax, but native map iteration is not yet supported. Numeric ranges use `from (i = 0 to 5)`. The separate `0..5` expression still has no native iteration support. Parentheses and a braced body are required. A comprehension uses the same header in expression position and emits values with `yield`:
 
 ```ube
-final doubled = each (value from [1, 2, 3]) {
+final doubled = each (value in [1, 2, 3]) {
     yield value * 2
 }
 ```
 
-Conditional loops use `for (condition) { ... }`; infinite loops use `for { ... }`. Both `each` and `for` support `break`, `continue`, and an optional `else` block. See the [runnable loop sample](examples/loops/App.ube).
+Conditional loops use `while (condition) { ... }`; infinite loops use `while { ... }`. Both `each` and `while` support `break`, `continue`, and an optional `else` block. See the [runnable loop sample](examples/loops/App.ube).
+
+Both `while` forms can also be expressions that collect yielded values into a `List`:
+
+```ube
+final list = while {
+    yield 1
+    yield 2
+    break
+}
+```
+
+Use `final list = while (condition) { ... }` for a conditional collection loop. An unconditional expression needs a reachable exit such as `break` to finish producing its list.
+
+Numeric range loops support an optional step and an inclusive endpoint:
+
+```ube
+from (i = 0 to 10, by 3) {
+    print(i) // 0, 3, 6, 9
+}
+final descending = from (i = 10 to 0, by -3) {
+    yield i // List containing 10, 7, 4, 1
+}
+```
+
+The start, endpoint, and step are `int` expressions evaluated once, in that order. The default step is `1`. The loop variable is a read-only `int` scoped to the body. Bounds pointing away from the step give zero iterations; equal bounds give one iteration with any nonzero step. Literal zero steps are diagnosed at compile time, and computed zero steps raise a catchable `GenericError` before either body or fallback executes. Counter arithmetic does not wrap at integer boundaries. `continue` advances the counter before checking the endpoint again; `break` exits immediately. Range loops support the same zero-iteration `else` as `each` and `while`. `to` and `by` are contextual identifiers, not globally reserved keywords.
 
 **Loop `else` means zero body entries.** An optional `else` block runs only if the loop body was never entered. This includes an empty collection or a condition that is initially false. Entering the body sets this state before its first statement: an immediate `break` or `continue` therefore prevents the fallback. Normal completion after one or more iterations also skips it. A return or propagated error follows its normal control-flow path, not the fallback. A nested loop tracks its own body-entry state independently.
 
 ```ube
 class App {
     start() {
-        each (item from []) {
+        each (item in []) {
             log(item)
         } else {
             log('empty') // Runs: zero iterations
         }
 
-        each (item from [1]) {
+        each (item in [1]) {
             break
         } else {
             log('empty') // Does not run: the body was entered
@@ -480,9 +505,9 @@ Loop `else` does not test whether a search found a match. Use an explicit flag a
 ```ube
 class App {
     start() {
-        // 1. Infinite Loop (Replaces while(true))
+        // 1. Infinite Loop (Runs until exited)
         var counter = 0
-        for {
+        while {
             counter = counter + 1
             if (counter == 2) {
                 continue
@@ -492,27 +517,27 @@ class App {
             }
         }
 
-        // 2. Conditional Loop (Replaces while(condition))
+        // 2. Conditional Loop (Checks the condition before every iteration)
         var remaining = 3
-        for (remaining > 0) {
+        while (remaining > 0) {
             remaining = remaining - 1
         }
 
         // 3. Collection Element Iteration
         final names = ['Lem', 'Rhea', 'Alex']
-        each (name from names) {
+        each (name in names) {
             log('Name: ${name}')
         }
 
         // 4. Index & Item Destructuring Iteration
-        each (index, name from names) {
+        each (index, name in names) {
             log('${index}: ${name}')
         }
 
         // 5. Map traversal syntax is not yet supported by native execution.
 
-        // 6. Iterate explicit numeric values (native ranges are not yet supported)
-        each (i from [0, 1, 2, 3, 4]) {
+        // 6. Numeric range (inclusive endpoint)
+        from (i = 0 to 4) {
             log('Index: ${i}')
         }
     }
@@ -576,7 +601,7 @@ Ube uses word-based logical operators: `not`, `and`, `or`. Symbol `!` is prohibi
 
 Boolean conditions work directly; reference and nullable conditions test presence.
 Non-null numbers and strings require explicit comparisons such as `count != 0`
-and `text != ''` in `if` and `for` conditions.
+and `text != ''` in `if` and `while` conditions.
 
 ```ube
 class App {

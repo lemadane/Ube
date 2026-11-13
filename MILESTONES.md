@@ -20,7 +20,7 @@ Planning window: approximately twelve weeks, reviewed every four weeks. Release 
 
 ### Scope Freeze
 
-Concentrate new work on `class`, `trait`, `case`, `for`, `if`, `switch`, `try` / `catch` / `finally` / `throw`, `List`, `Map`, `print`, and `not` / `and` / `or`. Supporting declarations, methods, accessors, returns, loop exits, primitive types, nullability, and literal syntax remain part of that core. Existing array forms qualify for the stable subset only after native execution tests establish their supported behavior.
+Concentrate new work on `class`, `trait`, `case`, `while`, `each`, `from`, `if`, `switch`, `try` / `catch` / `finally` / `throw`, `List`, `Map`, `print`, and `not` / `and` / `or`. Supporting declarations, methods, accessors, returns, loop exits, primitive types, nullability, and literal syntax remain part of that core. Existing array forms qualify for the stable subset only after native execution tests establish their supported behavior.
 
 Keep the recently established rules consistent:
 

@@ -24,7 +24,7 @@ class App {
             }
             final rows = db.query('SELECT id, name FROM items ORDER BY id')
             try {
-                for (rows.next()) {
+                while (rows.next()) {
                     log(
                       rows.getLong(0))
                     log(

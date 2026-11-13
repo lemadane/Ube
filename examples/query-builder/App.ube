@@ -29,7 +29,7 @@ class App {
                   query.toSql())
                 final rows = query.all()
                 try {
-                    for (rows.next()) { print(
+                    while (rows.next()) { print(
                           rows.getString(
                             rows.columnIndex(
                               'name'))) }

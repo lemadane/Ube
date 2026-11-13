@@ -118,7 +118,7 @@ fn nested_finally_runs_once_for_return_and_catch_return() {
 #[test]
 fn loop_exits_cleanup_only_regions_being_exited() {
     runs(r#"class App { start() {
-      try { each (x from [1,2]) { try { if (x == 1) { continue } break } finally { Console.printLine(x) } } Console.printLine('done') }
+      try { each (x in [1,2]) { try { if (x == 1) { continue } break } finally { Console.printLine(x) } } Console.printLine('done') }
       finally { Console.printLine('outer') }
     } }"#, "1\n2\ndone\nouter\n");
 }
@@ -1171,7 +1171,7 @@ class App {
             try {
                 print(rows.rowCount())
                 print(rows.columnName(1))
-                for (rows.next()) {
+                while (rows.next()) {
                     print(rows.getInt(0))
                     print(rows.getString(rows.columnIndex('name')))
                     print(rows.isNull(2))
@@ -1503,4 +1503,37 @@ fn text_block_interpolation_diagnostics_keep_source_positions() {
     let span = diagnostic.span.unwrap();
     assert_eq!(span.start.index, source.find("missing").unwrap());
     assert_eq!((span.start.line, span.start.column), (3, 3));
+}
+
+#[test]
+fn while_loops_execute_conditions_infinite_loops_and_zero_iteration_else() {
+    runs(r#"class App { start() {
+        var i = 0
+        while (i < 3) {
+            i = i + 1
+            if (i == 2) { continue }
+            print(i)
+        } else { print('unexpected fallback') }
+        while (false) { print('unexpected body') } else { print('empty') }
+        while { print('once') break } else { print('unexpected fallback') }
+        var next = 0
+        final values = while (next < 2) { next = next + 1 yield next * 10 }
+        each (value in values) { print(value) }
+        final once = while { yield 30 break }
+        each (value in once) { print(value) }
+    } }"#, "1\n3\nempty\nonce\n10\n20\n30\n");
+}
+
+#[test]
+fn while_loops_reject_legacy_for_and_invalid_headers() {
+    for header in ["for (true)", "for", "for (i = 0; i < 3; i++)"] {
+        for prefix in ["", "final values = "] {
+            let source = format!("class App {{ start() {{ {prefix}{header} {{ break }} }} }}");
+            rejects(&source, "use while");
+        }
+    }
+    for header in ["while true", "while (item from [1])", "while (i = 0; i < 3)"] {
+        let source = format!("class App {{ start() {{ {header} {{ break }} }} }}");
+        assert!(!diagnostics(&source).is_empty(), "Unexpectedly accepted {source}");
+    }
 }

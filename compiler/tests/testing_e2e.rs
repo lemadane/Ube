@@ -105,7 +105,7 @@ fn timeouts_kill_the_test_and_allow_subsequent_tests_to_run() {
             "slow.test.ube",
             r#"
         class SlowTests {
-            testTimeout() { for (true) {} }
+            testTimeout() { while (true) {} }
             testAfter() { Testicle.isTrue(true) }
         }
     "#,

@@ -2,41 +2,52 @@ class App {
     start() {
         final numbers = [10, 20, 30]
 
-        each (number from numbers) {
+        each (number in numbers) {
             print(number)
         }
 
-        each (index, number from numbers) {
+        each (index, number in numbers) {
             print('${index}: ${number}')
         }
 
-        each (number from [0, 1, 2]) {
+        each (number in [0, 1, 2]) {
             if (number == 1) {
                 continue
             }
             print(number)
         }
 
-        final doubled = each (number from numbers) {
+        final doubled = each (number in numbers) {
             yield number * 2
         }
-        each (number from doubled) {
+        each (number in doubled) {
             print(number)
         }
 
-        each (number from []) {
+        each (number in []) {
             print(number)
         } else {
             print('No items')
         }
 
+        from (i = 0 to 10, by 3) {
+            print(i)
+        }
+
+        final descending = from (i = 10 to 0, by -3) {
+            yield i
+        }
+        each (value in descending) {
+            print(value)
+        }
+
         var remaining = 2
-        for (remaining > 0) {
+        while (remaining > 0) {
             print(remaining)
             remaining = remaining - 1
         }
 
-        for {
+        while {
             print('Done')
             break
         }

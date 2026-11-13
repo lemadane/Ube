@@ -104,7 +104,7 @@ mod tests {
             r#"
             class App {
                 void start() {
-                    each (index, item from [10, 20]) {
+                    each (index, item in [10, 20]) {
                         Console.printLine(index)
                         Console.printLine(item)
                     }

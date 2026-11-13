@@ -24,7 +24,7 @@ class App {
               'SELECT id, name FROM users WHERE id = ?',
               params)
             try {
-                for (rows.next()) {
+                while (rows.next()) {
                     print(
                       rows.getInt(0))
                     print(

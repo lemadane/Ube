@@ -46,7 +46,7 @@
       "patterns": [
         {
           "name": "keyword.control.ube",
-          "match": "\\b(class|trait|try|catch|finally|throw|static|final|var|if|then|else|for|each|break|continue|switch|case|default|yield|return|use|as|is|with|from|async|await)\\b"
+          "match": "\\b(class|trait|try|catch|finally|throw|static|final|var|if|then|else|while|each|break|continue|switch|case|default|yield|return|use|as|is|with|from|in|to|by|async|await)\\b"
         },
         {
           "name": "keyword.operator.word.ube",

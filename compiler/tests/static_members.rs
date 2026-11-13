@@ -331,7 +331,7 @@ fn concurrent_static_reference_replacement_and_collection() {
         static var Item item = Item(0)
         static int write() {
             var index = 0
-            for (index < 100) {
+            while (index < 100) {
                 static.item = Item(index)
                 Gc.collect()
                 index = index + 1
@@ -340,7 +340,7 @@ fn concurrent_static_reference_replacement_and_collection() {
         }
         static int read() {
             var index = 0
-            for (index < 100) {
+            while (index < 100) {
                 final item = static.item
                 Gc.collect()
                 if (item.value() < 0 or item.value() > 99) { throw 'invalid static object' }

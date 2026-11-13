@@ -684,11 +684,11 @@ test("indents multiline then/else expressions without changing braced statements
   }
 });
 
-test("keeps each/from headers intact, including indexed iteration", () => {
+test("keeps each/in headers intact, including indexed iteration", () => {
   for (const source of [
-    "each (item from values) { print(item) }\n",
-    "each (index, item from values) { print(item) }\n",
-    "final doubled = each (item from values) { yield item * 2 }\n",
+    "each (item in values) { print(item) }\n",
+    "each (index, item in values) { print(item) }\n",
+    "final doubled = each (item in values) { yield item * 2 }\n",
   ]) {
     assert.equal(formatUbeDocument(source), source);
   }
@@ -709,4 +709,27 @@ test("preserves escaped backticks and nested template interpolation", () => {
   ].join('\n');
   assert.equal(formatUbeDocument(source), source);
   assert.equal(formatUbeDocument(formatUbeDocument(source)), source);
+});
+
+test("preserves conditional and infinite while loops", () => {
+  for (const source of [
+    "while (remaining > 0) { remaining = remaining - 1 }\n",
+    "while { break }\n",
+    "while (false) { break } else {\n    print('empty')\n}\n",
+    "final values = while (ready) { yield 1 }\n",
+  ]) {
+    assert.equal(formatUbeDocument(source), source);
+  }
+});
+
+test("preserves numeric from/to/by headers and each/in iteration", () => {
+  for (const source of [
+    "from (i = 0 to 10, by 3) { print(i) }\n",
+    "from (i = 10 to 0, by -3) { continue }\n",
+    "final list = from (i = 0 to 4) { yield i }\n",
+    "each (index, item in items) { print(item) }\n",
+  ]) {
+    assert.equal(formatUbeDocument(source), source);
+    assert.equal(formatUbeDocument(formatUbeDocument(source)), source);
+  }
 });

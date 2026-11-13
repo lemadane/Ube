@@ -304,7 +304,7 @@ Keep `start()` parameterless and read application arguments through `Console.arg
 class App {
     start() {
         final args = Console.args()
-        each (arg from args) {
+        each (arg in args) {
             Console.printLine(arg)
         }
     }
@@ -426,13 +426,14 @@ See the [runnable context example](examples/log_context/App.ube).
 - Native `null` (never `nil`) with postfix `Type?` (`User?`).
 - Optional chaining (`?.`), null coalescing (`??`), and null-coalescing assignment (`??=`).
 
-### 12. Collections Policy & `each` / `for` Loops (No `while` Keyword)
-- **`each` / `from` Iteration and `for` Loops**: Use `each (item from items)` for collections, and `for (condition)` or `for { ... }` for conditional or infinite loops. There is no `while` or `do-while` keyword in Ube.
-- **Loop `else` (0-Iteration Fallback)**: `each (item from items) { ... } else { ... }`. The `else` block executes **only when the loop body is entered zero times**, such as an empty collection or an initially false condition. Once the body is entered, even an immediate `break` or `continue` prevents the fallback. See the [worked examples](#zero-iteration-fallback).
+### 12. Collections Policy & `each` / `while` / `from` Loops
+- **`each` / `in` Iteration and `while` Loops**: Use `each (item in items)` for collections, and `while (condition)` or `while { ... }` for conditional or infinite loops. There is no classic three-part `for` or `do-while` loop in Ube.
+- **Numeric ranges**: `from (i = 0 to 10, by 3) { ... }` visits `0, 3, 6, 9`. Endpoints are inclusive; omit `, by ...` for a step of `1`.
+- **Loop `else` (0-Iteration Fallback)**: `each (item in items) { ... } else { ... }`. The `else` block executes **only when the loop body is entered zero times**, such as an empty collection or an initially false condition. Once the body is entered, even an immediate `break` or `continue` prevents the fallback. See the [worked examples](#zero-iteration-fallback).
 - **`break` & `continue`**: `break` exits the nearest loop; `continue` skips to the next iteration.
 - **Collection limits**: Generic `Array<T>`, `List<T>`, and `Map<K, V>` declarations are not public language types. Use `List` and `Map`; native binary-buffer exports are runtime implementation APIs.
 - **`List`**: Dynamic growable sequence (`[1, 2, 3]` literal syntax, `.add()`, `.remove()`).
-- **`Map`**: Key-value hash map (`[1000L: 'Lem']` literal syntax, key-value `each (k, v from map)` syntax is parsed but native map iteration is not yet supported; integer bracket lookup returns `int?`, preserving missing entries separately from stored zero).
+- **`Map`**: Key-value hash map (`[1000L: 'Lem']` literal syntax, key-value `each (k, v in map)` syntax is parsed but native map iteration is not yet supported; integer bracket lookup returns `int?`, preserving missing entries separately from stored zero).
 
 ### 13. Pattern Matching Status
 
@@ -459,10 +460,11 @@ in executable Ube code yet. Use explicit `if`/`else` branches.
 
 
 ### 16. First-Class `if` Expressions & `each` Comprehensions (Mandatory `{}` & `yield`)
-- **Expression Evaluation**: Both `if` and `for` can be evaluated directly as expressions (`final x = if (...) { ... }`).
+- **Expression Evaluation**: Both `if` and `while` can be evaluated directly as expressions (`final x = if (...) { ... }`).
 - **Mandatory Braces `{}`**: Block-form `if` expressions and loop expressions require `{}` open and close braces; `condition then value else value` uses expression branches without braces.
 - **Mandatory `yield` Keyword**: Emitting values from expression blocks requires `yield expr` (e.g. `final status = if (score >= 50) { yield `Passed` } else { yield `Failed` }`).
-- **`each` Expression Comprehensions**: `final doubled = each (x from numbers) { yield x * 2 }` transforms collections into `List`.
+- **`while` Expression Lists**: `final list = while { yield 1 break }` collects yielded values into a `List`. Conditional forms such as `final list = while (condition) { yield value }` are supported too.
+- **`each` Expression Comprehensions**: `final doubled = each (x in numbers) { yield x * 2 }` transforms collections into `List`.
 
 
 ### Conditional expressions: `then` / `else`
@@ -923,21 +925,25 @@ class App {
 }
 ```
 
-### 8. `each` and `for` Loop Use Cases (With `break` and `continue`)
+### 8. `each` and `while` Loop Use Cases (With `break` and `continue`)
 
-Ube uses `each (item from items)` for iteration and `for` for conditional and infinite loops (no `while` or `do-while`).
+Ube uses `each (item in items)` for collection iteration, `from` for numeric ranges, and `while` for conditional and infinite loops (no classic three-part `for` or `do-while`).
 
 | Form | Purpose |
 | --- | --- |
-| `each (item from items)` | Visit collection elements |
-| `each (index, item from items)` | Visit list elements with their indexes |
-| `each (key, value from map)` | Map traversal syntax (native iteration is not yet supported) |
-| `each (i from 0..5)` | Range syntax (parsed; native code generation is not yet supported) |
-| `final values = each (item from items) { yield item * 2 }` | Build a list with a comprehension |
-| `for (condition)` | Repeat while a condition is true |
-| `for { ... }` | Repeat until control flow exits the loop |
+| `each (item in items)` | Visit collection elements |
+| `each (index, item in items)` | Visit list elements with their indexes |
+| `each (key, value in map)` | Map traversal syntax (native iteration is not yet supported) |
+| `from (i = 0 to 5)` | Visit integers 0 through 5, inclusive |
+| `from (i = 10 to 0, by -3)` | Visit 10, 7, 4, 1 |
+| `final values = from (i = 0 to 4, by 2) { yield i }` | Build a list from a numeric range |
+| `final values = each (item in items) { yield item * 2 }` | Build a list with a comprehension |
+| `while (condition)` | Repeat while a condition is true |
+| `while { ... }` | Repeat until control flow exits the loop |
 
-Iteration requires `each`, parentheses, and `from`. Both loop forms require a braced body and support `break`, `continue`, and an optional zero-iteration `else` block.
+Collection iteration requires `each`, parentheses, and `in`; the old `each/from` spelling is rejected. All three loop forms require a braced body and support `break`, `continue`, and an optional zero-iteration `else` block.
+
+Range starts, endpoints, and steps must be `int`. They are evaluated once, left to right, before iteration. The loop variable is read-only and scoped to its body. A positive step requires the start to be at or below the endpoint; a negative step requires it to be at or above the endpoint. Otherwise the body executes zero times. A literal zero step is a compile error; a computed zero step raises a catchable `GenericError`. `continue` advances the counter; `break` skips the advance and exits. Counter arithmetic does not wrap at integer boundaries. `to` and `by` are contextual words in range headers. The separate `0..5` expression still has no native iteration support.
 
 Run the [complete loop sample](examples/loops/App.ube) from the repository root:
 
@@ -950,9 +956,9 @@ cargo build -p ube-compiler -p ube-runtime
 ```ube
 class App {
     start() {
-        // Case 1: Infinite Loop (Replaces while(true))
+        // Case 1: Infinite Loop (Runs until exited)
         var counter = 0
-        for {
+        while {
             counter = counter + 1
             if (counter == 2) {
                 continue // Skip iteration
@@ -963,16 +969,16 @@ class App {
             log('Infinite loop step: ${counter}')
         }
 
-        // Case 2: Conditional Loop (Replaces while(condition))
+        // Case 2: Conditional Loop (Checks the condition before every iteration)
         var remaining = 3
-        for (remaining > 0) {
+        while (remaining > 0) {
             log('Remaining: ${remaining}')
             remaining = remaining - 1
         }
 
         // Case 3: Element Iteration Over List/Array
         final names = ['Lem', 'Rhea', 'Alex']
-        each (name from names) {
+        each (name in names) {
             if (name == 'Rhea') {
                 continue
             }
@@ -980,14 +986,14 @@ class App {
         }
 
         // Case 4: Index & Item Destructuring Iteration
-        each (index, name from names) {
+        each (index, name in names) {
             log('${index}: ${name}')
         }
 
         // Case 5: Map traversal syntax is not yet supported by native execution.
 
-        // Case 6: Iterate explicit numeric values (native ranges are not yet supported)
-        each (i from [0, 1, 2, 3, 4]) {
+        // Case 6: Numeric range (inclusive endpoint)
+        from (i = 0 to 4) {
             if (i == 3) {
                 break
             }
@@ -996,7 +1002,7 @@ class App {
 
         // Case 7: each / else 0-Iteration Fallback Clause
         final emptyItems = []
-        each (item from emptyItems) {
+        each (item in emptyItems) {
             log('Item: ${item}')
         } else {
             log('No items found (else executed for 0 iterations)')
@@ -1007,7 +1013,7 @@ class App {
 
 #### Zero-iteration fallback
 
-**Read `each ... else` and `for ... else` as: “if the body never starts, run this fallback.”** Reaching the body once is enough to disable the fallback. It does not mean “no break” or “no matching item.”
+**Read `each ... else`, `while ... else`, and `from ... else` as: “if the body never starts, run this fallback.”** Reaching the body once is enough to disable the fallback. It does not mean “no break” or “no matching item.”
 
 | What happened? | Does `else` run? |
 | --- | --- |
@@ -1024,7 +1030,7 @@ Each example below can be placed inside `App.start()`.
 
 ```ube
 final items = []
-each (item from items) {
+each (item in items) {
     log(item)
 } else {
     log('no items')
@@ -1041,7 +1047,7 @@ no items
 
 ```ube
 final items = [10, 20]
-each (item from items) {
+each (item in items) {
     log(item)
 } else {
     log('no items')
@@ -1058,7 +1064,7 @@ Output:
 **3. Immediate break: fallback does not run**
 
 ```ube
-each (item from [10, 20]) {
+each (item in [10, 20]) {
     log(item)
     break
 } else {
@@ -1079,7 +1085,7 @@ The first iteration has already started when `break` executes. There is no fallb
 **4. Every iteration continues: fallback does not run**
 
 ```ube
-each (item from [10, 20]) {
+each (item in [10, 20]) {
     continue
 } else {
     log('no items')
@@ -1098,14 +1104,14 @@ Skipping the remaining statements with `continue` still counts as entering the b
 **5. Condition loops: only the initial condition matters**
 
 ```ube
-for (false) {
+while (false) {
     log('body')
 } else {
     log('initially false')
 }
 
 var remaining = 1
-for (remaining > 0) {
+while (remaining > 0) {
     log(remaining)
     remaining = remaining - 1
 } else {
@@ -1126,7 +1132,7 @@ finished
 
 ```ube
 var found = false
-each (item from [1, 3, 5]) {
+each (item in [1, 3, 5]) {
     if (item == 2) {
         found = true
         break
@@ -1150,7 +1156,7 @@ A nonempty search with no match still entered its body. Use a flag and a separat
 
 Boolean conditions are supported directly. Reference and nullable conditions
 check presence; use explicit comparisons for non-null numeric and string values.
-Numbers and strings are not accepted directly as `if` or `for` conditions.
+Numbers and strings are not accepted directly as `if` or `while` conditions.
 
 ```ube
 class App {
@@ -1605,7 +1611,7 @@ class App {
                   id)
                 final rows = read.query()
                 try {
-                    for (rows.next()) {
+                    while (rows.next()) {
                         log(
                           rows.getLong(0))
                         log(
