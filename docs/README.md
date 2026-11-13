@@ -22,6 +22,7 @@ Use `each (item in items)` for collection iteration, including comprehensions, `
 
 ## Runtime and application services
 
+- [Collection streams](streams.md): lazy typed pipelines, filtering, mapping, reductions, and collected lists
 - [Function values](functions.md): typed functions, captures, block lambdas, and `Async.start`
 - [Static members](static-members.md): fields, methods, qualification, and initialization
 

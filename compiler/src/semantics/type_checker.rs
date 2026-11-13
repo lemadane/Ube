@@ -1462,6 +1462,10 @@ impl TypeChecker {
             },
         );
 
+        self.classes.insert("Stream".into(), ClassInfo {
+            name: "Stream".into(), fields: HashMap::new(), methods: HashMap::new(),
+            param_types: vec![], min_constructor_args: 0, max_constructor_args: 0,
+        });
         self.classes.insert("Html".into(), ClassInfo {
             name: "Html".into(), fields: HashMap::new(), methods: HashMap::new(),
             param_types: vec![], min_constructor_args: 0, max_constructor_args: 0,
@@ -1758,6 +1762,9 @@ impl TypeChecker {
                 Item::Import(_) => None,
             };
             if let Some((name, span)) = declaration {
+                if name == "Stream" {
+                    self.diagnostics.push(Diagnostic::error("Stream is reserved for collection streams", Some(span)));
+                }
                 if name == "SQLStatement" {
                     self.diagnostics.push(Diagnostic::error("SQLStatement is reserved for checked SQL templates", Some(span)));
                 }
@@ -2116,7 +2123,11 @@ impl TypeChecker {
                 else_branch,
             } => {
                 self.symbol_table.push_scope();
-                let element_ty = if loop_var.is_some() && condition_or_iterable.as_ref().is_some_and(|expr| matches!(self.check_expr(cls, expr), Some(Type::Class { name }) if name == "ConsoleArgs")) { Type::String } else { Type::Int };
+                let element_ty = match condition_or_iterable.as_ref().and_then(|expr| self.check_expr(cls, expr)) {
+                    Some(Type::Sequence(element)) if loop_var.is_some() => *element,
+                    Some(Type::Class { name }) if loop_var.is_some() && name == "ConsoleArgs" => Type::String,
+                    _ => Type::Int,
+                };
                 if let Some(lvar) = loop_var {
                     self.symbol_table.insert(Symbol {
                         name: lvar.clone(),
@@ -2210,7 +2221,7 @@ impl TypeChecker {
                             if let Some(act) = actual_ty {
                                 if !self.is_assignable_to(&act, &expected_ret)
                                     && (act != Type::Void
-                                        || matches!(expected_ret, Type::Function { .. })
+                                        || matches!(expected_ret, Type::Function { .. } | Type::Stream(_) | Type::Sequence(_))
                                         || matches!(&expected_ret, Type::Class { name } if name == "Html" || name == "SQLStatement"))
                                 {
                                     self.diagnostics.push(Diagnostic::error(
@@ -2238,7 +2249,8 @@ impl TypeChecker {
                 if let Some(ty) = self.check_expr(cls, expr) {
                     if let Some(yields) = self.expression_yields.last_mut() {
                         yields.push(ty);
-                    } else if matches!(&self.current_return_type, Some(Type::Class { name }) if name == "Html" || name == "SQLStatement")
+                    } else if (matches!(&self.current_return_type, Some(Type::Class { name }) if name == "Html" || name == "SQLStatement")
+                        || matches!(&self.current_return_type, Some(Type::Stream(_) | Type::Sequence(_))))
                         && Some(&ty) != self.current_return_type.as_ref()
                     {
                         self.diagnostics.push(Diagnostic::error(
@@ -2506,6 +2518,17 @@ impl TypeChecker {
                 match &callee.kind {
                     ExprKind::MemberAccess { object, member, .. } => {
                         if let Some(obj_ty) = self.check_expr(cls, object) {
+                            if let Some(result) = crate::streams::call(&obj_ty, member, &arg_types) {
+                                let factory = matches!(&obj_ty, Type::Class { name } if name == "Stream");
+                                let class_receiver = matches!(&object.kind, ExprKind::Identifier(n) if self.symbol_table.lookup(n).is_none() && canonical_builtin_class_name(n).is_some());
+                                if factory != class_receiver {
+                                    self.diagnostics.push(Diagnostic::error("Stream factories require the class; stream operations require an instance", Some(expr.span)));
+                                }
+                                return match result {
+                                    Ok(ty) => Some(ty),
+                                    Err(message) => { self.diagnostics.push(Diagnostic::error(message, Some(expr.span))); None }
+                                };
+                            }
                             if let Some(result) = self.check_static_member(cls, object, &obj_ty, member, expr.span, Some(&arg_types), None) { return result; }
                             if member == "stacktrace" && matches!(&obj_ty, Type::Class { name } if name == "Error" || self.satisfies_trait(name, "Error")) {
                                 let class_receiver = matches!(&object.kind, ExprKind::Identifier(name) if self.symbol_table.lookup(name).is_none() && (self.classes.contains_key(name) || self.traits.contains_key(name)));
@@ -3095,6 +3118,10 @@ impl TypeChecker {
                 if class_name == "KeyValueStore" {
                     self.diagnostics.push(Diagnostic::error("Use KeyValueStore.open or openBuffered", Some(expr.span))); return None;
                 }
+                if class_name == "Stream" {
+                    self.diagnostics.push(Diagnostic::error("Use Stream.of, Stream.range, or list.stream(); Stream cannot be constructed", Some(expr.span)));
+                    return None;
+                }
                 if class_name == "Cache" {
                     self.diagnostics.push(Diagnostic::error("Use Cache.memory, Cache.open, Cache.openBuffered, or Cache.connect; Cache does not create instances directly", Some(expr.span)));
                     return None;
@@ -3356,6 +3383,10 @@ impl TypeChecker {
             ExprKind::IndexAccess { target, index } => {
                 let target_ty = self.check_expr(cls, target);
                 let index_ty = self.check_expr(cls, index);
+                if let Some(Type::Sequence(element)) = &target_ty {
+                    if index_ty != Some(Type::Int) { self.diagnostics.push(Diagnostic::error("List index must be int", Some(index.span))); }
+                    return Some(*element.clone());
+                }
                 if let Some(Type::Class { ref name }) = target_ty {
                     if name == "ConsoleArgs" {
                         if index_ty != Some(Type::Int) { self.diagnostics.push(Diagnostic::error("ConsoleArgs index must be int", Some(index.span))); }
@@ -3571,10 +3602,10 @@ impl TypeChecker {
                     self.symbol_table.pop_scope();
                 }
                 let yields = self.expression_yields.pop().unwrap();
-                for template_type in [
-                    Type::Class { name: "Html".into() },
-                    Type::Class { name: "SQLStatement".into() },
-                ] {
+                for template_type in yields.iter().filter(|ty|
+                    matches!(ty, Type::Stream(_) | Type::Sequence(_))
+                    || matches!(ty, Type::Class { name } if name == "Html" || name == "SQLStatement")
+                ).cloned() {
                     if yields.contains(&template_type) {
                         if yields.iter().any(|ty| ty != &template_type)
                             || !then_branch.iter().any(|s| self.stmt_definitely_returns(s))
@@ -3599,7 +3630,11 @@ impl TypeChecker {
             } => {
                 self.expression_yields.push(Vec::new());
                 self.symbol_table.push_scope();
-                let element_ty = if loop_var.is_some() && condition_or_iterable.as_ref().is_some_and(|expr| matches!(self.check_expr(cls, expr), Some(Type::Class { name }) if name == "ConsoleArgs")) { Type::String } else { Type::Int };
+                let element_ty = match condition_or_iterable.as_ref().and_then(|expr| self.check_expr(cls, expr)) {
+                    Some(Type::Sequence(element)) if loop_var.is_some() => *element,
+                    Some(Type::Class { name }) if loop_var.is_some() && name == "ConsoleArgs" => Type::String,
+                    _ => Type::Int,
+                };
                 if let Some(lvar) = loop_var {
                     self.symbol_table.insert(Symbol {
                         name: lvar.clone(),
@@ -3673,7 +3708,7 @@ impl TypeChecker {
         if matches!(to, Type::Class { name } if name == "Html" || name == "SQLStatement") {
             return from == to;
         }
-        if matches!(to, Type::Function { .. }) {
+        if matches!(to, Type::Function { .. } | Type::Stream(_) | Type::Sequence(_)) {
             return from == to;
         }
         if from == to || from == &Type::Void {
@@ -3717,6 +3752,8 @@ impl TypeChecker {
                 params: params.iter().map(|p| self.type_spec_to_type(p)).collect(),
                 return_type: Box::new(self.type_spec_to_type(return_type)),
             },
+            TypeSpec::Generic(name, element) if name == "Stream" => Type::Stream(Box::new(self.type_spec_to_type(element))),
+            TypeSpec::Generic(name, element) if name == "List" => Type::Sequence(Box::new(self.type_spec_to_type(element))),
             TypeSpec::Generic(name, element) if name == "Async" => {
                 Type::Async(Box::new(self.type_spec_to_type(element)))
             }

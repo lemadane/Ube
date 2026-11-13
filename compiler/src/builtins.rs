@@ -45,6 +45,7 @@ const BUILTIN_CLASS_NAMES: &[&str] = &[
     "JsonObject",
     "JsonParseError",
     "List",
+    "Stream",
     "Log",
     "Metrics",
     "Health",

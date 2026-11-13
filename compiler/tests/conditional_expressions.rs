@@ -172,7 +172,7 @@ fn nullable_and_numeric_branches_keep_their_result_types() {
 
 #[test]
 fn malformed_or_incompatible_branches_are_rejected() {
-    for expression in ["if true then 1 else 2", "if (true) then 1 else 2", "true 1 else 2", "true then 1", "true then else 2", "true then 1 else", "true ? 1 : 2"] {
+    for expression in ["if true then 1 else 2", "if (true) then 1 else 2", "true then 1", "true then else 2", "true then 1 else", "true ? 1 : 2"] {
         let source = format!("class App {{ start() {{ final value = {expression} }} }}");
         assert!(!diagnostics(&source).is_empty(), "{expression}");
     }
@@ -199,4 +199,28 @@ fn ternaries_preserve_braced_if_and_explicit_grouping() {
         }
     }
     "#, "3\n10\n2\n5\n8\n6\n");
+}
+
+#[test]
+fn else_fallback_is_lazy_and_composes_with_conditionals() {
+    runs(r#"
+    class App {
+        int fail() { throw 'fallback evaluated' }
+        start() {
+            int? missing = null
+            int? zero = 0
+            bool? no = false
+            print(missing else -1)
+            print(zero else this.fail())
+            print(no else true)
+            print(missing else missing else 7)
+            print(true then (missing else 3) else 4)
+            print(false then 3 else (missing else 4))
+            print((true then missing else 3) else 5)
+            print(missing else false then 6 else 7)
+            print(true then false then 1 else 2 else 3)
+        }
+    }
+    "#, "-1\n0\nfalse\n7\n3\n4\n5\n7\n2\n");
+    rejects("class App { start() { int? n = null final x = n else 'text' } }", "Incompatible fallback");
 }

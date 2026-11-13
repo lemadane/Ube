@@ -302,6 +302,8 @@ impl IrBuilder {
                 params: params.iter().map(|p| self.type_spec_to_type(p)).collect(),
                 return_type: Box::new(self.type_spec_to_type(return_type)),
             },
+            TypeSpec::Generic(name, element) if name == "Stream" => Type::Stream(Box::new(self.type_spec_to_type(element))),
+            TypeSpec::Generic(name, element) if name == "List" => Type::Sequence(Box::new(self.type_spec_to_type(element))),
             TypeSpec::Generic(name, element) if name == "Async" => {
                 Type::Async(Box::new(self.type_spec_to_type(element)))
             }
@@ -337,7 +339,7 @@ impl IrBuilder {
                 | IrInstruction::CallMethod { .. }
                 | IrInstruction::CallTrait { .. }
         ) || matches!(&instr, IrInstruction::CallRuntime { symbol, .. }
-                if symbol == "ube_html_escape" || symbol.starts_with("ube_kv_") || symbol.starts_with("ube_json") || symbol.starts_with("ube_xml") || symbol == "ube_to_xml" || symbol.starts_with("ube_cache_") || symbol.starts_with("ube_args_") || symbol.starts_with("ube_observability_") || symbol.starts_with("ube_metrics_") || symbol.starts_with("ube_task_outcome") || symbol.starts_with("ube_env_") || symbol.starts_with("ube_rest_") || symbol.starts_with("ube_mockery_") || symbol.starts_with("ube_testicle_") || symbol.starts_with("ube_exchange_") || symbol.starts_with("ube_money_") || symbol.starts_with("ube_orm_") || symbol.starts_with("ube_sql_") || symbol.starts_with("ube_jwt_") || symbol.starts_with("ube_oauth2_") || symbol.starts_with("ube_session_") || matches!(symbol.as_str(), "ube_request_session" | "ube_request_query" | "ube_request_header" | "ube_request_body" | "ube_response_redirect") || symbol.starts_with("ube_console_") || symbol.starts_with("ube_output_") || symbol.starts_with("ube_log_") || symbol.starts_with("ube_sqlite_") || symbol.starts_with("ube_file_") || symbol.starts_with("ube_directory_")
+                if symbol.starts_with("ube_sequence_") || symbol == "ube_html_escape" || symbol.starts_with("ube_kv_") || symbol.starts_with("ube_json") || symbol.starts_with("ube_xml") || symbol == "ube_to_xml" || symbol.starts_with("ube_cache_") || symbol.starts_with("ube_args_") || symbol.starts_with("ube_observability_") || symbol.starts_with("ube_metrics_") || symbol.starts_with("ube_task_outcome") || symbol.starts_with("ube_env_") || symbol.starts_with("ube_rest_") || symbol.starts_with("ube_mockery_") || symbol.starts_with("ube_testicle_") || symbol.starts_with("ube_exchange_") || symbol.starts_with("ube_money_") || symbol.starts_with("ube_orm_") || symbol.starts_with("ube_sql_") || symbol.starts_with("ube_jwt_") || symbol.starts_with("ube_oauth2_") || symbol.starts_with("ube_session_") || matches!(symbol.as_str(), "ube_request_session" | "ube_request_query" | "ube_request_header" | "ube_request_body" | "ube_response_redirect") || symbol.starts_with("ube_console_") || symbol.starts_with("ube_output_") || symbol.starts_with("ube_log_") || symbol.starts_with("ube_sqlite_") || symbol.starts_with("ube_file_") || symbol.starts_with("ube_directory_")
                     || symbol.starts_with("ube_stream_") || symbol.starts_with("ube_server_"));
         self.current_instructions.push(instr);
         if check {
@@ -796,7 +798,7 @@ impl IrBuilder {
             | Type::OutputStream
             | Type::FileStream
             | Type::Async(_)
-            | Type::Channel(_) => IrOperand::NullOf(ty.clone()),
+            | Type::Channel(_) | Type::Stream(_) | Type::Sequence(_) => IrOperand::NullOf(ty.clone()),
             Type::Nullable(_) => IrOperand::NullOf(ty.clone()),
             _ => IrOperand::Null,
         }
@@ -1692,8 +1694,9 @@ impl IrBuilder {
                     }
                     if let Some(loop_name) = loop_var {
                         let strings = matches!(list.get_type(), Type::Class { name } if name == "ConsoleArgs");
-                        let ty = if strings { Type::String } else { Type::Int };
-                        let value = self.runtime(if strings { "ube_args_get" } else { "ube_list_get" }, vec![list.clone(), IrOperand::Register(index_reg, Type::Int)], ty.clone());
+                        let typed = matches!(list.get_type(), Type::Sequence(_));
+                        let ty = match list.get_type() { Type::Sequence(element) => *element, _ if strings => Type::String, _ => Type::Int };
+                        let value = self.runtime(if typed { "ube_sequence_get" } else if strings { "ube_args_get" } else { "ube_list_get" }, vec![list.clone(), IrOperand::Register(index_reg, Type::Int)], ty.clone());
                         let value_slot = self.fresh_reg();
                         self.emit(IrInstruction::Alloca { dest: value_slot, ty: ty.clone() });
                         self.emit(IrInstruction::Store { val: value, ptr: value_slot });
@@ -2189,6 +2192,10 @@ impl IrBuilder {
                         } else {
                             prepared_receiver.take().unwrap_or_else(|| self.build_expr(object))
                         };
+                        let stream_receiver = static_class_name.as_ref().map(|name| Type::Class { name: name.clone() }).unwrap_or_else(|| obj_op.get_type());
+                        if let Some(Ok(result)) = crate::streams::call(&stream_receiver, member, &arg_ops.iter().map(IrOperand::get_type).collect::<Vec<_>>()) {
+                            return self.build_stream_call(&stream_receiver, obj_op, member, arg_ops, result);
+                        }
                         let dest = self.fresh_reg();
                         let mut class_name =
                             static_class_name.unwrap_or_else(|| match obj_op.get_type() {
@@ -3982,6 +3989,9 @@ impl IrBuilder {
             ExprKind::IndexAccess { target, index } => {
                 let target_op = self.build_expr(target);
                 let index_op = self.build_expr(index);
+                if let Type::Sequence(element) = target_op.get_type() {
+                    return self.runtime("ube_sequence_get", vec![target_op, index_op], *element);
+                }
                 if let Type::Class { ref name } = target_op.get_type() {
                     if name == "ConsoleArgs" {
                         return self.runtime("ube_args_get", vec![target_op, index_op], Type::String);
@@ -4351,3 +4361,5 @@ impl IrBuilder {
 include!("closures.rs");
 
 include!("ranges.rs");
+
+include!("streams.rs");

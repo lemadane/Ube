@@ -1,0 +1,24 @@
+class App {
+    start() {
+        final numbers = [5, 2, 3, 2, 1]
+        final result = numbers.stream()
+            .filter((int n) -> n > 1)
+            .unique()
+            .sort()
+            .map((int n) -> n * 10)
+            .toList()
+
+        each (number in result) { print(number) }
+        print(result.stream().sum())
+
+        final names = Stream.of('pear', 'apple', 'pear')
+            .unique().sort().toList()
+        names.stream().forEach((string name) -> print(name))
+
+        print(Stream.range(1, 100).findFirst((int n) -> n == 3) else -1)
+        print(Stream.of().findFirst() else -1)
+        print(numbers.stream().some((int n) -> n > 3))
+        print(numbers.stream().every((int n) -> n > 0))
+        print(numbers.stream().none((int n) -> n < 0))
+    }
+}

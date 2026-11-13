@@ -736,3 +736,13 @@ Supported HTMX attributes also accept the `data-hx-*` spelling with identical in
 `sql` followed by a backtick template is a built-in expression producing the reserved `SQLStatement` type. Literal SQL segments remain separate from typed bindings. Interpolation accepts non-null strings, bytes, integers, longs, decimals, and booleans, evaluated once in source order. Templates reject interpolation in quoted SQL or comments, embedded tokens, and unsupported value types. SQL grammar and schema validation remain runtime database responsibilities.
 
 `SQLStatement` values are immutable and garbage-collected. `SQL.query/execute` and `SQLTransaction.query/execute` accept a statement as a single argument; existing string-plus-`SQLParams` overloads remain available. Placeholder generation occurs at execution using the selected database dialect. See [USQL](docs/usql.md) for lexical restrictions, lifecycle, and examples.
+
+## Collection streams and typed collected lists
+
+`Stream<T>` represents a sequential, single-use collection pipeline; it is distinct from IO stream types. `Stream.of(...)`, `Stream.range(int, int)`, and collection `.stream()` methods construct streams. Callbacks have exact `Func` signatures; `map` determines a new element type. Terminal `toList()`/`collect()` returns `List<T>`, preserving types for indexing, iteration, and further streams. Existing list literals remain untyped lists; their `.stream()` method validates integer elements at runtime.
+
+Pipeline execution is lazy and ordered. Linking invalidates the previous handle; terminal operations consume the pipeline even on exception. `findFirst()` and `findFirst(Func(T) -> bool)` return `T?`; the predicate overload stops at the first matching element or returns `null` if none matches. `reduce` requires an identity. See [collection streams](docs/streams.md) for the supported operations, limits, and cleanup behavior.
+
+### Null fallback with `else`
+
+`value else fallback` evaluates `fallback` only when `value` is null, returning the non-null value otherwise. Zero and false are preserved. The existing `??` spelling remains supported. Fallback chains associate to the right: `a else b else c` means `a else (b else c)`. `else` fallback binds less tightly than `then` conditionals and other binary operators; use parentheses for a fallback inside a conditional branch, for example `flag then (value else 0) else 1`.

@@ -1945,3 +1945,7 @@ available yet.
 ## License
 
 Ube is open-source software licensed under the [MIT License](LICENSE).
+
+## Collection streams
+
+Use `values.stream()` for existing integer lists or `Stream.of(...)` for typed scalar/object sources. Pipelines support lazy `filter`, `map`, `peek`, `limit`, `skip`, `unique`, and `sort`, with terminals including `toList`, `count`, `sum`, `reduce`, `forEach`, and short-circuiting matches. Collected `List<T>` results preserve element types. Streams are sequential and single-use; see [the stream guide](docs/streams.md) and [runnable example](examples/streams/App.ube).

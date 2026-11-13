@@ -305,3 +305,9 @@ The scanner classifies `data-hx-*` using the corresponding `hx-*` attribute rule
 The template parser preserves literal/interpolation boundaries in `ExprKind::SqlTemplate`. A conservative SQL scanner checks interpolation positions across supported quoting modes; semantic analysis restricts bindings to supported non-null scalars and returns reserved type `SQLStatement`. IR lowering evaluates each expression once and appends an immutable typed node.
 
 Runtime statement nodes contain a traced predecessor pointer and inline scalar/text payloads, so normal GC reclaims partial and completed statements without registry handles or finalizers. SQL runtime calls borrow statement pointers synchronously and do not permanently escape them. Execution snapshots the chain into dialect-specific SQL placeholders plus driver parameter values, then enters the same execution path as raw SQL. Transactions, error handling, and result cursors are shared. See [USQL](docs/usql.md).
+
+## Collection stream execution
+
+Compiler `Stream` and `Sequence` types retain element types for stream pipelines and collected lists. Shared signature resolution validates callback and terminal types. LLVM callback adapters translate typed `Func.invoke` calls into the runtime's two-payload ABI, preserving scalar widths, decimal bits, and object references.
+
+The sequential runtime owns a bounded chain of lazy cursors. Linking and terminal operations move the pipeline out of its registry before evaluating callbacks. Explicit GC roots retain source values, captures, mapped objects, and stateful distinct/sort buffers. Consuming or closing a pipeline releases those roots, including on exceptions and short-circuit returns. Temporary lists used by `Stream.of` borrow compiler-rooted values and are released after transfer to stream storage. Collected lists use the existing typed collection metadata and ownership rules.

@@ -1,5 +1,6 @@
 mod async_lowering;
 mod json;
+mod streams;
 use crate::ir::nodes::*;
 use crate::parser::BinaryOp;
 use crate::types::Type;
@@ -47,6 +48,7 @@ impl TextualLlvmEmitter {
         self.output
             .push_str("; Target Data Layout for Ube Native Binary\n");
         self.output.push_str("target datalayout = \"e-m:e-p270:32:32-p271:32:32-p272:64:64-i64:64-f80:128-n8:16:32:64-S128\"\n\n");
+        self.output.push_str("declare i64 @ube_sequence_invalid_callback()\ndeclare i8* @ube_sequence_source(i8*, i64, i8*)\ndeclare i8* @ube_sequence_owned_source(i8*, i64, i8*)\ndeclare void @ube_sequence_values_add(i8*, i64, i64, i8*)\ndeclare void @ube_sequence_list_add(i8*, i64, i64, i8*)\ndeclare i8* @ube_sequence_range(i32, i32)\ndeclare i8* @ube_sequence_stage(i8*, i32, i8*, i64 (i8*, i64, i64)*, i64, i64, i8*)\ndeclare { i64, i64 } @ube_sequence_terminal(i8*, i32, i8*, i64 (i8*, i64, i64)*, i64)\ndeclare void @ube_sequence_close(i8*)\ndeclare i64 @ube_sequence_get(i8*, i32)\n");
 
         self.output.push_str("declare void @ube_static_pending(i8*)\ndeclare { i64, i64 } @ube_static_load(i8*, i64)\ndeclare void @ube_static_store(i8*, i64, i64, i1)\n");
         self.output.push_str("declare i8* @ube_task_spawn_poll(i64, i8*, i64)\ndeclare { i64, i64 } @ube_poll_get(i8*, i64)\ndeclare void @ube_poll_set(i8*, i64, i64, i64, i1)\ndeclare i64 @ube_poll_pc(i8*)\ndeclare i1 @ube_poll_step(i8*, i64)\ndeclare i1 @ube_poll_await(i8*, i8*)\ndeclare { i64, i64 } @ube_poll_value(i8*)\ndeclare void @ube_poll_finish(i8*, i64, i64)\n");
@@ -823,6 +825,7 @@ impl TextualLlvmEmitter {
             for instruction in &block.instructions {
                 if matches!(instruction, IrInstruction::Alloca { .. }) { continue; }
                 let escaping = match instruction {
+                    IrInstruction::CallRuntime { symbol, .. } if symbol.starts_with("ube_sequence_") => Vec::new(),
                     // SQL template calls borrow their GC-managed statement and snapshot
                     // bindings synchronously; they never retain a pointer outside the call.
                     IrInstruction::CallRuntime { symbol, args, .. } if symbol.starts_with("ube_sql_") => args.iter().filter(|arg| arg.get_type() != (Type::Class { name: "SQLStatement".into() })).cloned().collect(),
@@ -1318,6 +1321,9 @@ impl TextualLlvmEmitter {
                     lines.push(format!("call void @ube_map_put_typed({})", encoded_args.join(", ")));
                     return lines.join("\n  ");
                 }
+                if symbol.starts_with("ube_sequence_") {
+                    return self.emit_stream_call(*dest, symbol, args, ret_ty);
+                }
                 if symbol == "ube_list_add" {
                     let list = self.emit_operand(&args[0]);
                     let value = &args[1];
@@ -1663,6 +1669,7 @@ impl TextualLlvmEmitter {
                 "i8*".to_string()
             }
             Type::Void => "void".to_string(),
+            Type::Stream(_) | Type::Sequence(_) => "i8*".to_string(),
             Type::Async(_) => "i8*".to_string(),
             Type::Channel(_) => "i8*".to_string(),
             Type::Class { name }

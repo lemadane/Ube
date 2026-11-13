@@ -43,10 +43,14 @@ pub extern "C" fn ube_list_add(ptr: *mut UbeList, val: i64) {
 }
 
 pub(crate) fn add_typed(ptr: *mut UbeList, val: i64, meta: u64, kind: i64, name: &str) {
+    add_with_retention(ptr, val, meta, kind, name, true);
+}
+
+pub(crate) fn add_with_retention(ptr: *mut UbeList, val: i64, meta: u64, kind: i64, name: &str, retain: bool) {
     if let Some(list) = unsafe { ptr.as_ref() } {
         let mut items = list.items.lock().unwrap();
         let mut types = list.json_types.lock().unwrap();
-        if matches!(kind & 255, 6 | 7 | 8 | 10 | 11) && val != 0 {
+        if retain && matches!(kind & 255, 6 | 7 | 8 | 10 | 11) && val != 0 {
             // Lists are runtime-owned handles; retain their generated references
             // through runtime cleanup, just as other escaping references are retained.
             crate::gc::ube_gc_escape(val as *mut std::ffi::c_void);

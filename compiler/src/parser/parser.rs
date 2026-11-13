@@ -7,6 +7,7 @@ use crate::lexer::{Lexer, Token, TokenKind};
 pub enum Precedence {
     None,
     Assignment,     // =, ??=
+    Fallback,       // value else fallback
     Conditional,    // then ... else ...
     With,           // with
     NullCoalescing, // ??
@@ -26,6 +27,7 @@ impl Precedence {
         match kind {
             TokenKind::Equal | TokenKind::QuestionQuestionEqual => Precedence::Assignment,
             TokenKind::Identifier(name) if name == "then" => Precedence::Conditional,
+            TokenKind::Else => Precedence::Fallback,
             TokenKind::With => Precedence::With,
             TokenKind::QuestionQuestion => Precedence::NullCoalescing,
             TokenKind::Or => Precedence::Or,
@@ -1482,9 +1484,11 @@ impl<'a> Parser<'a> {
         match tok.kind {
             TokenKind::Identifier(name) if name == "then" => {
                 self.advance();
-                let when_true = self.parse_expr(Precedence::None)?;
+                // Leave the branch delimiter for this conditional; grouped fallbacks
+                // are parsed independently inside parentheses.
+                let when_true = self.parse_expr(Precedence::Fallback)?;
                 self.expect(&TokenKind::Else, "else after conditional then branch")?;
-                let when_false = self.parse_expr(Precedence::Assignment)?;
+                let when_false = self.parse_expr(Precedence::Fallback)?;
                 let span = Span::combine(left.span, when_false.span);
                 Ok(Expr {
                     kind: ExprKind::Conditional {
@@ -1683,7 +1687,11 @@ impl<'a> Parser<'a> {
             }
             _ => {
                 self.advance();
-                let right = self.parse_expr(prec)?;
+                let right = self.parse_expr(if matches!(tok.kind, TokenKind::Else) {
+                    Precedence::Assignment
+                } else {
+                    prec
+                })?;
                 let bin_op = match tok.kind {
                     TokenKind::Plus => BinaryOp::Add,
                     TokenKind::Minus => BinaryOp::Sub,
@@ -1698,7 +1706,7 @@ impl<'a> Parser<'a> {
                     TokenKind::GreaterEqual => BinaryOp::GreaterEqual,
                     TokenKind::And => BinaryOp::And,
                     TokenKind::Or => BinaryOp::Or,
-                    TokenKind::QuestionQuestion => BinaryOp::NullCoalescing,
+                    TokenKind::QuestionQuestion | TokenKind::Else => BinaryOp::NullCoalescing,
                     TokenKind::DotDot => BinaryOp::Range,
                     _ => {
                         self.diagnostics.push(Diagnostic::error(

@@ -15,6 +15,8 @@ pub enum Type {
     FileStream,
     Async(Box<Type>),
     Channel(Box<Type>),
+    Stream(Box<Type>),
+    Sequence(Box<Type>),
     Orm { model: String, kind: crate::orm::Kind, joins: Vec<(String, String)> },
     Class {
         name: std::string::String,
@@ -72,6 +74,8 @@ impl fmt::Display for Type {
             Type::FileStream => write!(f, "FileStream"),
             Type::Async(result) => write!(f, "Async<{}>", result),
             Type::Channel(element) => write!(f, "Channel<{}>", element),
+            Type::Stream(element) => write!(f, "Stream<{}>", element),
+            Type::Sequence(element) => write!(f, "List<{}>", element),
             Type::Class { name } => write!(f, "{}", name),
             Type::Orm { model, kind, .. } => write!(f, "{}<{}>", kind.class(), model),
 

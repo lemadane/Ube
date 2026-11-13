@@ -15,6 +15,7 @@ impl TextualLlvmEmitter {
             Type::Decimal => (5, "decimal".into()),
             Type::String => (6, "string".into()),
             Type::Void => (9, "null".into()),
+            Type::Sequence(_) => (10, "List".into()),
             Type::Class { name } if name == "Map" => (11, name.clone()),
             Type::Class { name } if name == "List" => (10, name.clone()),
             Type::Class { name } if self.class_map.contains_key(name) => (7, name.clone()),

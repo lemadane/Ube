@@ -28,6 +28,7 @@ pub mod orm;
 pub mod sessions;
 pub mod auth;
 pub mod secrets;
+pub mod sequences;
 
 
 #[no_mangle]
@@ -50,6 +51,7 @@ pub extern "C" fn ube_runtime_cleanup() {
     orm::cleanup();
     sql_builder::cleanup();
     sql::cleanup();
+    sequences::cleanup();
     sqlite::cleanup();
     logging::ube_log_clear();
     sessions::cleanup();

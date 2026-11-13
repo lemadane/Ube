@@ -11,6 +11,7 @@ pub mod resolver;
 pub mod rest_in_peace;
 pub mod semantics;
 pub mod source;
+pub mod streams;
 pub mod types;
 
 pub use diagnostics::{Diagnostic, DiagnosticEmitter};
