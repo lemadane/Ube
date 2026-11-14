@@ -1,0 +1,25 @@
+use GameState
+use Invader
+use Shield
+
+class GameFactory {
+    GameState create() {
+        final invaders = Stream.range(
+          0,
+          40)
+          .map(
+            (int cell) -> new Invader(
+              cell % 8,
+              cell / 8))
+          .toList()
+        final shields = Stream.range(
+          0,
+          3)
+          .map(
+            (int index) -> new Shield(80 + index * 112))
+          .toList()
+        return new GameState(
+          invaders,
+          shields)
+    }
+}

@@ -403,6 +403,7 @@ impl<'a> Lexer<'a> {
 
         match ident_str {
             "class" => TokenKind::Class,
+            "new" => TokenKind::New,
             "trait" => TokenKind::Trait,
             "final" => TokenKind::Final,
             "var" => TokenKind::Var,

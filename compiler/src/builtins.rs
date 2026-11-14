@@ -23,7 +23,7 @@ const BUILTIN_CLASS_NAMES: &[&str] = &[
     "FileNotFoundError",
     "Func",
     "GenericError",
-    "Gc",
+    "GarbageCollector",
     "GeoBounds",
     "GeoPoint",
     "Geolocation",
@@ -765,7 +765,7 @@ pub fn task_outcome_methods(class: &str) -> Vec<BuiltinMethod> {
     use crate::types::Type;
     let methods = match class {
         "TaskOutcomes" => vec![
-            ("len", "ube_task_outcomes_len", vec![], Type::Int),
+            ("length", "ube_task_outcomes_len", vec![], Type::Int),
             ("get", "ube_task_outcomes_get", vec![Type::Int], Type::Class { name: "TaskOutcome".into() }),
         ],
         "TaskOutcome" => vec![
@@ -806,7 +806,7 @@ pub fn observability_methods(class: &str) -> Vec<BuiltinMethod> {
 pub fn console_args_methods() -> Vec<BuiltinMethod> {
     use crate::types::Type;
     vec![
-        BuiltinMethod { name: "len", symbol: "ube_args_len", params: vec![], result: Type::Int, is_static: false },
+        BuiltinMethod { name: "length", symbol: "ube_args_len", params: vec![], result: Type::Int, is_static: false },
         BuiltinMethod { name: "get", symbol: "ube_args_get", params: vec![Type::Int], result: Type::String, is_static: false },
     ]
 }
@@ -871,7 +871,7 @@ pub fn xml_methods(class: &str) -> Vec<BuiltinMethod> {
             method("child","ube_xmlement_child",vec![Type::String],cls("XmlElement"),false),
             method("childAt","ube_xml_child_at",vec![Type::String,Type::Int],cls("XmlElement"),false),
             method("childCount","ube_xml_child_count",vec![Type::String],Type::Int,false),
-            method("childNs","ube_xml_child_ns",vec![Type::String,Type::String],cls("XmlElement"),false),
+            method("childInNamespace","ube_xml_child_ns",vec![Type::String,Type::String],cls("XmlElement"),false),
             method("element","ube_xmlement_element",vec![Type::String],cls("XmlElement"),false),
             method("text","ube_xmlement_text",vec![Type::String],cls("XmlElement"),false),
             method("getText","ube_xmlement_get_text",vec![],Type::String,false),

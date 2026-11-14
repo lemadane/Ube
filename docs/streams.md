@@ -35,7 +35,7 @@ It prints `20`, `30`, `50`, `100`, `apple`, `pear`, `3`, `-1`, `true`, `true`, a
 
 `Stream.of` supports `int`, `long`, `byte`, `decimal`, `bool`, `string`, and class values. Arguments must have exactly the same type; there is no implicit mixed numeric promotion. Nullable values, functions, nested streams, and nested typed collections are not supported as elements in this version.
 
-Existing list literals retain their legacy untyped `List` representation. To stream strings or objects, use `Stream.of('a', 'b')` or `Stream.of(User(...), User(...))`. Collected results preserve the element type as `List<T>`.
+Existing list literals retain their legacy untyped `List` representation. To stream strings or objects, use `Stream.of('a', 'b')` or `Stream.of(new User(...), new User(...))`. Collected results preserve the element type as `List<T>`.
 
 ```ube
 Stream<string> names = Stream.of('pear', 'apple')
@@ -43,7 +43,7 @@ List<string> sorted = names.sort().toList()
 print(sorted[0])
 ```
 
-Typed lists support `len()`, checked `get(int)` or `[index]`, `add(T)`, `each`, and `.stream()`. They are mutable; adding a value requires the exact element type. List sources snapshot their contents when `.stream()` is called. Later additions to the list do not affect that stream. Object elements are shared references, not deep copies.
+Typed lists support `length()`, checked `get(int)` or `[index]`, `add(T)`, `each`, and `.stream()`. They are mutable; adding a value requires the exact element type. List sources snapshot their contents when `.stream()` is called. Later additions to the list do not affect that stream. Object elements are shared references, not deep copies.
 
 ## Intermediate operations
 

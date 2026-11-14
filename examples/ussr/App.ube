@@ -3,16 +3,16 @@ use TodoPage
 
 class App {
     start() {
-        final server = Server()
+        final server = new Server()
         server.get('/', (Request request) -> {
             final completed = request.session().get('completed') == 'yes'
-            return Response.ok(TodoPage().render(completed))
+            return Response.ok(new TodoPage().render(completed))
         })
         server.post('/toggle', (Request request) -> {
             final session = request.session()
             final completed = session.get('completed') != 'yes'
             session.set('completed', completed then 'yes' else 'no')
-            return Response.ok(Todo().render('Learn Ube & HTML', completed))
+            return Response.ok(new Todo().render('Learn Ube & HTML', completed))
         })
         server.start(8080)
     }

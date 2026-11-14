@@ -709,6 +709,14 @@ pub extern "C" fn ube_response_create(status: i32, body_ptr: *const c_char) -> *
     }))
 }
 
+/// JSON responses share the response body ABI while preserving their media type.
+#[no_mangle]
+pub extern "C" fn ube_response_json(body: *const c_char) -> *mut UbeResponse {
+    let response = ube_response_create(200, body);
+    unsafe { (*response).content_type = "application/json; charset=utf-8"; }
+    response
+}
+
 /// Html values can only be produced by checked templates in generated code.
 #[no_mangle]
 pub extern "C" fn ube_response_html(body: *const c_char) -> *mut UbeResponse {
@@ -1125,6 +1133,18 @@ pub extern "C" fn ube_jsonobject_get_bool(obj: *mut UbeJsonObject, key: *const c
 #[cfg(test)]
 mod error_tests {
     use super::*;
+
+    #[test]
+    fn json_response_preserves_body_and_media_type() {
+        let response = ube_response_json(c"{\"score\":30}".as_ptr());
+        unsafe {
+            let response = Box::from_raw(response);
+            assert_eq!(response.status, 200);
+            assert_eq!(response.content_type, "application/json; charset=utf-8");
+            let body = CString::from_raw(response.body);
+            assert_eq!(body.to_str().unwrap(), "{\"score\":30}");
+        }
+    }
 
     #[test]
     fn stream_eof_is_success_but_closed_stream_and_invalid_buffer_raise() {

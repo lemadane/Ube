@@ -1,0 +1,5 @@
+// A formation member. Position comes from its grid cell and formation offset.
+class Invader(
+  int column,
+  int row,
+  var bool alive = true)

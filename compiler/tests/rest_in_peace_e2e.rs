@@ -218,7 +218,7 @@ fn fluent_requests_send_real_methods_headers_queries_json_and_inspect_responses(
                 Testicle.isTrue(response.header('unknown') == null)
                 Testicle.isTrue(response.hasHeader('x-empty'))
                 Testicle.equal('', response.header('x-empty') ?? 'missing')
-                Testicle.isTrue(response.elapsedMs() >= 0L)
+                Testicle.isTrue(response.elapsedMilliseconds() >= 0L)
                 Testicle.equal('HTTP/1.1', response.protocol())
                 response.close()
                 request.close()
@@ -399,7 +399,7 @@ fn https_verifies_certificates_and_negotiates_http2_with_an_explicit_test_ca() {
             try {{ untrusted.get('/') }} catch (RestInPeaceError error) {{ caught = true }}
             Testicle.isTrue(caught)
             untrusted.close()
-            final request = RestInPeace.at('https://localhost:{port}').caFile('{}')
+            final request = RestInPeace.at('https://localhost:{port}').certificateAuthorityFile('{}')
             final response = request.get('/').expectStatus(200)
             Testicle.equal('HTTP/2', response.protocol())
             Testicle.isTrue(response.jsonBool('/secure'))

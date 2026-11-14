@@ -155,7 +155,7 @@ use greetings.Greeting
 class App {
     start() {
         log(
-          Greeting()
+          new Greeting()
             .message())
     }
 }
@@ -228,21 +228,21 @@ put each class or trait in its own file and import its dependencies.
 
 ## Command-line formatting
 
-`ube fmt` uses the same formatter as the VS Code extension. It requires Node.js
+`ube format` uses the same formatter as the VS Code extension. It requires Node.js
 18 or newer. The formatter is embedded in the compiler binary, so an installed
 `ube` does not need VS Code, an npm package, or the source checkout.
 
 ```bash
-ube fmt -w src tests
-ube fmt --check src tests
-ube fmt < src/App.ube
+ube format -w src tests
+ube format --check src tests
+ube format < src/App.ube
 ```
 
 From this repository, build or run the updated compiler:
 
 ```bash
 cargo build -p ube-compiler
-cargo run -p ube-compiler -- fmt -w src tests
+cargo run -p ube-compiler -- format -w src tests
 ```
 
 With no options, formatted source goes to stdout. `-w` updates files in place;
@@ -317,7 +317,7 @@ ube run App.ube -- hello 'two words' --verbose
 ./App hello 'two words' --verbose
 ```
 
-`Console.args()` returns a read-only `ConsoleArgs` collection, excluding the executable name. Use `args.len()`, `args.get(0)`, or `args[0]`; elements are strings. Empty arguments, whitespace, Unicode, and argument order are preserved. Invalid indexes raise catchable errors. With no arguments, the collection is empty. The CLI forwards everything after `--` unchanged as application arguments; with a project manifest, `ube run -- hello` works too. Native argument bytes that are not valid UTF-8 become Unicode replacement characters. The API exposes arguments only; it does not parse flags or read environment variables.
+`Console.args()` returns a read-only `ConsoleArgs` collection, excluding the executable name. Use `args.`, `args.get(0)`, or `args[0]`; elements are strings. Empty arguments, whitespace, Unicode, and argument order are preserved. Invalid indexes raise catchable errors. With no arguments, the collection is empty. The CLI forwards everything after `--` unchanged as application arguments; with a project manifest, `ube run -- hello` works too. Native argument bytes that are not valid UTF-8 become Unicode replacement characters. The API exposes arguments only; it does not parse flags or read environment variables.
 
 ## Language Core Principles & Policies
 
@@ -447,7 +447,7 @@ in executable Ube code yet. Use explicit `if`/`else` branches.
 - The Rust runtime provides typed `Task<T>` results/errors, completion-based combinators, timeouts, cancellation, and bounded closable channels.
 - The compiler ABI transports task and channel values through an inline two-word value (64-bit payload plus presence metadata), encoding primitive values and pointers. `Async.start` produces `Async<T>`; `.await()` retrieves `T`; failures propagate into a surrounding `try`/`catch`.
 - One rule: **start work with `Async.start`, then call `.await()` when its result is needed.** Ordinary methods need no `async` declaration.
-- `Channel<T>(capacity)` is a typed bounded channel: `ch.send(v).await()` (false once closed), `ch.receive().await()`, and `ch.close()`. A closed-channel receive after queued values are drained is catchable.
+- `new Channel<T>(capacity)` is a typed bounded channel: `ch.send(v).await()` (false once closed), `ch.receive().await()`, and `ch.close()`. A closed-channel receive after queued values are drained is catchable.
 - `task.timeout(ms).await()` fails with a catchable `task timed out` and cancels the task; it works on any task, including `ch.receive()`.
 - Ube uses `Async<T>` and combinators such as `Async.all(...)` and `Async.race(...)`. Legacy `async` and prefix `await` forms remain accepted for source compatibility; new code should use `Async.start(() -> expression)` and `value.await()`.
 - Unhandled failures propagate out of async code and otherwise stop the program with a clear error.
@@ -456,7 +456,7 @@ in executable Ube code yet. Use explicit `if`/`else` branches.
 - **`try` Block**: Followed by typed catches, a `finally` block, or both.
 - **Typed Catches**: `catch (Error err)` handles any error; concrete classes and structural error traits can narrow the match. Optional `if (condition)` guards select handlers in source order.
 - **`finally` Cleanup**: Runs on normal completion, errors, returns, and loop exits. If cleanup throws while another error is pending, the cleanup error replaces it and preserves the original as suppressed.
-- **`throw` Keyword**: `throw 'msg'` wraps a string in `GenericError`; `throw CustomError(...)` preserves the error object. Error objects structurally provide `string message()`.
+- **`throw` Keyword**: `throw 'msg'` wraps a string in `GenericError`; `throw new CustomError(...)` preserves the error object. Error objects structurally provide `string message()`.
 
 
 ### 16. First-Class `if` Expressions & `each` Comprehensions (Mandatory `{}` & `yield`)
@@ -497,14 +497,14 @@ Do not prefix a ternary expression with `if`; use `condition then yes else no`. 
 ### 18. Unified `DateTime` (`Instant` + Timezone) & `Duration` Standard Library
 - **Single `DateTime` Class**: Eliminates Java's multi-class date/time API clutter (`Date`, `Time`, `LocalDate`, `LocalTime`, `LocalDateTime`, `ZonedDateTime`, `Instant`). One unified `DateTime` represents both the exact UTC Instant and its timezone display.
 - **Instant Invariance**: `manila.in('Asia/Tokyo')` changes displayed clock time (`17:00` vs `18:00`) while preserving `manila.timestamp() == tokyo.timestamp()` (representing the exact same instant).
-- **Unix Timestamps & Timezones**: `dt.timestamp()`, `dt.unix()`, `dt.unixMillis()`, `dt.unixNanos()`, `DateTime.fromUnix(sec)`, `DateTime.fromUnixMillis(ms)`.
+- **Unix Timestamps & Timezones**: `dt.timestamp()`, `dt.unix()`, `dt.unixMilliseconds()`, `dt.unixNanos()`, `DateTime.fromUnix(sec)`, `DateTime.fromUnixMilliseconds(ms)`.
 - **Dedicated `Duration` Class**: `Duration.seconds(n)`, `Duration.hours(n)`, `Duration.days(n)` cleanly represents time amounts (`dt.addDuration(duration)`).
 
 ### 19. Financial Standard Library (`Money`, `Currency`, `Exchange`, `Percent`, `Rate`)
 - **Exact Money API**: `Money.parse('0.10', 'PHP')`, `.amountText()`, `.multiplyPercent('12.5')`, and `.convertExact('USD', '0.1')` use checked decimal arithmetic without silent rounding. Numeric factories and `.amount()` remain approximate `f64` boundaries; language `decimal` is unchanged. See [limits and error behavior](docs/financial.md).
 - **Currency Safety**: `subtotal.add(shipping)` and `total.subtract(discount)` strictly enforce matching currencies. Mismatched currencies raise catchable `CurrencyMismatchError` through the exception ABI unless explicitly converted via `Exchange.convert(dollar, Currency.PHP, rate)`.
 - **Standard Currencies**: `Currency.PHP`, `Currency.USD`, `Currency.EUR`, `Currency.JPY`, `Currency.GBP`.
-- **Financial Percentages & Rates**: `Percent(12)` and `Rate.percent(5.5)` for tax, interest, and discount calculations (`price.multiply(vat)`).
+- **Financial Percentages & Rates**: `new Percent(12)` and `Rate.percent(5.5)` for tax, interest, and discount calculations (`price.multiply(vat)`).
 
 ### 20. Native Filesystem Standard Library (`File`, `FileInfo`, `Directory`, `Path`)
 - **Catchable File Errors**: File and directory failures raise typed errors such as `FileNotFoundError`, `PermissionError`, or `FileError`.
@@ -525,7 +525,7 @@ Do not prefix a ternary expression with `if`; use `condition then yes else no`. 
 - **Current runtime status**: `server.start(port)` blocks the calling thread and serves loopback HTTP/1.1, optional TLS/HTTP/2, and configured HTTP/3 with exact method/path route matching. Query parameters, request headers, redirects, protocol reporting, and sessions work across transports. `request.body()` reads bounded UTF-8 request payloads (1 MiB maximum) across HTTP/1.x, HTTP/2, and HTTP/3; see [request bodies and limits](docs/request-bodies.md). Middleware, static-file serving, WebSockets, and several advanced `Request` accessors remain unimplemented.
 
 Generated class objects have tracing GC with automatic collection and explicit
-`Gc.collect()`, `Gc.objects()`, and `Gc.reclaimed()` diagnostics. Runtime-resource
+`GarbageCollector.collect()`, `GarbageCollector.objects()`, and `GarbageCollector.reclaimed()` diagnostics. Runtime-resource
 ownership and conservative escape pins still limit long-running reclamation;
 see [memory behavior](docs/memory.md) and [stabilization status](docs/stabilization.md).
 
@@ -702,10 +702,10 @@ class App {
     }
 
     start() {
-        final user = User(
+        final user = new User(
           1000L,
           'Lem')
-        final invoice = Invoice(
+        final invoice = new Invoice(
           5001L,
           199.99)
 
@@ -813,17 +813,17 @@ use DataExporter
 class App {
     start() {
         // Instantiate reusable components
-        final logger = Logger('APP')
-        final v8Engine = Engine(450)
+        final logger = new Logger('APP')
+        final v8Engine = new Engine(450)
 
         // Compose components into higher-level objects
-        final mustang = Car(
+        final mustang = new Car(
           'Mustang GT',
           v8Engine,
           logger)
         mustang.startCar()
 
-        final exporter = DataExporter(logger)
+        final exporter = new DataExporter(logger)
         exporter.exportData('User Record #1000')
     }
 }
@@ -873,12 +873,12 @@ use OrderService
 class App {
     start() {
         // One shared instance for these services; additional instances are still allowed
-        final sharedDatabase = DatabaseConnection(
+        final sharedDatabase = new DatabaseConnection(
           'postgres://localhost:5432/main')
 
         // Injected into dependent service instances
-        final userService = UserService(sharedDatabase)
-        final orderService = OrderService(sharedDatabase)
+        final userService = new UserService(sharedDatabase)
+        final orderService = new OrderService(sharedDatabase)
 
         userService.findUser(1000L)
         orderService.findOrders(1000L)
@@ -1248,7 +1248,7 @@ assert_eq!(channel.receive().await?, None);
 
 The compiler schedules `Async.start(() -> expression)` and infers its `Async<T>` result type. Async method results are transported through a two-word ABI value (64-bit integer/boolean/decimal bits or pointer, plus presence and scalar-kind metadata); compiler-generated callbacks own their capture context, and task handles are cleaned up with the runtime. `Async.all`, `Async.any`, `Async.race`, and `Async.allSettled` also return tasks; the language wrappers cancel and join remaining workers before completing.
 
-The compiler transports async method throws and runtime task failures to an enclosing `try`/`catch`; use `err.message()` to inspect the message and `err.stacktrace()` for captured Ube call frames. Unhandled errors also print those frames. See [error stack traces](docs/stacktraces.md) for location and async limits. Awaiting a failure without a matching `catch` propagates it from a task body to its awaiter; anywhere else the program stops with `Ube error: unhandled exception ...` (exit code 1). Generated async methods poll cancellation at basic-block boundaries and raise a catchable cancellation error so cleanup runs; a currently executing indivisible operation cannot be interrupted. `Async.start(() -> expression)` captures referenced locals when submitted and evaluates the expression on a worker. Language channels support explicit element types (`Channel<T>(capacity)`) and `close()`; `send(value)` returns `Async<bool>` and `receive()` returns `Async<T>`, with the channel wait performed on Tokio. `send` completes with false if the channel is closed; after buffered values are drained, `receive` fails with a catchable channel-closed error. `task.timeout(ms)` wraps any task (including a channel operation) with a deadline; `Async.race` waits on several channels at once. The language channel bridge supports primitive values, pointer-sized values, and nullable scalars (`int?`, `long?`, `byte?`, `bool?`, `decimal?`). Scalar presence is stored separately, so null remains distinct from zero and false across locals, calls, fields, captures, tasks, and channels. Task errors and channel closure use the exception path, not a null payload. Untyped `List`/`Map` storage still uses single-word elements: storing nullable scalars or tasks with nullable scalar results is diagnosed, including lists passed to task combinators. Typed nullable collections/combinators remain Phase 1 follow-up work. Compiler and runtime must be rebuilt together for the new ABI.
+The compiler transports async method throws and runtime task failures to an enclosing `try`/`catch`; use `err.message()` to inspect the message and `err.stacktrace()` for captured Ube call frames. Unhandled errors also print those frames. See [error stack traces](docs/stacktraces.md) for location and async limits. Awaiting a failure without a matching `catch` propagates it from a task body to its awaiter; anywhere else the program stops with `Ube error: unhandled exception ...` (exit code 1). Generated async methods poll cancellation at basic-block boundaries and raise a catchable cancellation error so cleanup runs; a currently executing indivisible operation cannot be interrupted. `Async.start(() -> expression)` captures referenced locals when submitted and evaluates the expression on a worker. Language channels support explicit element types (`new Channel<T>(capacity)`) and `close()`; `send(value)` returns `Async<bool>` and `receive()` returns `Async<T>`, with the channel wait performed on Tokio. `send` completes with false if the channel is closed; after buffered values are drained, `receive` fails with a catchable channel-closed error. `task.timeout(ms)` wraps any task (including a channel operation) with a deadline; `Async.race` waits on several channels at once. The language channel bridge supports primitive values, pointer-sized values, and nullable scalars (`int?`, `long?`, `byte?`, `bool?`, `decimal?`). Scalar presence is stored separately, so null remains distinct from zero and false across locals, calls, fields, captures, tasks, and channels. Task errors and channel closure use the exception path, not a null payload. Untyped `List`/`Map` storage still uses single-word elements: storing nullable scalars or tasks with nullable scalar results is diagnosed, including lists passed to task combinators. Typed nullable collections/combinators remain Phase 1 follow-up work. Compiler and runtime must be rebuilt together for the new ABI.
 
 Cancellation is delivered once per worker callback, either at a cancellation poll or while awaiting. After delivery, subsequent awaits, including those in `finally`, wait normally so async cleanup can finish. Errors and timeouts from cleanup operations still propagate; the original cancellation remains pending unless handled or replaced by a cleanup failure.
 
@@ -1260,11 +1260,11 @@ class App {
         // 1. List literal, indexing, and methods
         final numbers = [10, 20, 30]
         numbers.add(40)
-        log('List len: ${numbers.len()}, first element: ${numbers[0]}')
+        log('List length: ${numbers.length()}, first element: ${numbers[0]}')
 
         // 2. Map literal, key lookup, and methods
         final scores = [1000L: 95, 1001L: 88]
-        log('Map len: ${scores.len()}, score for 1000L: ${scores[1000L]}')
+        log('Map length: ${scores.length()}, score for 1000L: ${scores[1000L]}')
 
         // 3. Out-of-bounds error handling
         try {
@@ -1294,7 +1294,7 @@ use RequestError
 class App {
     start() {
         try {
-            throw RequestError(
+            throw new RequestError(
               'Invalid user request',
               400)
         } catch (RequestError err) if (err.code() == 400) {
@@ -1367,7 +1367,7 @@ class App {
         final start = DateTime.now()
         final timeout = Duration.seconds(30)
         final expires = start.addDuration(timeout)
-        log('Expires in: ${expires.diffSeconds(start)} seconds')
+        log('Expires in: ${expires.differenceInSeconds(start)} seconds')
     }
 }
 ```
@@ -1396,7 +1396,7 @@ class App {
         log('100 USD converted to PHP: ${converted.amount()}')
 
         // 4. Financial Percentages & Taxes
-        final vat = Percent(12)
+        final vat = new Percent(12)
         final tax = total.multiply(vat)
         log('VAT Tax amount: ${tax.amount()}')
     }
@@ -1436,7 +1436,7 @@ class App {
         final file = File.open('data.csv')
         try {
             final data = file.read()
-            log('Read ${data.len()} bytes')
+            log('Read ${data.length()} bytes')
         } catch (Error err) {
             log('File error: ${err.message()}')
         } finally {
@@ -1451,7 +1451,7 @@ class App {
 ```ube
 class App {
     start() {
-        final server = Server()
+        final server = new Server()
 
         server.get(
           '/',
@@ -1481,7 +1481,7 @@ class App {
     start() {
         final json = Json.toObject(
           '{"restaurantID":"0603","orderType":"DineIn"}')
-        final scan = KitchenOrderScan(
+        final scan = new KitchenOrderScan(
           json.getString('restaurantID'),
           json.getString(
             'orderType'))
@@ -1494,7 +1494,7 @@ class App {
         // <KitchenOrderScan><restaurantID>0603</restaurantID><orderType>DineIn</orderType></KitchenOrderScan>
 
         // Choose a root name and store one field as an attribute.
-        final options = XmlOptions()
+        final options = new XmlOptions()
           .root('order')
           .attribute('restaurantID')
         final xml = scan.toXml(options)
@@ -1550,7 +1550,7 @@ class App {
         log(
           zero.age())  // 0
 
-        final configured = User()
+        final configured = new User()
         log(
           configured.name()) // Guest
         log(
@@ -1949,3 +1949,15 @@ Ube is open-source software licensed under the [MIT License](LICENSE).
 ## Collection streams
 
 Use `values.stream()` for existing integer lists or `Stream.of(...)` for typed scalar/object sources. Pipelines support lazy `filter`, `map`, `peek`, `limit`, `skip`, `unique`, and `sort`, with terminals including `toList`, `count`, `sum`, `reduce`, `forEach`, and short-circuiting matches. Collected `List<T>` results preserve element types. Streams are sequential and single-use; see [the stream guide](docs/streams.md) and [runnable example](examples/streams/App.ube).
+
+### Space Invaders example
+
+The [Space Invaders game](examples/space-invaders/README.md) runs its movement, collisions, scoring, and wave progression in Ube, with a pixel canvas browser adapter and keyboard/touch controls. Run `./target/debug/ube-compiler run examples/space-invaders/App.ube`, then open http://127.0.0.1:8081. Native Ube tests and an HTTP smoke test accompany the example.
+
+### Restricted traits
+
+Traits are structurally open to compatible classes in the compiled application by default; foreign runtime objects do not qualify. Use `trait AuthorizedUser permit LegitUser, Admin { bool isAuthorized() }` to restrict a contract to listed, compatible concrete classes. Neither classes nor traits support inheritance. See the [trait guide](docs/traits.md) and [example](examples/traits/App.ube).
+
+### Explicit construction
+
+Use `new Invoice('INV-001')` to distinguish construction from a method call. The shorter `Invoice('INV-001')` form still works. Both forms use the same constructor checks and defaults; traits and factory-only runtime handles cannot be constructed directly. `new` is reserved for construction.

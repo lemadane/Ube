@@ -140,7 +140,7 @@ This is a captured multiline string.
 `
                 server.get('/', (Request request) -> Response.ok(res))
                 server.get('/func', this.makeHandler('returned function'))
-                Gc.collect()
+                GarbageCollector.collect()
                 server.start({port})
             }}
         }}

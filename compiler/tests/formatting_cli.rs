@@ -4,7 +4,7 @@ use std::process::{Command, Stdio};
 
 fn cli() -> Command {
     let mut command = Command::new(env!("CARGO_BIN_EXE_ube-compiler"));
-    command.arg("fmt");
+    command.arg("format");
     command
 }
 
@@ -34,7 +34,7 @@ fn inherits_stdin_and_prints_subcommand_help() {
     assert_eq!(output.stdout, b"Console.printLine('hello')\n");
     let help = cli().arg("--help").output().unwrap();
     assert!(help.status.success());
-    assert!(String::from_utf8_lossy(&help.stdout).contains("Usage: ube fmt"));
+    assert!(String::from_utf8_lossy(&help.stdout).contains("Usage: ube format"));
 }
 
 #[test]

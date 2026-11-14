@@ -68,3 +68,5 @@ Use `each (item in items)` for collection iteration, including comprehensions, `
 - [Language specification](../LANGUAGE_SPEC_DRAFT.md)
 - [Compiler/runtime architecture](../ARCHITECTURE.md)
 - [Milestones](../MILESTONES.md)
+
+- [Open and restricted traits](traits.md): structural contracts and concrete-class `permit` lists.

@@ -1690,7 +1690,7 @@ fn test_e2e_list_literal_indexing_and_methods() {
                 final numbers = [10, 20, 30]
                 numbers.add(40)
                 Console.printLine(numbers[0])
-                Console.printLine(numbers.len())
+                Console.printLine(numbers.length())
             }
         }
     "#;
@@ -1714,13 +1714,13 @@ fn test_e2e_list_literal_indexing_and_methods() {
 }
 
 #[test]
-fn test_e2e_map_literal_indexing_and_len() {
+fn test_e2e_map_literal_indexing_and_length() {
     let source_code = r#"
         class App {
             start() {
                 final scores = [1000L: 95, 1001L: 88]
                 Console.printLine(scores[1000L])
-                Console.printLine(scores.len())
+                Console.printLine(scores.length())
             }
         }
     "#;
@@ -2083,7 +2083,7 @@ fn test_e2e_task_all_combinator_success() {
             start() {
                 final tasks = [Async.start(() -> 10), Async.start(() -> 20)]
                 final results = Async.all(tasks).await()
-                Console.printLine(results.len())
+                Console.printLine(results.length())
             }
         }
     "#;
@@ -2184,7 +2184,7 @@ fn test_e2e_task_all_settled_combinator() {
             start() {
                 final tasks = [Async.start(() -> 10), Async.start(() -> 20)]
                 final settled = Async.allSettled(tasks).await()
-                Console.printLine(settled.len())
+                Console.printLine(settled.length())
             }
         }
     "#;
@@ -2361,7 +2361,7 @@ fn test_e2e_datetime_arithmetic_and_diff() {
                 final start = DateTime.of(2026, 8, 31, 12, 0)
                 final later = start.addHours(2)
                 Console.printLine(later.hour())
-                final diffSec = later.diffSeconds(start)
+                final diffSec = later.differenceInSeconds(start)
                 Console.printLine(diffSec)
             }
         }
@@ -2485,7 +2485,7 @@ fn test_e2e_datetime_unix_timestamp_factories() {
             start() {
                 final dt = DateTime.fromUnix(1788159600)
                 final sec = dt.unix()
-                final ms = dt.unixMillis()
+                final ms = dt.unixMilliseconds()
                 Console.printLine(sec)
                 Console.printLine(ms)
             }
@@ -2777,9 +2777,9 @@ fn test_e2e_math_constants_roots_powers() {
             start() {
                 final pi = Math.PI
                 Console.printLine(pi)
-                final sq = Math.sqrt(144)
+                final sq = Math.squareRoot(144)
                 Console.printLine(sq)
-                final pow = Math.pow(2, 8)
+                final pow = Math.power(2, 8)
                 Console.printLine(pow)
             }
         }
@@ -2838,8 +2838,8 @@ fn test_e2e_math_integer_gcd_lcm_even_odd() {
     let source_code = r#"
         class App {
             start() {
-                Console.printLine(Math.gcd(48, 18))
-                Console.printLine(Math.lcm(12, 18))
+                Console.printLine(Math.greatestCommonDivisor(48, 18))
+                Console.printLine(Math.leastCommonMultiple(12, 18))
                 Console.printLine(Math.isEven(10))
                 Console.printLine(Math.isOdd(7))
             }
@@ -2872,7 +2872,7 @@ fn test_e2e_random_securerandom_statistics() {
                 final rInt = Random.int(1, 100)
                 Console.printLine(rInt > 0)
                 final secBytes = SecureRandom.bytes(16)
-                Console.printLine(secBytes.len())
+                Console.printLine(secBytes.length())
                 final stats = [10.0, 20.0, 30.0]
                 Console.printLine(Statistics.mean(stats))
             }
@@ -3115,7 +3115,7 @@ fn test_e2e_directory_and_path_operations() {
                 final dir = 'test_dir_logs'
                 Directory.create(dir)
                 final files = Directory.list('.')
-                Console.printLine(files.len() >= 0)
+                Console.printLine(files.length() >= 0)
                 Directory.delete(dir)
             }
         }
@@ -3365,7 +3365,7 @@ fn test_e2e_json_to_object_getters_to_json() {
                 Console.printLine(json.getString('name'))
                 Console.printLine(json.getInt('age'))
                 final s = json.toJson()
-                Console.printLine(s.len() > 0)
+                Console.printLine(s.length() > 0)
             }
         }
     "#;
@@ -3856,7 +3856,7 @@ fn test_e2e_for_expression_comprehension_with_braces_and_yield() {
                 final doubled = each (x in numbers) {
                     yield x * 2
                 }
-                Console.printLine('Doubled list length: ${doubled.len()}')
+                Console.printLine('Doubled list length: ${doubled.length()}')
             }
         }
     "#;

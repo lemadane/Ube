@@ -166,9 +166,9 @@ fn reference_slots_survive_collection_and_replacement() {
         static string read() { return (static.item ?? Item('missing')).value() }
     }
     class App { start() {
-        Gc.collect() print(State.read())
-        State.set() Gc.collect() print(State.read())
-        State.item = null Gc.collect() print(State.read())
+        GarbageCollector.collect() print(State.read())
+        State.set() GarbageCollector.collect() print(State.read())
+        State.item = null GarbageCollector.collect() print(State.read())
     } }
     "#,
         "first\nsecond\nmissing\n",
@@ -333,7 +333,7 @@ fn concurrent_static_reference_replacement_and_collection() {
             var index = 0
             while (index < 100) {
                 static.item = Item(index)
-                Gc.collect()
+                GarbageCollector.collect()
                 index = index + 1
             }
             return index
@@ -342,7 +342,7 @@ fn concurrent_static_reference_replacement_and_collection() {
             var index = 0
             while (index < 100) {
                 final item = static.item
-                Gc.collect()
+                GarbageCollector.collect()
                 if (item.value() < 0 or item.value() > 99) { throw 'invalid static object' }
                 index = index + 1
             }
@@ -368,9 +368,9 @@ fn replacing_a_static_reference_releases_its_gc_root() {
         static replace() { static.item = Item(2) }
     }
     class App { start() {
-        Gc.collect() final before = Gc.reclaimed()
-        State.replace() Gc.collect()
-        print(Gc.reclaimed() > before)
+        GarbageCollector.collect() final before = GarbageCollector.reclaimed()
+        State.replace() GarbageCollector.collect()
+        print(GarbageCollector.reclaimed() > before)
         print(State.item.value())
     } }
     "#,

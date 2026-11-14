@@ -28,7 +28,7 @@ class App {
         try {
             users.migrate()
             users.create(
-              User(
+              new User(
                 1L,
                 'Ada',
                 true,
@@ -92,7 +92,7 @@ For an optional lookup, use the nullable result explicitly:
 
 ```ube
 final user = users.find(7L)
-  ?? User(
+  ?? new User(
     0L,
     'Guest',
     false,
@@ -364,7 +364,7 @@ final tx = db.begin()
 final transactionalUsers = users.using(tx)
 try {
     transactionalUsers.create(
-      User(
+      new User(
         2L,
         'Grace',
         true,

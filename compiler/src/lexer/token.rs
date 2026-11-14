@@ -4,6 +4,7 @@ use crate::diagnostics::Span;
 pub enum TokenKind {
     // Keywords
     Class,
+    New,
     Trait,
     Final,
     Var,

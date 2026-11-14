@@ -1,0 +1,90 @@
+// Browser adapter: draws snapshots only; it does not decide game rules.
+class PixelRenderer {
+    Html script() {
+        return html`<script>
+class PixelRenderer {
+    static sprites = {
+        squid: ['00100100', '00011000', '00111100', '01111110', '11011011', '11111111', '00100100', '01000010'],
+        crab: ['00100000100', '00010001000', '00111111100', '01101110110', '11111111111', '10111111101', '10100000101', '00011011000'],
+        octopus: ['0001111000', '0111111110', '1111111111', '1100110011', '1111111111', '0011001100', '0100110010', '1000000001'],
+        ship: ['00000100000', '00001110000', '00001110000', '01111111110', '11111111111', '11111111111'],
+        shield: ['001111111100', '011111111110', '111111111111', '111111111111', '111111111111', '111100001111', '111000000111']
+    };
+
+    constructor(canvas) {
+        this.canvas = canvas;
+        this.context = canvas.getContext('2d');
+        this.context.imageSmoothingEnabled = false;
+        this.reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+        this.stars = Array.from({ length: 65 }, (_, index) => ({
+            x: (index * 73 + 19) % 384,
+            y: (index * 47 + 7) % 288,
+            bright: index % 5 === 0
+        }));
+    }
+
+    sprite(name, centerX, centerY, color, scale = 2, damage = 0) {
+        const rows = PixelRenderer.sprites[name];
+        const originX = Math.round(centerX - rows[0].length * scale / 2);
+        const originY = Math.round(centerY - rows.length * scale / 2);
+        this.context.fillStyle = color;
+        rows.forEach((row, y) => {
+            Array.from(row).forEach((pixel, x) => {
+                const broken = damage > 0 && (x * 7 + y * 3) % 11 < damage * 2;
+                if (pixel === '1' && !broken) {
+                    this.context.fillRect(originX + x * scale, originY + y * scale, scale, scale);
+                }
+            });
+        });
+    }
+
+    draw(game, time) {
+        const context = this.context;
+        context.fillStyle = '#090d18';
+        context.fillRect(0, 0, 384, 288);
+        for (const star of this.stars) {
+            context.fillStyle = star.bright ? '#49566b' : '#202b40';
+            context.fillRect(star.x, (star.y + (this.reducedMotion ? 0 : Math.floor(time / 180))) % 278, 1, 1);
+        }
+        context.fillStyle = '#263b35';
+        context.fillRect(12, 278, 360, 1);
+        if (!game) {
+            this.drawAttractFormation();
+            return;
+        }
+        for (const enemy of game.invaders) {
+            if (!enemy.alive) continue;
+            const sprite = enemy.row === 0 ? 'squid' : enemy.row < 3 ? 'crab' : 'octopus';
+            const color = enemy.row === 0 ? '#b29aff' : enemy.row < 3 ? '#64d9e7' : '#a3ed9b';
+            this.sprite(sprite, 64 + enemy.column * 32 + game.formationX,
+                48 + enemy.row * 22 + game.formationY, color);
+        }
+        for (const shield of game.shields) {
+            if (shield.health > 0) this.sprite('shield', shield.x, 224, '#659c89', 2, 4 - shield.health);
+        }
+        if (!game.gameOver && (game.invulnerable === 0 || game.tick % 6 < 3)) {
+            this.sprite('ship', game.playerX, 258, '#c9ff9c');
+        }
+        context.fillStyle = '#e5ffb6';
+        if (game.shotY >= 0) context.fillRect(game.shotX - 1, game.shotY - 4, 2, 7);
+        context.fillStyle = '#ff9a86';
+        if (game.enemyShotY >= 0) {
+            context.fillRect(game.enemyShotX - 1, game.enemyShotY - 3, 2, 6);
+            context.fillRect(game.enemyShotX + (game.tick % 4 < 2 ? 1 : -2), game.enemyShotY, 2, 2);
+        }
+    }
+
+    drawAttractFormation() {
+        for (let row = 0; row < 3; row++) {
+            for (let column = 0; column < 8; column++) {
+                this.sprite(['squid', 'crab', 'octopus'][row], 64 + column * 32,
+                    45 + row * 24, ['#b29aff', '#64d9e7', '#a3ed9b'][row]);
+            }
+        }
+        this.sprite('ship', 192, 258, '#c9ff9c');
+        [80, 192, 304].forEach(x => this.sprite('shield', x, 224, '#659c89'));
+    }
+}
+</script>`
+    }
+}

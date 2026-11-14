@@ -4,12 +4,12 @@ use xml_test_types.XmlConsumer
 
 class XmlTests {
     testObjectFieldsAndNulls() {
-        final profile = XmlProfile(
+        final profile = new XmlProfile(
           42,
           'Alice <&> 世界',
           [95, 88],
           null)
-        Gc.collect()
+        GarbageCollector.collect()
         final root = Xml.toObject(
           profile.toXml())
           .root()
@@ -80,7 +80,7 @@ class XmlTests {
     }
 
     testOptionsAndNamespaces() {
-        final options = XmlOptions()
+        final options = new XmlOptions()
           .root('p:person')
           .namespace(
             'p',
@@ -90,7 +90,7 @@ class XmlTests {
             'name',
             'p:label')
           .listItem('score')
-        final profile = XmlProfile(
+        final profile = new XmlProfile(
           7,
           'Alice',
           [90, 99],
@@ -106,7 +106,7 @@ class XmlTests {
           root.getAttribute('id'))
         Testicle.equal(
           'Alice',
-          root.childNs(
+          root.childInNamespace(
             'urn:people',
             'label')
             .text())
@@ -141,7 +141,7 @@ class XmlTests {
         final child = doc.root()
           .element('p:name')
         child.text('before')
-        Gc.collect()
+        GarbageCollector.collect()
         child.text('after <&>')
         final parsed = Xml.toObject(
           doc.toXml())
@@ -151,7 +151,7 @@ class XmlTests {
           parsed.getAttribute('value'))
         Testicle.equal(
           'after <&>',
-          parsed.childNs(
+          parsed.childInNamespace(
             'urn:doc',
             'name')
             .text())
@@ -181,7 +181,7 @@ class XmlTests {
         Testicle.equal(
           'before<&>after',
           root.text())
-        final child = root.childNs(
+        final child = root.childInNamespace(
           'urn:two',
           'a')
         Testicle.equal(
@@ -222,7 +222,7 @@ class XmlTests {
     }
 
     testInvalidOptionsRaiseTypedErrors() {
-        final profile = XmlProfile(
+        final profile = new XmlProfile(
           1,
           'Alice',
           [],
@@ -230,7 +230,7 @@ class XmlTests {
         var caught = false
         try {
             profile.toXml(
-              XmlOptions()
+              new XmlOptions()
                 .rename(
                   'name',
                   'id'))
@@ -240,7 +240,7 @@ class XmlTests {
         caught = false
         try {
             profile.toXml(
-              XmlOptions()
+              new XmlOptions()
                 .attribute('missing'))
         }
         catch (XmlError error) { caught = true }
@@ -278,7 +278,7 @@ class XmlTests {
 
     XmlDocument document() {
         return Xml.toObject(
-          XmlProfile(
+          new XmlProfile(
             9,
             'async',
             [],
@@ -306,7 +306,7 @@ class XmlTests {
               '<profile><name>Alice &amp; Bob</name></profile>')
             Testicle.equal(
               'Alice & Bob',
-              XmlConsumer(source)
+              new XmlConsumer(source)
                 .name())
             Mockery.verify(
               source,
@@ -326,7 +326,7 @@ class XmlTests {
               '<broken>')
             var caught = false
             try {
-                XmlConsumer(source)
+                new XmlConsumer(source)
                   .name()
             }
             catch (XmlParseError error) { caught = true }
@@ -349,7 +349,7 @@ class XmlTests {
               'source offline')
             var caught = false
             try {
-                XmlConsumer(source)
+                new XmlConsumer(source)
                   .name()
             }
             catch (MockeryError error) {

@@ -7,7 +7,7 @@ HTTPS. No session middleware or explicit response-cookie calls are required.
 ```ube
 class App {
     start() {
-        final server = Server()
+        final server = new Server()
         server.get(
           '/',
           (Request request) -> {

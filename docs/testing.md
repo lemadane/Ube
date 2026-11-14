@@ -31,7 +31,7 @@ class CalculatorTests {
     }
 
     testAsync() {
-        final values = Channel<int>(1)
+        final values = new Channel<int>(1)
         final sent = values.send(42)
           .await()
         Testicle.equal(

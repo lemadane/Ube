@@ -43,7 +43,7 @@ class App {
           'your-client-id',
           '',
           'http://127.0.0.1:8080/callback')
-        final server = Server()
+        final server = new Server()
         server.enableHttp2()
         server.get(
           '/authorize',

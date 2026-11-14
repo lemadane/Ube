@@ -497,6 +497,7 @@ impl TextualLlvmEmitter {
         self.output.push_str("declare i32 @ube_server_http3_port(%Server*)\n");
         self.output.push_str("declare %Response* @ube_response_redirect(i8*)\n");
         self.output.push_str("declare %Response* @ube_response_html(i8*)\n");
+        self.output.push_str("declare %Response* @ube_response_json(i8*)\n");
         self.output.push_str("declare i8* @ube_html_escape(i8*, i32)\n");
         self.output.push_str("declare i8* @ube_html_identity(i8*)\n");
         self.output.push_str("declare %Session* @ube_request_session(%Request*)\n");

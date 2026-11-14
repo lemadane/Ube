@@ -32,6 +32,7 @@ pub struct IrBuilder {
     cleanups: Vec<Cleanup>,
     cleanup_pending: Vec<IrOperand>,
     trait_members: HashMap<String, Vec<String>>,
+    restricted_traits: HashMap<String, Vec<String>>,
     trait_signatures: HashMap<(String, String), (Vec<Type>, Type)>,
     loop_cleanup_depths: Vec<usize>,
     in_cleanup: bool,
@@ -65,6 +66,7 @@ impl IrBuilder {
             cleanups: Vec::new(),
             cleanup_pending: Vec::new(),
             trait_members: HashMap::new(),
+            restricted_traits: HashMap::new(),
             trait_signatures: HashMap::new(),
             loop_cleanup_depths: Vec::new(),
             in_cleanup: false,
@@ -415,7 +417,23 @@ impl IrBuilder {
 
     fn object_matches(&mut self, object: IrOperand, type_name: &str) -> IrOperand {
         let raw = self.cast(object, Type::Bytes);
-        if self.trait_members.contains_key(type_name) {
+        if let Some(permits) = self.restricted_traits.get(type_name)
+            .or_else(|| self.trait_members.get(type_name).filter(|_| type_name != "Error"))
+            .cloned()
+        {
+            // Application contracts only match their statically checked concrete members.
+            let mut matched = IrOperand::ConstantBool(false);
+            for name in permits {
+                let candidate = self.runtime("ube_object_is", vec![raw.clone(), IrOperand::ConstantString(name)], Type::Bool);
+                let dest = self.fresh_reg();
+                self.emit(IrInstruction::Binary {
+                    dest, op: BinaryOp::Or, left: matched, right: candidate,
+                    operand_ty: Type::Bool, result_ty: Type::Bool,
+                });
+                matched = IrOperand::Register(dest, Type::Bool);
+            }
+            matched
+        } else if self.trait_members.contains_key(type_name) {
             let mut signatures: Vec<_> = self.trait_signatures.iter().filter(|((name,_),_)| name == type_name)
                 .map(|((_,method),(params,result))| method_signature(method, params, result)).collect();
             signatures.sort();
@@ -850,6 +868,9 @@ impl IrBuilder {
         }
         let program = &normalized;
         self.trait_members.clear();
+        self.restricted_traits = declared_traits.iter().filter_map(|contract| {
+            contract.permits.as_ref().map(|names| (contract.name.clone(), names.clone()))
+        }).collect();
         self.trait_signatures.clear();
         let mut traits = vec!["Error".to_string()];
         traits.extend(program.items.iter().filter_map(|i| if let Item::Trait(t) = i { Some(t.name.clone()) } else { None }));
@@ -2266,7 +2287,7 @@ impl IrBuilder {
 
                         if class_name == "JsonArray" {
                             let (symbol, ty) = match member.as_str() {
-                                "len" => ("ube_jsonarray_len", Type::Int),
+                                "length" => ("ube_jsonarray_len", Type::Int),
                                 "get" => ("ube_jsonarray_get", Type::Class { name: "JsonObject".into() }),
                                 _ => ("ube_jsonarray_get_string", Type::String),
                             };
@@ -2448,13 +2469,13 @@ impl IrBuilder {
                         if class_name == "List" {
                             let symbol = match member.as_str() {
                                 "add" => "ube_list_add",
-                                "len" => "ube_list_len",
+                                "length" => "ube_list_len",
                                 _ => "ube_list_len",
                             };
                             let dest = self.fresh_reg();
                             let mut call_args = vec![obj_op];
                             call_args.extend(arg_ops);
-                            let ret_ty = if member == "len" {
+                            let ret_ty = if member == "length" {
                                 Type::Int
                             } else {
                                 Type::Void
@@ -2477,13 +2498,13 @@ impl IrBuilder {
                         }
                         if class_name == "Map" {
                             let symbol = match member.as_str() {
-                                "len" => "ube_map_len",
+                                "length" => "ube_map_len",
                                 _ => "ube_map_len",
                             };
                             let dest = self.fresh_reg();
                             let mut call_args = vec![obj_op];
                             call_args.extend(arg_ops);
-                            let ret_ty = if member == "len" {
+                            let ret_ty = if member == "length" {
                                 Type::Int
                             } else {
                                 Type::Void
@@ -2623,7 +2644,7 @@ impl IrBuilder {
                             };
                             return self.runtime("ube_testicle_check", vec![condition, IrOperand::ConstantString(message.into())], Type::Void);
                         }
-                        if class_name == "Gc" {
+                        if class_name == "GarbageCollector" {
                             let (symbol, result) = match member.as_str() {
                                 "collect" => ("ube_gc_try_collect", Type::Bool),
                                 "objects" => ("ube_gc_object_count", Type::Long),
@@ -2687,7 +2708,7 @@ impl IrBuilder {
                                 "of" => "ube_datetime_of",
                                 "parse" => "ube_datetime_parse",
                                 "fromUnix" => "ube_datetime_from_unix",
-                                "fromUnixMillis" => "ube_datetime_from_unix_millis",
+                                "fromUnixMilliseconds" => "ube_datetime_from_unix_millis",
                                 "year" => "ube_datetime_year",
                                 "month" => "ube_datetime_month",
                                 "day" => "ube_datetime_day",
@@ -2696,14 +2717,14 @@ impl IrBuilder {
                                 "second" => "ube_datetime_second",
                                 "timestamp" => "ube_datetime_timestamp",
                                 "unix" => "ube_datetime_unix",
-                                "unixMillis" => "ube_datetime_unix_millis",
+                                "unixMilliseconds" => "ube_datetime_unix_millis",
                                 "unixNanos" => "ube_datetime_unix_nanos",
                                 "zone" => "ube_datetime_zone",
                                 "in" => "ube_datetime_in_zone",
                                 "addDays" | "addHours" | "addMinutes" | "addDuration" => {
                                     "ube_datetime_add_seconds"
                                 }
-                                "diffSeconds" | "diffDays" => "ube_datetime_diff_seconds",
+                                "differenceInSeconds" | "diffDays" => "ube_datetime_diff_seconds",
                                 "format" => "ube_datetime_format",
                                 _ => "ube_datetime_now",
                             };
@@ -2717,7 +2738,7 @@ impl IrBuilder {
                                 "of",
                                 "parse",
                                 "fromUnix",
-                                "fromUnixMillis",
+                                "fromUnixMilliseconds",
                             ]
                             .contains(&member.as_str())
                             {
@@ -2745,8 +2766,8 @@ impl IrBuilder {
                             let ret_ty = match member.as_str() {
                                 "zone" | "format" => Type::String,
                                 "year" | "month" | "day" | "hour" | "minute" | "second"
-                                | "timestamp" | "unix" | "unixMillis" | "unixNanos"
-                                | "diffSeconds" | "diffDays" => Type::Int,
+                                | "timestamp" | "unix" | "unixMilliseconds" | "unixNanos"
+                                | "differenceInSeconds" | "diffDays" => Type::Int,
                                 _ => Type::Class {
                                     name: "DateTime".into(),
                                 },
@@ -3043,14 +3064,14 @@ impl IrBuilder {
                                 "PI",
                                 "E",
                                 "TAU",
-                                "abs",
+                                "absolute",
                                 "min",
                                 "max",
-                                "sqrt",
-                                "cbrt",
-                                "pow",
+                                "squareRoot",
+                                "cubeRoot",
+                                "power",
                                 "floor",
-                                "ceil",
+                                "ceiling",
                                 "round",
                                 "truncate",
                                 "clamp",
@@ -3067,14 +3088,14 @@ impl IrBuilder {
                                 "log",
                                 "log10",
                                 "log2",
-                                "exp",
+                                "exponential",
                                 "isNaN",
                                 "isInfinite",
                                 "isFinite",
                                 "isEven",
                                 "isOdd",
-                                "gcd",
-                                "lcm",
+                                "greatestCommonDivisor",
+                                "leastCommonMultiple",
                             ]
                             .contains(&member.as_str())
                         {
@@ -3082,14 +3103,14 @@ impl IrBuilder {
                                 "PI" => "ube_math_pi",
                                 "E" => "ube_math_e",
                                 "TAU" => "ube_math_tau",
-                                "abs" => "ube_math_abs",
+                                "absolute" => "ube_math_abs",
                                 "min" => "ube_math_min",
                                 "max" => "ube_math_max",
-                                "sqrt" => "ube_math_sqrt",
-                                "cbrt" => "ube_math_cbrt",
-                                "pow" => "ube_math_pow",
+                                "squareRoot" => "ube_math_sqrt",
+                                "cubeRoot" => "ube_math_cbrt",
+                                "power" => "ube_math_pow",
                                 "floor" => "ube_math_floor",
-                                "ceil" => "ube_math_ceil",
+                                "ceiling" => "ube_math_ceil",
                                 "round" => {
                                     if arg_ops.len() > 1 {
                                         "ube_math_round_decimals"
@@ -3112,18 +3133,18 @@ impl IrBuilder {
                                 "log" => "ube_math_log",
                                 "log10" => "ube_math_log10",
                                 "log2" => "ube_math_log2",
-                                "exp" => "ube_math_exp",
+                                "exponential" => "ube_math_exp",
                                 "isNaN" => "ube_math_is_nan",
                                 "isInfinite" => "ube_math_is_infinite",
                                 "isFinite" => "ube_math_is_finite",
                                 "isEven" => "ube_math_is_even",
                                 "isOdd" => "ube_math_is_odd",
-                                "gcd" => "ube_math_gcd",
-                                "lcm" => "ube_math_lcm",
+                                "greatestCommonDivisor" => "ube_math_gcd",
+                                "leastCommonMultiple" => "ube_math_lcm",
                                 _ => "ube_math_pi",
                             };
                             let ret_ty = match member.as_str() {
-                                "sign" | "gcd" | "lcm" => Type::Int,
+                                "sign" | "greatestCommonDivisor" | "leastCommonMultiple" => Type::Int,
                                 "isNaN" | "isInfinite" | "isFinite" | "isEven" | "isOdd" => {
                                     Type::Bool
                                 }
@@ -3537,6 +3558,9 @@ impl IrBuilder {
                             ]
                             .contains(&member.as_str())
                         {
+                            if member == "json" {
+                                return self.runtime("ube_response_json", arg_ops, Type::Class { name: "Response".into() });
+                            }
                             if member == "redirect" {
                                 return self.runtime("ube_response_redirect", arg_ops, Type::Class { name: "Response".into() });
                             }

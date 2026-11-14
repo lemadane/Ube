@@ -1,0 +1,60 @@
+use GameState
+use Invader
+use Shield
+
+// Ube sits between Java and Go
+// No inheritance OOP, compile to native
+// Programming Language
+class GameCodec {
+    GameState decode(string text) {
+        final data = Json.toObject(text)
+        final invaders = data.getArray('invaders')
+        final shields = data.getArray('shields')
+        return new GameState(
+          Stream.range(
+            0,
+            invaders.length())
+            .map(
+              (int index) ->
+              this.invader(
+                invaders.get(index)))
+            .toList(),
+          Stream.range(
+            0,
+            shields.length())
+            .map(
+              (int index) ->
+              this.shield(
+                shields.get(index)))
+            .toList(),
+          data.getInt('playerX'),
+          data.getInt('lives'),
+          data.getInt('score'),
+          data.getInt('wave'),
+          data.getInt('tick'),
+          data.getInt('formationX'),
+          data.getInt('formationY'),
+          data.getInt('direction'),
+          data.getInt('shotX'),
+          data.getInt('shotY'),
+          data.getInt('enemyShotX'),
+          data.getInt('enemyShotY'),
+          data.getInt('cooldown'),
+          data.getInt('invulnerable'),
+          data.getBool('gameOver'))
+    }
+
+    Invader invader(JsonObject value) {
+        return new Invader(
+          value.getInt('column'),
+          value.getInt('row'),
+          value.getBool(
+            'alive'))
+    }
+
+    Shield shield(JsonObject value) {
+        return new Shield(
+          value.getInt('x'),
+          value.getInt('health'))
+    }
+}

@@ -1,0 +1,232 @@
+use GameFactory
+use GameRules
+use GameCodec
+use Invader
+
+class GameTests {
+    testMovementAndFiring() {
+        final game = new GameFactory()
+          .create()
+        final rules = new GameRules()
+        Testicle.equal(
+          40,
+          game.invaders()
+            .length())
+        Testicle.equal(
+          3,
+          game.lives())
+        game.playerX(12)
+        rules.advance(
+          game,
+          -1,
+          false)
+        Testicle.equal(
+          12,
+          game.playerX())
+        game.playerX(372)
+        rules.advance(
+          game,
+          1,
+          false)
+        Testicle.equal(
+          372,
+          game.playerX())
+        rules.advance(
+          game,
+          -1,
+          true)
+        Testicle.equal(
+          368,
+          game.playerX())
+        Testicle.equal(
+          368,
+          game.shotX())
+        Testicle.equal(
+          240,
+          game.shotY())
+        rules.advance(
+          game,
+          0,
+          true)
+        Testicle.equal(
+          232,
+          game.shotY())
+    }
+
+    testAlienCollisionAndShieldDamage() {
+        final game = new GameFactory()
+          .create()
+        final rules = new GameRules()
+        game.shotX(64)
+        game.shotY(56)
+        rules.advance(
+          game,
+          0,
+          false)
+        Testicle.isFalse(
+          game.invaders()
+            .get(0)
+            .alive())
+        Testicle.equal(
+          30,
+          game.score())
+        Testicle.equal(
+          -1,
+          game.shotY())
+        game.shotX(80)
+        game.shotY(232)
+        rules.advance(
+          game,
+          0,
+          false)
+        Testicle.equal(
+          3,
+          game.shields()
+            .get(0)
+            .health())
+        Testicle.equal(
+          -1,
+          game.shotY())
+    }
+
+    testLivesInvulnerabilityAndGameOver() {
+        final game = new GameFactory()
+          .create()
+        final rules = new GameRules()
+        game.enemyShotX(
+          game.playerX())
+        game.enemyShotY(254)
+        rules.advance(
+          game,
+          0,
+          false)
+        Testicle.equal(
+          2,
+          game.lives())
+        Testicle.equal(
+          45,
+          game.invulnerable())
+        game.enemyShotY(254)
+        rules.advance(
+          game,
+          0,
+          false)
+        Testicle.equal(
+          2,
+          game.lives())
+        game.invulnerable(0)
+        game.lives(1)
+        game.enemyShotY(254)
+        rules.advance(
+          game,
+          0,
+          false)
+        Testicle.isTrue(
+          game.gameOver())
+        final tick = game.tick()
+        rules.advance(
+          game,
+          1,
+          true)
+        Testicle.equal(
+          tick,
+          game.tick())
+    }
+
+    testFormationEdgesAndInvasion() {
+        final game = new GameFactory()
+          .create()
+        final rules = new GameRules()
+        game.formationX(80)
+        game.tick(14)
+        rules.advance(
+          game,
+          0,
+          false)
+        Testicle.equal(
+          -1,
+          game.direction())
+        Testicle.equal(
+          10,
+          game.formationY())
+        game.formationY(120)
+        game.tick(29)
+        rules.advance(
+          game,
+          0,
+          false)
+        Testicle.isTrue(
+          game.gameOver())
+    }
+
+    testNextWaveAndEnemyFire() {
+        final game = new GameFactory()
+          .create()
+        final rules = new GameRules()
+        game.tick(23)
+        rules.advance(
+          game,
+          0,
+          false)
+        Testicle.isTrue(
+          game.enemyShotY() > 0)
+        each (enemy in game.invaders()) { enemy.alive(false) }
+        game.score(800)
+        rules.advance(
+          game,
+          0,
+          false)
+        Testicle.equal(
+          2,
+          game.wave())
+        Testicle.equal(
+          800,
+          game.score())
+        Testicle.isTrue(
+          game.invaders()
+            .stream()
+            .every(
+              (Invader enemy) -> enemy.alive()))
+        Testicle.equal(
+          -1,
+          game.enemyShotY())
+    }
+
+    testSessionCodecRoundTrip() {
+        final game = new GameFactory()
+          .create()
+        game.playerX(100)
+        game.score(30)
+        game.invaders()
+          .get(0)
+          .alive(false)
+        game.shields()
+          .get(1)
+          .health(2)
+        final restored = new GameCodec()
+          .decode(
+            game.toJson())
+        Testicle.equal(
+          100,
+          restored.playerX())
+        Testicle.equal(
+          30,
+          restored.score())
+        Testicle.equal(
+          40,
+          restored.invaders()
+            .length())
+        Testicle.isFalse(
+          restored.invaders()
+            .get(0)
+            .alive())
+        Testicle.equal(
+          2,
+          restored.shields()
+            .get(1)
+            .health())
+        Testicle.equal(
+          game.toJson(),
+          restored.toJson())
+    }
+}

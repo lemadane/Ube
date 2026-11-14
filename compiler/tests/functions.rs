@@ -63,11 +63,11 @@ class App {
         var amount = 2
         final snapshot = () -> amount
         amount = 99
-        Gc.collect()
+        GarbageCollector.collect()
         Console.printLine(snapshot())
         (Func(int) -> int) typed = (int value) -> value * 2
         final boxed = Boxed(typed)
-        Gc.collect()
+        GarbageCollector.collect()
         Console.printLine(boxed.transform()(6))
         Func(string) -> void output = (string text) -> Console.printLine(text)
         output('done')
@@ -120,7 +120,7 @@ class App(var int calls) {
         Console.printLine(first().await())
         Console.printLine(cache.get('count') ?? 'missing')
         final read = this.capturedObject()
-        Gc.collect()
+        GarbageCollector.collect()
         Console.printLine(read())
         final fail = this.failure()
         try { fail() } catch (Error error) { Console.printLine(error.message()) }
@@ -183,7 +183,7 @@ class App {
         Console.printLine(completed.await())
 
         final batch = Async.startAll([() -> 10, () -> 20])
-        Console.printLine(batch.await().len())
+        Console.printLine(batch.await().length())
 
         Async.delay(1).await()
         Console.printLine('delayed')
@@ -256,8 +256,8 @@ class App {
             operation = () -> 7
             index = index + 1
         }
-        Gc.collect()
-        if (Gc.objects() > 50) { throw 'closures retained unused locals' }
+        GarbageCollector.collect()
+        if (GarbageCollector.objects() > 50) { throw 'closures retained unused locals' }
         Console.printLine(operation())
     }
 }
@@ -295,7 +295,7 @@ class App {
         final deferred = () -> this.exchange(left, right, 30)
         final third = deferred()
         final fourth = this.exchange(right, left, 40)
-        Console.printLine(Async.all([third, fourth]).await().len())
+        Console.printLine(Async.all([third, fourth]).await().length())
         try { this.fail().await() } catch (Error error) { Console.printLine(error.message()) }
         left.close()
         right.close()
@@ -358,7 +358,7 @@ class App {
             return result
         }
         offset = 100
-        Gc.collect()
+        GarbageCollector.collect()
         Console.printLine(calculate(4))
         Console.printLine(calculate(-1))
         Console.printLine(this.makeAdder(5)(10))

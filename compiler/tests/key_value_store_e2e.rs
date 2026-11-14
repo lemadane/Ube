@@ -64,7 +64,7 @@ fn native_object_json_and_store_round_trip_are_real() {
     class App {start(){
         final store=KeyValueStore.open(Console.args()[0])
         final profile=Profile(-123,'Alice 世界 "quoted"',9007199254740993L,0.25,true,null,0,Address('東京'))
-        Gc.collect()
+        GarbageCollector.collect()
         store.set('profile',profile.toJson())
         final parsed=Json.toObject(store.get('profile') ?? '')
         Console.printLine(parsed.getInt('id'))
@@ -78,7 +78,7 @@ fn native_object_json_and_store_round_trip_are_real() {
         Console.printLine(parsed.toJson()==profile.toJson())
         Console.printLine(Json.toObject(profile.toJson()).toJson()==profile.toJson())
         Console.printLine(Json.toObject('{"array":["a","b"],"objects":[{"id":7}]}').getArray('array').getString(1))
-        Console.printLine(Json.toObject('{"array":["a","b"]}').getArray('array').len())
+        Console.printLine(Json.toObject('{"array":["a","b"]}').getArray('array').length())
         Console.printLine(Json.toObject('{"objects":[{"id":7}]}').getArray('objects').get(0).getInt('id'))
         store.set('literal-null','null')
         Console.printLine(store.has('literal-null'))
@@ -118,7 +118,7 @@ fn serialization_rejects_cycles_resources_and_nonfinite_values_without_losing_st
         try {Resource(cache).toJson()}catch(JsonError err){Console.printLine('resource field rejected')}
         try {cache.toJson()}catch(JsonError err){Console.printLine('resource rejected')}
         Console.printLine([1,2].toJson())
-        final invalid=Math.sqrt(-1)
+        final invalid=Math.squareRoot(-1)
         try {invalid.toJson()}catch(JsonError err){Console.printLine('nonfinite rejected')}
         try {Json.toObject('{bad')}catch(JsonParseError err){Console.printLine('parse rejected')}
         final number=42
@@ -157,7 +157,7 @@ class App {
     int work(KeyValueStore store,int worker){
         if(store.add('claim',worker.toJson())){store.increment('winners',1)}
         var i=0
-        while(i<250){store.set('worker:${worker}:${i}',this.payload(i)) store.increment('counter',1) if(i % 50 == 0){Gc.collect()} i=i+1}
+        while(i<250){store.set('worker:${worker}:${i}',this.payload(i)) store.increment('counter',1) if(i % 50 == 0){GarbageCollector.collect()} i=i+1}
         return i
     }
     start(){
@@ -167,7 +167,7 @@ class App {
             store.set('deleted','{"old":1}') store.delete('deleted')
             store.set('updated','{"version":1}') store.set('updated','{"version":2}')
             var i=0
-            while(i<5000){store.set('record:${i}',this.payload(i)) if(i % 100 == 0){Gc.collect()} Console.printLine(i) i=i+1}
+            while(i<5000){store.set('record:${i}',this.payload(i)) if(i % 100 == 0){GarbageCollector.collect()} Console.printLine(i) i=i+1}
         }
         if(args[1]=='verify' or args[1]=='verify-all'){
             var limit=1000
@@ -364,7 +364,7 @@ fn native_lists_serialize_scalars_objects_nested_lists_and_reject_cycles() {
         Console.printLine([1,-2,9007199254740993L,true,false,0.25,'世界 \"quoted\"',null].toJson())
         final people=[Person(42,'Alice')]
         final group=Group(people)
-        Gc.collect()
+        GarbageCollector.collect()
         Console.printLine(group.toJson())
         final values=[1]
         values.add('two')
@@ -376,11 +376,11 @@ fn native_lists_serialize_scalars_objects_nested_lists_and_reject_cycles() {
         final cache=Cache.memory(4096)
         try {[cache].toJson()}catch(JsonError err){Console.printLine('resource rejected')}
         cache.close()
-        try {[Math.sqrt(-1)].toJson()}catch(JsonError err){Console.printLine('nonfinite rejected')}
+        try {[Math.squareRoot(-1)].toJson()}catch(JsonError err){Console.printLine('nonfinite rejected')}
         Console.printLine([3].toJson())
         final added=[]
         added.add(Person(7,'Bob'))
-        Gc.collect()
+        GarbageCollector.collect()
         Console.printLine(added.toJson())
         final doubled=each (x in [1,2,3]){yield x*2}
         Console.printLine(doubled.toJson())
@@ -403,7 +403,7 @@ fn native_maps_serialize_nested_values_and_validate_keys() {
     class Record(Map data)
     class App {start(){
         final data=['person':Person(42,'世界'),'values':[1,true,null],'nested':['ok':false],'large':9007199254740993L,'ratio':0.25]
-        Gc.collect()
+        GarbageCollector.collect()
         Console.printLine(Record(data).toJson())
         Console.printLine([1000L:95,1001L:88].toJson())
         Console.printLine([true:'yes',false:'no'].toJson())
@@ -416,8 +416,8 @@ fn native_maps_serialize_nested_values_and_validate_keys() {
         try {[1:'number','1':'string'].toJson()}catch(JsonError err){Console.printLine('collision rejected')}
         try {[Person(1,'key'):'bad'].toJson()}catch(JsonError err){Console.printLine('object key rejected')}
         try {[null:'bad'].toJson()}catch(JsonError err){Console.printLine('null key rejected')}
-        try {[Math.sqrt(-1):'bad'].toJson()}catch(JsonError err){Console.printLine('nonfinite key rejected')}
-        try {['bad':Math.sqrt(-1)].toJson()}catch(JsonError err){Console.printLine('nonfinite value rejected')}
+        try {[Math.squareRoot(-1):'bad'].toJson()}catch(JsonError err){Console.printLine('nonfinite key rejected')}
+        try {['bad':Math.squareRoot(-1)].toJson()}catch(JsonError err){Console.printLine('nonfinite value rejected')}
         final cache=Cache.memory(4096)
         try {['cache':cache].toJson()}catch(JsonError err){Console.printLine('resource rejected')}
         cache.close()

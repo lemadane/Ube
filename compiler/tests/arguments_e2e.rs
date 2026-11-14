@@ -9,15 +9,15 @@ use ube_compiler::{Lexer, Parser, TypeChecker};
 const SOURCE: &str = r#"class App {
     start() {
         final args = Console.args()
-        Console.printLine(args.len())
+        Console.printLine(args.length())
         each (arg in args) { Console.print('<') Console.print(arg) Console.printLine('>') }
-        if (args.len() > 0) {
+        if (args.length() > 0) {
             Console.printLine(args[0])
             Console.printLine(args.get(0))
             Console.printLine(Console.args()[0])
         }
         try { final bad = args[-1] } catch (Error err) { Console.printLine('negative rejected') }
-        try { final bad = args.get(args.len()) } catch (Error err) { Console.printLine('past end rejected') }
+        try { final bad = args.get(args.length()) } catch (Error err) { Console.printLine('past end rejected') }
     }
 }"#;
 struct Program {
@@ -139,7 +139,7 @@ fn argument_api_is_read_only_and_typed() {
     for statement in [
         "Console.args(1)",
         "ConsoleArgs()",
-        "ConsoleArgs.len()",
+        "ConsoleArgs.length()",
         "Console.args().get('bad')",
         "Console.args()[true]",
         "Console.args().add('bad')",

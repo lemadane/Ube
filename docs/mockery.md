@@ -38,7 +38,7 @@ class ProfileTests {
               'Ada')
             Testicle.equal(
               'Ada',
-              Profile(users)
+              new Profile(users)
                 .title(42))
             Mockery.verify(
               users,
@@ -99,7 +99,7 @@ testFailure() {
       'database offline')
     var caught = false
     try {
-        Profile(users)
+        new Profile(users)
           .title(42)
     }
     catch (MockeryError error) {

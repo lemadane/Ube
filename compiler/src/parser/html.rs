@@ -207,6 +207,7 @@ const TAGS: &[&str] = &[
     "meta",
     "link",
     "script",
+    "canvas",
     "style",
     "main",
     "header",

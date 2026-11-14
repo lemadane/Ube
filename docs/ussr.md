@@ -18,6 +18,8 @@ cargo build --workspace
 
 Open http://127.0.0.1:8080 and click Toggle. See the [example walkthrough](../examples/ussr/README.md) for the component files and HTTP checks. Stop the server with Ctrl+C.
 
+The [Space Invaders example](../examples/space-invaders/README.md) uses a static `<canvas>` element, Ube game rules, and a browser adapter for pixel rendering and input. Canvas templates support escaped fallback content and ordinary attributes such as `width` and `height`; script interpolation remains prohibited.
+
 ## Typed components
 
 A component is an ordinary method returning `Html`. Put each class in a file matching its name and use `use` to reference another component.
@@ -55,7 +57,7 @@ class App {
 }
 ```
 
-`ube check` checks template expressions and component argument types/counts. For example, `Todo().render(42, false)` is rejected. A string cannot be passed as an `Html` parameter or returned from an `Html` method. `Html()` and declarations named `Html` are rejected: checked templates construct this reserved type.
+`ube check` checks template expressions and component argument types/counts. For example, `new Todo().render(42, false)` is rejected. A string cannot be passed as an `Html` parameter or returned from an `Html` method. `Html()` and declarations named `Html` are rejected: checked templates construct this reserved type.
 
 Nested `Html` is inserted as markup in element content. Strings and numeric/boolean scalars are escaped. Nullable values, arbitrary objects, functions, and collections are not accepted as interpolations. Use a conditional to select a non-null value. Converting a fragment to an ordinary string with `${fragment}` in a normal text block loses its HTML type; embedding that string in an HTML template escapes it again.
 

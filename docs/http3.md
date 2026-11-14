@@ -7,7 +7,7 @@ access, redirects, and sessions are shared with the TCP transports.
 ```ube
 class App {
     start() {
-        final server = Server()
+        final server = new Server()
         server.tls(
           'cert.pem',
           'key.pem')

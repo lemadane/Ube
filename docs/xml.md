@@ -11,7 +11,7 @@ class Profile(
 
 ```ube
 // Inside a method importing Profile:
-final profile = Profile(
+final profile = new Profile(
   42,
   'Alice & Bob')
 final xml = profile.toXml()
@@ -63,7 +63,7 @@ Fields include private constructor fields. Methods and computed getters are not 
 Create reusable `XmlOptions` and pass them to `.toXml(options)`:
 
 ```ube
-final options = XmlOptions()
+final options = new XmlOptions()
   .root('p:person')
   .namespace(
     'p',
@@ -73,7 +73,7 @@ final options = XmlOptions()
     'name',
     'p:displayName')
 
-final xml = Profile(
+final xml = new Profile(
   42,
   'Alice')
   .toXml(options)
@@ -126,7 +126,7 @@ Console.printLine(
 | `element.child(name)` | First matching child; missing children raise an error |
 | `element.childAt(name, index)` | Matching child at a zero-based index |
 | `element.childCount(name)` | Number of matching children |
-| `element.childNs(uri, localName)` | First child matching an expanded namespace/local name, independent of prefix |
+| `element.childInNamespace(uri, localName)` | First child matching an expanded namespace/local name, independent of prefix |
 | `element.text()` / `element.getText()` | Descendant text content, including mixed content |
 | `element.getAttribute(name)` | Attribute value; missing attributes raise an error |
 | `element.isNull()` | Whether an attribute in the XML Schema instance namespace declares `nil="true"` or `nil="1"` |

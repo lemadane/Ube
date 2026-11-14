@@ -10,7 +10,7 @@ class App {
         try {
             users.migrate()
             users.create(
-              User(
+              new User(
                 1L,
                 'Ada',
                 true,

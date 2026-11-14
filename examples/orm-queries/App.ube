@@ -10,19 +10,19 @@ class App {
         try {
             users.migrate()
             users.create(
-              User(
+              new User(
                 1L,
                 'Ada',
                 true,
                 10.0))
             users.create(
-              User(
+              new User(
                 2L,
                 'Lin',
                 true,
                 20.0))
             users.create(
-              User(
+              new User(
                 3L,
                 'Grace',
                 false,

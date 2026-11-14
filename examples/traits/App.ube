@@ -1,0 +1,20 @@
+use AuthorizedUser
+use UserStatus
+use Visitor
+
+class App {
+    bool authorize(AuthorizedUser user) {
+        return user.isAuthorized()
+    }
+
+    bool inspect(UserStatus user) {
+        return user.isAuthorized()
+    }
+
+    start() {
+        print(this.authorize(new LegitUser()))
+        print(this.authorize(new Admin()))
+        print(this.inspect(new Visitor()))
+        // this.authorize(new Visitor()) is a compile-time error.
+    }
+}

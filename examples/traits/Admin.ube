@@ -1,0 +1,3 @@
+class Admin {
+    bool isAuthorized() { return true }
+}

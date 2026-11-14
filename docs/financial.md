@@ -48,7 +48,7 @@ An intermediate overflow is rejected even if a more elaborate algorithm could
 represent the final result. No implicit currency scale or rounding policy is
 applied. Choose those policies at the application boundary.
 
-Numeric factories such as `Money.php(0.1)`, the numeric `Money(...)` constructor,
+Numeric factories such as `Money.php(0.1)`, the numeric `new Money(...)` constructor,
 `Percent`, and numeric exchange rates still accept `f64`. Their shortest decimal
 representation is converted into checked Money arithmetic, but information
 already lost in a floating-point expression cannot be recovered. `amount()` is

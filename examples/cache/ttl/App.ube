@@ -1,7 +1,7 @@
 class App {
     start() {
         final args = Console.args()
-        if (args.len() != 2) {
+        if (args.length() != 2) {
             Console.printLine('Usage: ttl <database-path> <set|get>')
             return
         }

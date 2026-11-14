@@ -378,7 +378,7 @@ start() {
 (Func(int, string) -> bool) operation = (int id, string name) -> id > 0
 final pending = Async.start(() -> operation(1, 'one'))
 final values = Async.startAll([() -> 1, () -> 2])
-Console.printLine(pending.await(), values.await().len())
+Console.printLine(pending.await(), values.await().length())
 }
 }`;
   const expected = `class App {
@@ -392,7 +392,7 @@ Console.printLine(pending.await(), values.await().len())
         Console.printLine(
           pending.await(),
           values.await()
-            .len())
+            .length())
     }
 }
 `;
@@ -465,7 +465,7 @@ test("wraps calls exceeding 80 columns including structural indentation", () => 
 });
 
 test("wraps the persistent usage message at 80 columns", () => {
-  const source = "class App {\n    start() {\n        if (args.len() != 2) {\n            Console.printLine('Usage: persistent <database-path> <set|get|delete>')\n        }\n    }\n}\n";
+  const source = "class App {\n    start() {\n        if (args.length() != 2) {\n            Console.printLine('Usage: persistent <database-path> <set|get|delete>')\n        }\n    }\n}\n";
   const expected = source.replace("Console.printLine('", "Console.printLine(\n              '");
   assert.equal(formatUbeDocument(source), expected);
   assert.equal(formatUbeDocument(expected), expected);

@@ -26,7 +26,7 @@ pub fn methods(class: &str) -> Vec<BuiltinMethod> {
         "RestInPeaceRequest" => {
             for (name, symbol) in [
                 ("baseUrl", "ube_rest_base_url"),
-                ("caFile", "ube_rest_ca_file"),
+                ("certificateAuthorityFile", "ube_rest_ca_file"),
                 ("body", "ube_rest_body"),
                 ("json", "ube_rest_json"),
                 ("contentType", "ube_rest_content_type"),
@@ -88,7 +88,7 @@ pub fn methods(class: &str) -> Vec<BuiltinMethod> {
                 false,
             );
             add(
-                "elapsedMs",
+                "elapsedMilliseconds",
                 "ube_rest_elapsed_ms",
                 vec![],
                 Type::Long,

@@ -1,0 +1,259 @@
+use GameState
+use Invader
+
+// One call advances exactly 1/30 second. Integer coordinates keep pixels crisp.
+class GameRules {
+    static final int width = 384
+    static final int playerY = 258
+    static final int shieldY = 224
+
+    void advance(
+      GameState game,
+      int movement,
+      bool firing) {
+        if (game.gameOver()) {
+            return
+        }
+        game.tick(
+          game.tick() + 1)
+        if (game.invulnerable() > 0) {
+            game.invulnerable(
+              game.invulnerable() - 1)
+        }
+        if (game.cooldown() > 0) {
+            game.cooldown(
+              game.cooldown() - 1)
+        }
+        this.movePlayer(
+          game,
+          movement)
+        this.moveFormation(game)
+        if (game.gameOver()) {
+            return
+        }
+        this.firePlayer(
+          game,
+          firing)
+        this.movePlayerShot(game)
+        this.moveEnemyShot(game)
+        if (game.lives() <= 0) {
+            game.gameOver(true)
+        }
+        if (not game.gameOver()
+          and game.invaders()
+          .stream()
+          .none(
+            (Invader enemy) -> enemy.alive())) {
+            this.nextWave(game)
+        }
+    }
+
+    void movePlayer(
+      GameState game,
+      int movement) {
+        final next = game.playerX() + movement * 4
+        game.playerX(
+          next < 12 then 12 else (
+            next > static.width - 12 then static.width - 12 else next))
+    }
+
+    int enemyX(
+      GameState game,
+      Invader enemy) {
+        return 64 + enemy.column() * 32 + game.formationX()
+    }
+
+    int enemyY(
+      GameState game,
+      Invader enemy) {
+        return 48 + enemy.row() * 22 + game.formationY()
+    }
+
+    void moveFormation(GameState game) {
+        final interval = game.wave() < 10 then 16 - game.wave() else 6
+        if (game.tick() % interval != 0) {
+            return
+        }
+        var edge = false
+        each (enemy in game.invaders()) {
+            if (enemy.alive()) {
+                final next = this.enemyX(
+                  game,
+                  enemy) + game.direction() * 4
+                if (next < 16
+                  or next > 368) {
+                    edge = true
+                }
+            }
+        }
+        if (edge) {
+            game.direction(
+              0 - game.direction())
+            game.formationY(
+              game.formationY() + 10)
+        } else {
+            game.formationX(
+              game.formationX() + game.direction() * 4)
+        }
+        each (enemy in game.invaders()) {
+            if (enemy.alive()
+              and this.enemyY(
+              game,
+              enemy) >= 244) {
+                game.gameOver(true)
+            }
+        }
+    }
+
+    void firePlayer(
+      GameState game,
+      bool firing) {
+        if (firing
+          and game.shotY() < 0
+          and game.cooldown() == 0) {
+            game.shotX(
+              game.playerX())
+            game.shotY(static.playerY - 10)
+            game.cooldown(8)
+        }
+    }
+
+    bool touches(
+      int x,
+      int y,
+      int centerX,
+      int centerY,
+      int halfWidth,
+      int halfHeight) {
+        return x >= centerX - halfWidth and x <= centerX + halfWidth
+        and y >= centerY - halfHeight and y <= centerY + halfHeight
+    }
+
+    bool hitShield(
+      GameState game,
+      int x,
+      int y) {
+        each (shield in game.shields()) {
+            if (shield.health() > 0
+              and this.touches(
+              x,
+              y,
+              shield.x(),
+              static.shieldY,
+              12,
+              7)) {
+                shield.health(
+                  shield.health() - 1)
+                return true
+            }
+        }
+        return false
+    }
+
+    void movePlayerShot(GameState game) {
+        if (game.shotY() < 0) {
+            return
+        }
+        game.shotY(
+          game.shotY() - 8)
+        if (this.hitShield(
+          game,
+          game.shotX(),
+          game.shotY())) {
+            game.shotY(-1)
+            return
+        }
+        each (enemy in game.invaders()) {
+            if (enemy.alive()
+              and this.touches(
+              game.shotX(),
+              game.shotY(),
+              this.enemyX(
+                game,
+                enemy),
+              this.enemyY(
+                game,
+                enemy),
+              11,
+              7)) {
+                enemy.alive(false)
+                game.score(
+                  game.score()
+                  + (enemy.row() == 0
+                    then 30
+                    else (enemy.row() < 3
+                      then 20
+                      else 10)))
+                game.shotY(-1)
+                return
+            }
+        }
+    }
+
+    void moveEnemyShot(GameState game) {
+        if (game.enemyShotY() < 0
+          and game.tick() % 24 == 0) {
+            final alive = game.invaders()
+              .stream()
+              .filter(
+                (Invader enemy) -> enemy.alive())
+              .toList()
+            if (alive.length() > 0) {
+                final enemy = alive.get(
+                  (game.tick() / 24) % alive.length())
+                game.enemyShotX(
+                  this.enemyX(
+                    game,
+                    enemy))
+                game.enemyShotY(
+                  this.enemyY(
+                    game,
+                    enemy) + 9)
+            }
+        }
+        if (game.enemyShotY() < 0) {
+            return
+        }
+        game.enemyShotY(
+          game.enemyShotY() + 4)
+        if (game.enemyShotY() > 280
+          or this.hitShield(
+          game,
+          game.enemyShotX(),
+          game.enemyShotY())) {
+            game.enemyShotY(-1)
+            return
+        }
+        if (this.touches(
+          game.enemyShotX(),
+          game.enemyShotY(),
+          game.playerX(),
+          static.playerY,
+          10,
+          7)) {
+            game.enemyShotY(-1)
+            if (game.invulnerable() == 0) {
+                game.lives(
+                  game.lives() - 1)
+                game.invulnerable(45)
+            }
+        }
+    }
+
+    void nextWave(GameState game) {
+        game.wave(
+          game.wave() + 1)
+        game.formationX(0)
+        game.formationY(0)
+        game.direction(1)
+        game.shotY(-1)
+        game.enemyShotY(-1)
+        game.invulnerable(45)
+        each (enemy in game.invaders()) {
+            enemy.alive(true)
+        }
+        each (shield in game.shields()) {
+            shield.health(4)
+        }
+    }
+}

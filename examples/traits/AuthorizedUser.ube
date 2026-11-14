@@ -1,0 +1,7 @@
+use LegitUser
+use Admin
+
+// Only these concrete classes may satisfy this trait.
+trait AuthorizedUser permit LegitUser, Admin {
+    bool isAuthorized()
+}

@@ -104,6 +104,8 @@ Ube provides exactly six primitive data types (plus `void` as a no-result functi
 
 Every user-defined type in Ube is declared using the `class` keyword. Methods without an explicit return type are **implicitly void**. Function types spell that result as `void`, such as `Func() -> void`.
 
+Use the optional `new` keyword to make construction explicit: `new Invoice('INV-001')`. Existing `Invoice('INV-001')` syntax remains valid and has identical constructor defaults, type checks, and allocation behavior. Both forms support nesting and member chaining; supported generic constructors also accept `new`, for example `new Channel<int>(1)`. Parentheses are required. `new` is a reserved keyword and cannot name a variable or method. It applies to constructors, not function calls or static factories such as `SQL.open(...)`. Traits cannot be constructed; construct a compatible concrete class instead.
+
 ```ube
 class User(
   long id,
@@ -167,6 +169,8 @@ Ube-managed build output and preserves dependency snapshots and lockfiles.
 
 ## 5. Structural `trait` Subtyping (No `implements` Keyword)
 
+Classes and traits do not support inheritance. An ordinary trait is open to structurally compatible Ube classes loaded into the compiled application (including imports and generated mocks), excluding foreign runtime objects and handles. Runtime catch matching enforces the same boundary. The built-in `Error` contract continues to accept runtime errors; an erased `Error` cannot implicitly convert to an ordinary application trait. `trait AuthorizedUser permit LegitUser, Admin { bool isAuthorized() }` restricts satisfaction to the named concrete classes, which must still have compatible instance methods (including available defaults). Permit lists are nonempty; duplicate, unknown, non-class, and incompatible entries are errors. Restrictions apply to assignments, arguments, returns, and runtime exception matching. Open trait values cannot convert to restricted traits; restricted-to-restricted conversion requires compatible methods and a subset of permitted classes. `permit` is a contextual keyword. See [traits](docs/traits.md) for imports, defaults, examples, and test behavior.
+
 Abstraction and behavior reuse in Ube are defined using **`trait`**. Classes satisfy traits **implicitly** based on method signatures without needing an `implements` keyword:
 
 ```ube
@@ -220,10 +224,10 @@ class App {
     }
 
     start() {
-        final user = User(
+        final user = new User(
           1000L,
           'Lem')
-        final invoice = Invoice(
+        final invoice = new Invoice(
           5001L,
           199.99)
 
@@ -267,9 +271,9 @@ use UserService
 class App {
     start() {
         // Created explicitly and shared with dependent services
-        final db = DatabaseConnection('postgres://localhost:5432')
+        final db = new DatabaseConnection('postgres://localhost:5432')
 
-        final userService = UserService(db)
+        final userService = new UserService(db)
         userService.findUser(1000L)
     }
 }
@@ -308,7 +312,7 @@ use Calculator
 
 class App {
     start() {
-        final calculator = Calculator()
+        final calculator = new Calculator()
         final first = Async.start(
           () -> calculator.compute(10))
         final second = Async.start(
@@ -325,7 +329,7 @@ class App {
 Channels declare an element type and optional positive capacity. `send(value)` returns `Async<bool>` that completes once capacity is available — `true` when queued, `false` if the channel is closed. `receive()` returns `Async<T>`; after buffered values are drained from a closed channel it fails with `channel is closed`. `close()` wakes every waiting operation.
 
 ```ube
-final events = Channel<string>(16)
+final events = new Channel<string>(16)
 final accepted = events.send('ready')
   .await()
 final event = events.receive()
@@ -408,9 +412,9 @@ use Car
 
 class App {
     start() {
-        final logger = Logger('APP')
-        final engine = Engine(400)
-        final car = Car(
+        final logger = new Logger('APP')
+        final engine = new Engine(400)
+        final car = new Car(
           'Mustang',
           engine,
           logger)
@@ -632,7 +636,7 @@ class App {
 
 ## Zero Initialization of Declarations
 
-A typed local declaration without an initializer uses zero initialization, not an implicit constructor call. Numbers become `0`, booleans `false`, strings `''`, and nullable references `null`. A user-defined class receives a fresh object whose fields are recursively zero-initialized. Constructor default expressions are ignored, including defaults that allocate objects or call methods. Explicit construction (`User()`) still evaluates defaults.
+A typed local declaration without an initializer uses zero initialization, not an implicit constructor call. Numbers become `0`, booleans `false`, strings `''`, and nullable references `null`. A user-defined class receives a fresh object whose fields are recursively zero-initialized. Constructor default expressions are ignored, including defaults that allocate objects or call methods. Explicit construction (`new User()`) still evaluates defaults.
 
 The entry-point application instance uses the same zero-initialization path as local declarations. Its constructor defaults are not evaluated at startup. Configuration and resource initialization belong explicitly in `start()`.
 
@@ -650,7 +654,7 @@ use User
 class App {
     start() {
         User zero                 // zero.name() is ''
-        final configured = User() // configured.name() is 'Guest'
+        final configured = new User() // configured.name() is 'Guest'
         User? absent              // null
     }
 }
@@ -695,7 +699,7 @@ Concrete object instances, lists, maps, and supported scalars expose `.toJson()`
 
 Default XML roots are the concrete class name, `list`, `map`, or `value`. Fields become child elements, list items use `item`, and map entries use `entry` with a `key` attribute. Null uses `xsi:nil="true"` with the XML Schema instance namespace; empty strings and empty containers remain distinct from null. Text and attributes are escaped.
 
-`.toXml(XmlOptions())` accepts optional fluent configuration: `.root(name)`, `.attribute(field)`, `.rename(field, name)`, `.namespace(prefix, uri)`, and `.listItem(name)`. Field attribute/rename rules apply to the root data class. Names must be valid and prefixes bound. Parsed documents and elements serialize with `.toXml()` without options; use document editing methods to change them.
+`.toXml(new XmlOptions())` accepts optional fluent configuration: `.root(name)`, `.attribute(field)`, `.rename(field, name)`, `.namespace(prefix, uri)`, and `.listItem(name)`. Field attribute/rename rules apply to the root data class. Names must be valid and prefixes bound. Parsed documents and elements serialize with `.toXml()` without options; use document editing methods to change them.
 
 Malformed input raises `XmlParseError`; unsupported XML encoding or customization raises `XmlError`. Encoding and parsing enforce documented bounds. Serialization is synchronous and does not provide an atomic snapshot of a concurrently mutated object graph. See [JSON](docs/json.md) and [XML](docs/xml.md) for supported types, exact mappings, limits, and examples.
 

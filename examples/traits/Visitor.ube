@@ -1,0 +1,4 @@
+// A matching method alone does not grant membership in AuthorizedUser.
+class Visitor {
+    bool isAuthorized() { return false }
+}

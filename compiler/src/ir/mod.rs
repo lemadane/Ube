@@ -45,7 +45,7 @@ mod tests {
                     final worker = Worker()
                     final task = worker.compute(41)
                     final results = await Async.all([task, worker.compute(42)])
-                    Console.printLine(results.len())
+                    Console.printLine(results.length())
                 }
             }
         "#;
@@ -150,7 +150,7 @@ mod tests {
             r#"
             class App {
                 void start() {
-                    final root = Math.sqrt(4)
+                    final root = Math.squareRoot(4)
                     final value = if (1) {
                         final branchValue = 'left'
                         yield branchValue

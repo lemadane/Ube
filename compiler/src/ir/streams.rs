@@ -35,7 +35,7 @@ impl IrBuilder {
             all.extend(args);
             return self.runtime(
                 match method {
-                    "len" => "ube_list_len",
+                    "length" => "ube_list_len",
                     "add" => "ube_sequence_list_add",
                     _ => "ube_sequence_get",
                 },

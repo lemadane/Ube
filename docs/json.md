@@ -24,10 +24,10 @@ use Profile
 
 class App {
     start() {
-        final profile = Profile(
+        final profile = new Profile(
           42,
           'Alice',
-          Address('東京'))
+          new Address('東京'))
         Console.printLine(
           profile.toJson())
 
@@ -133,7 +133,7 @@ Missing fields, incompatible types, and invalid handles raise `JsonError`; gette
 
 | Array method | Result | Requirement |
 | --- | --- | --- |
-| `len()` | `int` | Number of array entries |
+| `length()` | `int` | Number of array entries |
 | `get(int index)` | `JsonObject` | Indexed element is an object |
 | `getString(int index)` | `string` | Indexed element is a string |
 

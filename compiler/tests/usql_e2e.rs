@@ -32,7 +32,7 @@ fn values_are_bound_and_statements_snapshot_values_and_are_reusable() {
             var selected = name
             final statement = this.find(selected)
             selected = 'different'
-            Gc.collect()
+            GarbageCollector.collect()
             final rows = db.query(statement)
             rows.next()
             print(rows.getString(0))
@@ -69,7 +69,7 @@ fn transactions_closures_conditionals_and_errors_use_existing_sql_semantics() {
         final tx = db.begin()
         final id = 42
         final make = () -> sql`INSERT INTO items VALUES (${id})`
-        Gc.collect()
+        GarbageCollector.collect()
         print(tx.execute(make()))
         final query = true then sql`SELECT id FROM items` else sql`SELECT 0`
         final rows = tx.query(query)
@@ -113,22 +113,22 @@ fn expressions_evaluate_once_in_order_and_temporary_statements_are_collected() {
             final db = SQL.open('sqlite::memory:')
             final statement = sql`SELECT ${this.value(1)}, ${this.value(2)}`
             final execute = () -> db.query(statement)
-            Gc.collect()
+            GarbageCollector.collect()
             final rows = execute()
             rows.next()
             print(rows.getInt(0) + rows.getInt(1))
             rows.close()
-            Gc.collect()
+            GarbageCollector.collect()
             // Exception records retain their own object. Measure that baseline
             // separately so this check detects retained template nodes.
-            final beforeFailure = Gc.objects()
+            final beforeFailure = GarbageCollector.objects()
             this.failureOnly()
-            Gc.collect()
-            final exceptionObjects = Gc.objects() - beforeFailure
-            final before = Gc.objects()
+            GarbageCollector.collect()
+            final exceptionObjects = GarbageCollector.objects() - beforeFailure
+            final before = GarbageCollector.objects()
             this.build()
-            Gc.collect()
-            print(Gc.objects() - before == exceptionObjects)
+            GarbageCollector.collect()
+            print(GarbageCollector.objects() - before == exceptionObjects)
             final again = db.query(statement)
             print(again.rowCount())
             again.close()

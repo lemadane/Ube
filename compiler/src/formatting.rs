@@ -6,7 +6,7 @@ pub fn run(args: &[String]) -> i32 {
     match launch(args) {
         Ok(code) => code,
         Err(error) => {
-            eprintln!("ube fmt: {error}");
+            eprintln!("ube format: {error}");
             2
         }
     }

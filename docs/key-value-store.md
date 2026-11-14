@@ -30,10 +30,10 @@ class App {
     start() {
         final store = KeyValueStore.open('data/records.db')
         try {
-            final profile = Profile(
+            final profile = new Profile(
               42,
               'Alice',
-              Address('東京'))
+              new Address('東京'))
             store.set(
               'user:42',
               profile.toJson())

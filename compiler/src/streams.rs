@@ -41,7 +41,7 @@ pub fn call(receiver: &Type, method: &str, args: &[Type]) -> Option<Result<Type,
     if let Type::Sequence(element) = receiver {
         return Some(match method {
             "stream" if args.is_empty() => Ok(Type::Stream(element.clone())),
-            "len" if args.is_empty() => Ok(Type::Int),
+            "length" if args.is_empty() => Ok(Type::Int),
             "get" if args == [Type::Int] => Ok(*element.clone()),
             "add" if args == [*element.clone()] => Ok(Type::Void),
             _ => error(),

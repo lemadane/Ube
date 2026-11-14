@@ -93,7 +93,7 @@ fn objects_lists_maps_and_nulls_round_trip_through_real_xml() {
     class Profile(int id,string name,bool active,int? absent,int? zero,Address address,List scores,Map settings)
     class App {start(){
         final profile=Profile(42,'Alice <&> 世界',false,null,0,Address('東京'),[1,true,null],['theme':'dark','nested':['x':2]])
-        Gc.collect()
+        GarbageCollector.collect()
         final xml=profile.toXml()
         final root=Xml.toObject(xml).root()
         print(root.name())
@@ -132,7 +132,7 @@ fn options_customize_roots_attributes_namespaces_and_list_items() {
         print(root.name())
         print(root.namespaceUri())
         print(root.getAttribute('id'))
-        print(root.childNs('urn:people','displayName').text())
+        print(root.childInNamespace('urn:people','displayName').text())
         print(root.child('scores').childAt('score',1).text())
         print(Xml.toObject([1,2].toXml(XmlOptions().root('numbers').listItem('n'))).root().childCount('n'))
         final plain=XmlOptions().root('person').namespace('','urn:default')
@@ -158,7 +158,7 @@ fn document_building_and_parsing_preserve_real_content_and_namespaces() {
         final parsed=Xml.toObject(doc.toXml())
         print(parsed.root().name())
         print(parsed.root().getAttribute('id'))
-        print(parsed.root().childNs('urn:doc','name').text())
+        print(parsed.root().childInNamespace('urn:doc','name').text())
         print(parsed.root().childAt('item',1).text())
         print(Xml.toObject(parsed.root().child('p:name').toXml()).root().namespaceUri())
         final mixed=Xml.toObject('<p:root xmlns:p="urn:p" xmlns:q="urn:p" q:id="7">before<p:child/>after</p:root>')
@@ -193,7 +193,7 @@ fn malformed_xml_cycles_resources_and_invalid_customization_are_catchable() {
         final cache=Cache.memory(4096)
         try {['cache':cache].toXml()}catch(XmlError e){print('resource')}
         cache.close()
-        try {[Math.sqrt(-1)].toXml()}catch(XmlError e){print('nonfinite')}
+        try {[Math.squareRoot(-1)].toXml()}catch(XmlError e){print('nonfinite')}
         try {Profile(1,'A').toXml(XmlOptions().attribute('missing'))}catch(XmlError e){print('missing option field')}
         try {Profile(1,'A').toXml(XmlOptions().rename('name','id'))}catch(XmlError e){print('name collision')}
         try {Xml.create('bad name')}catch(XmlError e){print('invalid name')}
@@ -363,7 +363,7 @@ fn xml_file_round_trip_between_independent_native_processes() {
         print(root.name())
         print(root.namespaceUri())
         print(root.getAttribute('id'))
-        print(root.childNs('urn:profile','displayName').text())
+        print(root.childInNamespace('urn:profile','displayName').text())
         print(root.child('address').child('city').text())
         print(root.child('scores').childCount('score'))
         print(root.child('scores').childAt('score',1).isNull())
@@ -372,7 +372,7 @@ fn xml_file_round_trip_between_independent_native_processes() {
         print(root.child('metadata').child('entry').text())
         print(root.child('missing').isNull())
         final reparsed=Xml.toObject(document.toXml()).root()
-        print(reparsed.childNs('urn:profile','displayName').text()==root.childNs('urn:profile','displayName').text())
+        print(reparsed.childInNamespace('urn:profile','displayName').text()==root.childInNamespace('urn:profile','displayName').text())
     }}"#,
     );
     let files = tempfile::tempdir().unwrap();
@@ -469,18 +469,18 @@ fn namespace_scopes_null_semantics_and_detached_subtrees_round_trip() {
         final doc=Xml.toObject('<r xmlns="urn:outer" xmlns:p="urn:one" xmlns:n="http://www.w3.org/2001/XMLSchema-instance"><p:a id="1"><p:b xmlns:p="urn:two">inside</p:b><plain xmlns="">outside</plain></p:a><missing n:nil="1"/><empty/><false n:nil="false"/></r>')
         final root=doc.root()
         print(root.namespaceUri())
-        final a=root.childNs('urn:one','a')
+        final a=root.childInNamespace('urn:one','a')
         print(a.getAttribute('id'))
-        print(a.childNs('urn:two','b').text())
-        print(a.childNs('','plain').text())
+        print(a.childInNamespace('urn:two','b').text())
+        print(a.childInNamespace('','plain').text())
         print(root.child('missing').isNull())
         print(root.child('empty').isNull())
         print(root.child('false').isNull())
         print(root.childCount('*'))
         final detached=Xml.toObject(a.toXml()).root()
         print(detached.namespaceUri())
-        print(detached.childNs('urn:two','b').namespaceUri())
-        print(detached.childNs('','plain').namespaceUri()=='')
+        print(detached.childInNamespace('urn:two','b').namespaceUri())
+        print(detached.childInNamespace('','plain').namespaceUri()=='')
         print(Xml.toObject(doc.toXml()).root().child('missing').isNull())
     }}"#,
     );
@@ -528,7 +528,7 @@ fn document_edits_preserve_live_handles_and_attribute_whitespace() {
         final child=root.element('item')
         child.text('before')
         root.attribute('value','quote " & < >\r\n\tend')
-        Gc.collect()
+        GarbageCollector.collect()
         child.text('after')
         print(doc.root().child('item').text())
         print(Xml.toObject(doc.toXml()).root().getAttribute('value')=='quote " & < >\r\n\tend')

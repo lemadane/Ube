@@ -1,6 +1,6 @@
 class App {
     start() {
-        final server = Server()
+        final server = new Server()
         server.get(
           '/health',
           (Request request) -> Response.ok('ready'))

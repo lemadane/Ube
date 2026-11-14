@@ -32,7 +32,7 @@ fn escaped_values_typed_components_and_conditionals_execute_natively() {
             print(`${html`<p>${`<b>string</b>`} ${42} ${true}</p>`}`)
             final fragment = html`<em>captured</em>`
             final render = () -> html`<div>${fragment}</div>`
-            Gc.collect()
+            GarbageCollector.collect()
             print(`${render()}`)
             print(`${html`<input required value="${title}">`}`)
         }
@@ -253,4 +253,15 @@ fn shipped_todo_components_build_through_cli() {
         String::from_utf8_lossy(&result.stderr)
     );
     assert!(dir.path().join("todo").is_file());
+}
+
+#[test]
+fn canvas_templates_support_dimensions_and_escaped_fallback_content() {
+    run(
+        r#"class App { start() {
+            final fallback = '<enable canvas>'
+            print(`${html`<canvas width="${384}" height="${288}" aria-label="Game">${fallback}</canvas>`}`)
+        } }"#,
+        "<canvas width=\"384\" height=\"288\" aria-label=\"Game\">&lt;enable canvas&gt;</canvas>\n",
+    );
 }

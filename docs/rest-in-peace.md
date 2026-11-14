@@ -64,7 +64,7 @@ Configuration methods return the same request handle for chaining:
 | `bearer(string)` | Sets `Authorization: Bearer ...`. |
 | `timeout(int milliseconds)` | Sets the HTTP request timeout, including response streaming; default 10,000, range 1–300,000. Connection setup is additionally limited to at most 5 seconds. |
 | `maxBytes(int)` | Sets the buffered response-body limit; default 1 MiB, range 1–16 MiB. |
-| `caFile(string path)` | Adds a PEM test CA certificate while retaining hostname and certificate verification. Maximum certificate file size is 64 KiB. |
+| `certificateAuthorityFile(string path)` | Adds a PEM test CA certificate while retaining hostname and certificate verification. Maximum certificate file size is 64 KiB. |
 
 `get(path)`, `post(path)`, `put(path)`, `patch(path)`, `delete(path)`, `head(path)`,
 and `options(path)` send a request and return `RestInPeaceResponse`.
@@ -94,7 +94,7 @@ rejected. Use the `Cookie` header explicitly when testing session cookies.
 | `body()` | Buffered UTF-8 text as `string`. |
 | `header(name)` | First matching header as `string?`; `null` if absent, `''` if present but empty. |
 | `hasHeader(name)` | Whether the header exists. |
-| `elapsedMs()` | Request time through body buffering as `long`; useful for diagnostics. |
+| `elapsedMilliseconds()` | Request time through body buffering as `long`; useful for diagnostics. |
 | `protocol()` | Negotiated protocol, such as `'HTTP/1.1'` or `'HTTP/2'`. |
 | `jsonString(pointer)` | JSON string. |
 | `jsonInt(pointer)` | JSON integer fitting signed 32-bit `int`. |
@@ -140,7 +140,7 @@ normalizations. The full response body is buffered before assertions run.
 ## Protocols, cleanup, and current limits
 
 HTTP/1.x and HTTPS with HTTP/2 ALPN negotiation are supported. TLS verification is
-enabled; use `caFile` for a local certificate. HTTP/3 and cleartext HTTP/2 prior
+enabled; use `certificateAuthorityFile` for a local certificate. HTTP/3 and cleartext HTTP/2 prior
 knowledge are not exposed by this initial client.
 
 Requests are blocking operations. They can be called from async Ube tasks; client

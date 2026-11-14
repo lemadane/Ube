@@ -1,0 +1,132 @@
+use PixelRenderer
+use BrowserClient
+
+class GamePage {
+    Html render() {
+        return html`
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#0b1017">
+    <title>Space Invaders · Ube Arcade</title>
+    <style>
+        :root { color-scheme: dark; font-family: 'Courier New', monospace; background: #0b1017; color: #e8eddf; }
+        * { box-sizing: border-box; }
+        body { margin: 0; min-height: 100vh; background: radial-gradient(ellipse at 50% 25%, #192521 0%, #0b1017 65%); }
+        button { font: inherit; cursor: pointer; }
+        button:focus-visible { outline: 2px solid #c9ff9c; outline-offset: 5px; }
+        button:disabled { opacity: .45; cursor: default; }
+        [hidden] { display: none !important; }
+        .shell { max-width: 1040px; margin: auto; padding: 30px 28px 24px; }
+        header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #29352f; padding-bottom: 20px; gap: 12px; }
+        .brand { font-size: 13px; font-weight: bold; letter-spacing: 2px; }
+        .brand span { color: #c9ff9c; }
+        .tag { font-size: 10px; letter-spacing: 1px; color: #91a59a; border: 1px solid #34463a; padding: 7px 10px; }
+        .intro { display: flex; justify-content: space-between; align-items: end; margin: 32px 0 24px; gap: 20px; }
+        .eyebrow { font-size: 10px; color: #b6d599; letter-spacing: 3px; margin-bottom: 10px; }
+        h1 { font-family: Impact, 'Arial Black', sans-serif; font-weight: 900; font-size: clamp(30px, 5vw, 54px); line-height: 1; letter-spacing: 1px; margin: 0; }
+        .intro p { font-size: 11px; color: #92a397; line-height: 1.7; margin: 12px 0 0; }
+        .serial { color: #677c70; font-size: 10px; white-space: nowrap; }
+        .layout { display: grid; grid-template-columns: minmax(0, 1fr) 192px; gap: 24px; }
+        .cabinet { background: #101820; border: 1px solid #374a40; padding: 12px; box-shadow: 0 16px 60px #0005; }
+        .hud { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; padding: 7px 8px 16px; }
+        .hud small { display: block; font-size: 9px; letter-spacing: 1.5px; color: #84978a; margin-bottom: 6px; }
+        .hud strong { font-size: clamp(14px, 2vw, 20px); font-weight: normal; color: #c9ff9c; }
+        .hud .best strong { color: #e2d0ff; }
+        .screen { position: relative; border: 1px solid #293e35; background: #090d18; overflow: hidden; }
+        canvas { display: block; width: 100%; aspect-ratio: 4 / 3; image-rendering: pixelated; image-rendering: crisp-edges; }
+        .scanlines { position: absolute; inset: 0; pointer-events: none; background: repeating-linear-gradient(transparent 0px, transparent 3px, #0002 4px); }
+        .overlay { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; background: #090d1840; padding: 12px; }
+        .dialog { text-align: center; width: min(340px, 92%); background: #0c141bea; border: 1px solid #60745c; box-shadow: 6px 6px 0 #0005; padding: 22px 18px; }
+        .dialog .eyebrow { font-size: 9px; }
+        h2 { font-size: 23px; letter-spacing: 1px; line-height: 1.2; margin: 12px 0; }
+        .dialog p { color: #b0beb2; font-size: 11px; line-height: 1.7; margin: 10px 0 18px; }
+        .primary { border: 0; background: #c9ff9c; color: #182414; padding: 13px 20px; font-weight: bold; font-size: 12px; letter-spacing: 1px; box-shadow: 3px 3px 0 #52723c; }
+        .primary:hover { background: #dcffbf; }
+        .bottom-bar { display: flex; justify-content: space-between; align-items: center; padding: 14px 6px 2px; color: #829a8b; font-size: 9px; letter-spacing: 1px; }
+        .subtle { border: 1px solid #3b5144; color: #bdcdbf; background: transparent; padding: 6px 10px; font-size: 10px; }
+        aside { padding-top: 8px; }
+        aside section { border-top: 1px solid #344437; padding: 18px 0 20px; }
+        aside h3 { color: #d4e0ce; font-size: 11px; letter-spacing: 1.7px; margin: 0 0 18px; }
+        aside p { color: #8fa493; font-size: 11px; line-height: 1.8; }
+        .control { display: flex; justify-content: space-between; align-items: center; margin: 14px 0; font-size: 10px; color: #9caf9e; }
+        .keycap { border: 1px solid #48604d; border-bottom-width: 3px; border-radius: 3px; padding: 4px 6px; font-size: 10px; color: #d3dfcb; background: #16231b; }
+        .target { display: flex; align-items: center; justify-content: space-between; margin: 16px 0; font-size: 11px; }
+        .target span:first-child { font-size: 12px; letter-spacing: 2px; }
+        .violet { color: #b29aff; } .cyan { color: #64d9e7; } .green { color: #a3ed9b; }
+        .touch-controls { display: flex; gap: 8px; margin-top: 14px; }
+        .touch-controls button { touch-action: none; user-select: none; flex: 1; background: #17231d; color: #c9ff9c; border: 1px solid #425a46; padding: 14px; font-size: 14px; }
+        .touch-controls .fire { flex: 2; }
+        footer { display: flex; justify-content: space-between; margin-top: 25px; padding-top: 18px; border-top: 1px solid #29352f; color: #6f8878; font-size: 9px; letter-spacing: 1px; gap: 12px; }
+        @media (max-width: 740px) {
+            .shell { padding: 18px 14px; } .intro { margin: 24px 0 18px; }
+            .layout { grid-template-columns: 1fr; gap: 16px; } .serial { display: none; }
+            aside { display: grid; grid-template-columns: 1fr 1fr; gap: 22px; } aside section:last-child { display: none; }
+            .cabinet { padding: 8px; } .dialog { padding: 15px; } h2 { font-size: 20px; }
+        }
+        @media (prefers-reduced-motion: reduce) { .scanlines { display: none; } }
+    </style>
+</head>
+<body>
+<main class="shell">
+    <header><div class="brand"><span>▦</span> UBE / ARCADE</div><div class="tag">01 · THE CLASSICS</div></header>
+    <div class="intro">
+        <div><div class="eyebrow">EARTH'S LAST LINE OF DEFENSE</div><h1>SPACE INVADERS</h1><h2>Powered by Ube Programming Language Backend API.</h2></div>
+        <div class="serial">EST. 1978 / REBUILT IN UBE</div>
+    </div>
+    <div class="layout">
+        <section aria-label="Space Invaders game">
+            <div class="cabinet">
+                <div class="hud">
+                    <div><small>SCORE</small><strong id="score">00000</strong></div>
+                    <div class="best"><small>PERSONAL BEST</small><strong id="best">00000</strong></div>
+                    <div><small>WAVE</small><strong id="wave">01</strong></div>
+                    <div><small>LIVES</small><strong id="lives" aria-label="3 lives">▲ ▲ ▲</strong></div>
+                </div>
+                <div class="screen">
+                    <canvas width="384" height="288" aria-label="Pixel-art battlefield. Use left and right arrows to move and space to fire.">This game needs a browser with HTML canvas support.</canvas>
+                    <div class="scanlines"></div>
+                    <div class="overlay" id="overlay">
+                        <div class="dialog">
+                            <div class="eyebrow">✦ PLANET EARTH NEEDS YOU ✦</div>
+                            <h2 id="overlay-title">READY, PILOT?</h2>
+                            <p id="overlay-description" aria-live="polite">Move. Fire. Hold the line.<br>Clear the fleet before it reaches Earth.</p>
+                            <button class="primary" id="action">START FLIGHT →</button>
+                        </div>
+                    </div>
+                </div>
+                <div class="bottom-bar"><span>● 384 × 288 / PIXEL DISPLAY</span><button class="subtle" id="pause" disabled>PAUSE</button></div>
+            </div>
+            <div class="touch-controls" aria-label="Touch controls">
+                <button data-control="left" aria-label="Move left">←</button>
+                <button data-control="right" aria-label="Move right">→</button>
+                <button class="fire" data-control="fire">FIRE ✦</button>
+            </div>
+        </section>
+        <aside>
+            <section><h3>FLIGHT MANUAL</h3>
+                <div class="control"><span>Move</span><span><span class="keycap">←</span> <span class="keycap">→</span></span></div>
+                <div class="control"><span>Fire / hold</span><span class="keycap">SPACE</span></div>
+                <div class="control"><span>Pause</span><span class="keycap">P</span></div>
+                <p>A / D also work.<br>On touch screens, use the controls below the display.</p>
+            </section>
+            <section><h3>KNOW YOUR ENEMY</h3>
+                <div class="target violet"><span>▟ ▙ SCOUT</span><span>30 PT</span></div>
+                <div class="target cyan"><span>▟█▙ RAIDER</span><span>20 PT</span></div>
+                <div class="target green"><span>▟▀▙ DRONE</span><span>10 PT</span></div>
+                <p>Clear a wave to face a faster fleet. You have three lives.</p>
+            </section>
+            <section><h3>A WORD OF ADVICE</h3><p>Shields buy you time, but both sides can damage them. Find a gap and keep moving.</p></section>
+        </aside>
+    </div>
+    <footer><span>BUILT WITH UBE · PLAYED WITH COURAGE</span><span>NO COINS REQUIRED</span></footer>
+    
+</main>
+${PixelRenderer().script()}
+${BrowserClient().script()}
+</body>
+</html>`
+    }
+}

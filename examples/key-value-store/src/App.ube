@@ -4,17 +4,17 @@ use Profile
 class App {
     start() {
         final args = Console.args()
-        if (args.len() != 2) {
+        if (args.length() != 2) {
             Console.printLine('Usage: <database-path> <write|read|delete>')
             return
         }
         final store = KeyValueStore.open(args[0])
         try {
             if (args[1] == 'write') {
-                final profile = Profile(
+                final profile = new Profile(
                   42,
                   'Alice',
-                  Address('東京'))
+                  new Address('東京'))
                 store.set(
                   'user:42',
                   profile.toJson())

@@ -109,7 +109,7 @@ print(
   results[2].stringValue())
 ```
 
-`TaskOutcomes` supports `len()`, `get(int)`, and `[int]`, with bounds checking.
+`TaskOutcomes` supports `length()`, `get(int)`, and `[int]`, with bounds checking.
 Each `TaskOutcome` supports:
 
 - `succeeded()`: whether the task succeeded.

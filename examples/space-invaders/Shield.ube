@@ -1,0 +1,3 @@
+class Shield(
+  int x,
+  var int health = 4)

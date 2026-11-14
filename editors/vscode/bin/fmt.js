@@ -5,7 +5,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { formatUbeDocument } = require("../formatter");
 
-const help = `Usage: ube fmt [options] [file or directory ...]
+const help = `Usage: ube format [options] [file or directory ...]
 
 Format Ube source using the same formatter as the VS Code extension.
 With no paths, read stdin. By default, write formatted source to stdout.
@@ -78,7 +78,7 @@ function main(args) {
       else throw new Error("expected a regular file or directory");
     } catch (error) {
       failed = true;
-      fs.writeSync(2, `ube fmt: ${file}: ${error.message}\n`);
+      fs.writeSync(2, `ube format: ${file}: ${error.message}\n`);
     }
   }
   if (paths.length === 0) format(null);
@@ -89,6 +89,6 @@ function main(args) {
 try {
   main(process.argv.slice(2));
 } catch (error) {
-  fs.writeSync(2, `ube fmt: ${error.message}\n`);
+  fs.writeSync(2, `ube format: ${error.message}\n`);
   process.exitCode = 2;
 }

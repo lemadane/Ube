@@ -1,0 +1,40 @@
+use GameFactory
+use GameCodec
+use GameRules
+
+// The browser sends only controls. The session owns the authoritative state.
+class GameController {
+    Response reset(Request request) {
+        final game = new GameFactory()
+          .create()
+        final snapshot = game.toJson()
+        request.session()
+          .set(
+            'space-invaders',
+            snapshot)
+        return Response.json(snapshot)
+    }
+
+    Response step(Request request) {
+        final session = request.session()
+        final saved = session.get('space-invaders')
+        if (saved == null) {
+            return this.reset(request)
+        }
+        final game = new GameCodec()
+          .decode(saved else '')
+        final direction = request.query('move')
+        final movement = direction == 'left' then -1 else (
+          direction == 'right' then 1 else 0)
+        new GameRules()
+          .advance(
+            game,
+            movement,
+            request.query('fire') == '1')
+        final snapshot = game.toJson()
+        session.set(
+          'space-invaders',
+          snapshot)
+        return Response.json(snapshot)
+    }
+}

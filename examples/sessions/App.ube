@@ -1,6 +1,6 @@
 class App {
     start() {
-        final server = Server()
+        final server = new Server()
         server.enableHttp2()
         // Enable HTTPS when serving authenticated sessions:
         // server.tls('cert.pem', 'key.pem')

@@ -2,7 +2,7 @@ use Profile
 
 class App {
     start() {
-        final profile = Profile(
+        final profile = new Profile(
           42,
           'Alice & Bob',
           [95, 88])
@@ -22,7 +22,7 @@ class App {
               1)
             .text())
 
-        final options = XmlOptions()
+        final options = new XmlOptions()
           .root('p:person')
           .namespace(
             'p',

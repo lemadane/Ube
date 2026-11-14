@@ -81,6 +81,8 @@ pub struct ImportDecl {
 #[derive(Debug, Clone, PartialEq)]
 pub struct TraitDecl {
     pub name: String,
+    /// None is structural within the application; Some restricts implementations to these classes.
+    pub permits: Option<Vec<String>>,
     pub methods: Vec<MethodDecl>,
     pub span: Span,
 }

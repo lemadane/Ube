@@ -19,14 +19,14 @@ after each batch of 256 managed allocations in generated execution. For explicit
 collection and managed-heap diagnostics:
 
 ```ube
-Gc.collect()
+GarbageCollector.collect()
 print(
-  Gc.objects())
+  GarbageCollector.objects())
 print(
-  Gc.reclaimed())
+  GarbageCollector.reclaimed())
 ```
 
-`Gc.collect()` returns true after completing a collection. Counts describe the
+`GarbageCollector.collect()` returns true after completing a collection. Counts describe the
 managed tracing heap, not total process memory. Rooted children survive; cycles
 without roots are reclaimed. Type metadata for reclaimed objects is removed.
 

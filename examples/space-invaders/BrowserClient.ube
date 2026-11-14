@@ -1,0 +1,192 @@
+// Input and transport adapters. Only one request is in flight at a time.
+class BrowserClient {
+    Html script() {
+        return html`<script>
+class PlayerInput {
+    constructor(onPause) {
+        this.keys = new Set();
+        this.buttons = new Set();
+        const controls = ['ArrowLeft', 'ArrowRight', 'KeyA', 'KeyD', 'Space'];
+        window.addEventListener('keydown', event => {
+            if (controls.includes(event.code)) {
+                if (event.target.closest('button') && event.code === 'Space') return;
+                event.preventDefault();
+                this.keys.add(event.code);
+            }
+            if (event.code === 'KeyP' && !event.repeat) onPause();
+        });
+        window.addEventListener('keyup', event => this.keys.delete(event.code));
+        window.addEventListener('blur', () => this.clear());
+        document.querySelectorAll('[data-control]').forEach(button => {
+            button.addEventListener('pointerdown', event => {
+                event.preventDefault();
+                button.setPointerCapture(event.pointerId);
+                this.buttons.add(button.dataset.control);
+            });
+            const release = () => this.buttons.delete(button.dataset.control);
+            button.addEventListener('pointerup', release);
+            button.addEventListener('pointercancel', release);
+            button.addEventListener('lostpointercapture', release);
+        });
+    }
+
+    clear() { this.keys.clear(); this.buttons.clear(); }
+
+    read() {
+        const left = this.keys.has('ArrowLeft') || this.keys.has('KeyA') || this.buttons.has('left');
+        const right = this.keys.has('ArrowRight') || this.keys.has('KeyD') || this.buttons.has('right');
+        return {
+            move: left === right ? 'idle' : left ? 'left' : 'right',
+            fire: this.keys.has('Space') || this.buttons.has('fire') ? '1' : '0'
+        };
+    }
+}
+
+class GameClient {
+    static tickMilliseconds = 1000 / 30;
+
+    constructor() {
+        this.renderer = new PixelRenderer(document.querySelector('canvas'));
+        this.input = new PlayerInput(() => this.togglePause());
+        this.game = null;
+        this.mode = 'ready';
+        this.busy = false;
+        this.nextTick = 0;
+        this.best = this.readBestScore();
+        this.overlay = document.querySelector('#overlay');
+        this.action = document.querySelector('#action');
+        this.pauseButton = document.querySelector('#pause');
+        this.action.addEventListener('click', () => this.mode === 'paused' ? this.resume() : this.start());
+        this.pauseButton.addEventListener('click', () => this.togglePause());
+        document.addEventListener('visibilitychange', () => {
+            if (document.hidden && this.mode === 'playing') this.pause();
+        });
+        window.addEventListener('blur', () => {
+            if (this.mode === 'playing') this.pause();
+        });
+        this.updateHud();
+        requestAnimationFrame(time => this.frame(time));
+    }
+
+    readBestScore() {
+        try { return Number(localStorage.getItem('ube-invaders-best')) || 0; }
+        catch { return 0; }
+    }
+
+    async request(path) {
+        const response = await fetch(path, {
+            method: 'POST', credentials: 'same-origin', cache: 'no-store',
+            signal: AbortSignal.timeout(5000)
+        });
+        if (!response.ok) throw new Error('Server returned ' + response.status);
+        return response.json();
+    }
+
+    async start() {
+        if (this.busy) return;
+        this.busy = true;
+        this.action.disabled = true;
+        this.action.textContent = 'CONNECTING…';
+        try {
+            this.game = await this.request('/game/reset');
+            this.input.clear();
+            this.mode = 'playing';
+            this.overlay.hidden = true;
+            this.pauseButton.textContent = 'PAUSE';
+            this.nextTick = performance.now();
+            this.action.blur();
+            this.updateHud();
+            if (document.hidden) this.pause();
+        } catch (error) {
+            this.connectionError(error);
+        } finally {
+            this.busy = false;
+            this.action.disabled = false;
+        }
+    }
+
+    async step() {
+        this.busy = true;
+        try {
+            const input = this.input.read();
+            this.game = await this.request('/game/step?' + new URLSearchParams(input));
+            this.updateHud();
+            if (this.game.gameOver) {
+                this.mode = 'over';
+                const reason = this.game.lives === 0 ? 'Your ship is down.' : 'The fleet reached Earth.';
+                this.showOverlay('MISSION ENDED', reason + ' Your score: ' + this.game.score + '.', 'PLAY AGAIN');
+                this.updateHud();
+            }
+        } catch (error) {
+            this.connectionError(error);
+        } finally {
+            this.busy = false;
+            // No catch-up burst after a slow request or a suspended tab.
+            this.nextTick = Math.max(this.nextTick, performance.now());
+        }
+    }
+
+    pause() {
+        this.mode = 'paused';
+        this.input.clear();
+        this.showOverlay('FLIGHT PAUSED', 'Take a breath. Earth can wait a moment.', 'RESUME FLIGHT');
+        this.pauseButton.textContent = 'RESUME';
+    }
+
+    resume() {
+        this.mode = 'playing';
+        this.overlay.hidden = true;
+        this.nextTick = performance.now();
+        this.pauseButton.textContent = 'PAUSE';
+        this.action.blur();
+        this.pauseButton.blur();
+    }
+
+    togglePause() {
+        if (this.mode === 'playing') this.pause();
+        else if (this.mode === 'paused') this.resume();
+    }
+
+    showOverlay(title, description, button) {
+        document.querySelector('#overlay-title').textContent = title;
+        document.querySelector('#overlay-description').textContent = description;
+        this.action.textContent = button;
+        this.overlay.hidden = false;
+    }
+
+    connectionError(error) {
+        this.mode = 'error';
+        this.input.clear();
+        this.showOverlay('SIGNAL LOST', 'Check that the Ube server is running, then start a new flight.', 'RECONNECT');
+        this.updateHud();
+        console.error('Game connection failed:', error);
+    }
+
+    updateHud() {
+        const score = this.game ? this.game.score : 0;
+        if (score > this.best) {
+            this.best = score;
+            try { localStorage.setItem('ube-invaders-best', String(this.best)); } catch {}
+        }
+        document.querySelector('#score').textContent = String(score).padStart(5, '0');
+        document.querySelector('#best').textContent = String(this.best).padStart(5, '0');
+        document.querySelector('#wave').textContent = String(this.game ? this.game.wave : 1).padStart(2, '0');
+        const lives = this.game ? this.game.lives : 3;
+        document.querySelector('#lives').textContent = '▲ '.repeat(Math.max(0, lives));
+        document.querySelector('#lives').setAttribute('aria-label', lives + ' lives');
+        this.pauseButton.disabled = !['playing', 'paused'].includes(this.mode);
+    }
+
+    frame(time) {
+        this.renderer.draw(this.game, time);
+        if (this.mode === 'playing' && !this.busy && time >= this.nextTick) {
+            this.nextTick = time + GameClient.tickMilliseconds;
+            void this.step();
+        }
+        requestAnimationFrame(next => this.frame(next));
+    }
+}
+new GameClient();
+</script>`
+    }
+}

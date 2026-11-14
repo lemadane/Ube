@@ -1,0 +1,4 @@
+// No permit list: any compatible class satisfies this trait.
+trait UserStatus {
+    bool isAuthorized()
+}

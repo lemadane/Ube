@@ -421,7 +421,7 @@ fn nullable_channels_cancellation_and_cleanup_survive_repeated_native_execution(
                     completed.close()
                     iteration = iteration + 1
                 }
-                if (not Gc.collect()) { throw 'cancelled task leaked a root frame' }
+                if (not GarbageCollector.collect()) { throw 'cancelled task leaked a root frame' }
                 print('${iteration} ${closed} ${cancelled}')
             }
         }
@@ -441,22 +441,22 @@ fn generated_objects_keep_live_graphs_and_reclaim_unreachable_cycles() {
         class App {
             Node make(int value) {
                 try { return Node(null, value) }
-                finally { Gc.collect() }
+                finally { GarbageCollector.collect() }
             }
             void cycle(int value) {
                 final left = Node(null, value)
                 final right = Node(left, value + 1)
                 left.next(right)
-                if (not Gc.collect()) { throw 'serial collection deferred' }
+                if (not GarbageCollector.collect()) { throw 'serial collection deferred' }
                 if ((left.next() ?? left).value() != value + 1) { throw 'live child lost' }
                 if ((right.next() ?? right).value() != value) { throw 'live parent lost' }
             }
             start() {
                 var kept = this.make(-1)
                 final mixed = Mixed(true, 7, Node(null, 42), false)
-                Gc.collect()
+                GarbageCollector.collect()
                 if (not mixed.active() or mixed.count() != 7 or mixed.flag() or mixed.child().value() != 42) { throw 'mixed object layout corrupted' }
-                final baseline = Gc.objects()
+                final baseline = GarbageCollector.objects()
                 var iteration = 0
                 while (iteration < 1000) {
                     this.cycle(iteration)
@@ -464,9 +464,9 @@ fn generated_objects_keep_live_graphs_and_reclaim_unreachable_cycles() {
                     if (kept.value() != iteration) { throw 'return root lost' }
                     iteration = iteration + 1
                 }
-                if (not Gc.collect()) { throw 'final collection deferred' }
-                if (Gc.objects() > baseline + 16) { throw 'generated heap grew without bound' }
-                if (Gc.reclaimed() < 2000) { throw 'cycles not reclaimed' }
+                if (not GarbageCollector.collect()) { throw 'final collection deferred' }
+                if (GarbageCollector.objects() > baseline + 16) { throw 'generated heap grew without bound' }
+                if (GarbageCollector.reclaimed() < 2000) { throw 'cycles not reclaimed' }
                 print(kept.value())
                 print('generated heap stable')
             }
@@ -490,14 +490,14 @@ fn generated_tracing_heap_survives_parallel_collection_and_async_object_handoffs
                     final left = Node(null, seed + iteration)
                     final right = Node(left, seed + iteration + 1)
                     left.next(right)
-                    Gc.collect()
+                    GarbageCollector.collect()
                     if ((left.next() ?? left).value() != seed + iteration + 1) { throw 'parallel child lost' }
                     if ((right.next() ?? right).value() != seed + iteration) { throw 'parallel parent lost' }
                     iteration = iteration + 1
                 }
                 return seed
             }
-            Node echo(Node value) { Gc.collect() return value }
+            Node echo(Node value) { GarbageCollector.collect() return value }
             start() {
                 final one = Async.start(() -> this.work(1000))
                 final two = Async.start(() -> this.work(2000))
@@ -513,9 +513,9 @@ fn generated_tracing_heap_survives_parallel_collection_and_async_object_handoffs
                 final sent = channel.send(returned).await()
                 final received = channel.receive().await()
                 channel.close()
-                Gc.collect()
+                GarbageCollector.collect()
                 print(received.value())
-                if (Gc.reclaimed() < 1000) { throw 'parallel cycles not reclaimed' }
+                if (GarbageCollector.reclaimed() < 1000) { throw 'parallel cycles not reclaimed' }
                 print('parallel tracing stable')
             }
         }
@@ -562,8 +562,8 @@ fn generated_temporary_objects_are_collected_automatically() {
                     if (this.read(iteration) != iteration) { throw 'live temporary lost' }
                     iteration = iteration + 1
                 }
-                if (Gc.objects() > 300) { throw 'automatic collection did not bound temporaries' }
-                if (Gc.reclaimed() < 4500) { throw 'automatic collection did not run' }
+                if (GarbageCollector.objects() > 300) { throw 'automatic collection did not bound temporaries' }
+                if (GarbageCollector.reclaimed() < 4500) { throw 'automatic collection did not run' }
                 print('automatic collection stable')
             }
         }
@@ -588,7 +588,7 @@ fn concurrent_collection_mutations_are_memory_safe_and_keep_all_entries() {
                 final b = Async.start(() -> this.fill(values, start, 10000))
                 final one = start.send(1).await() final two = start.send(1).await()
                 final done = Async.all([a, b]).await()
-                print(values.len())
+                print(values.length())
             }
         }
     "#), "20000\n");
@@ -618,7 +618,7 @@ fn settled_outcomes_preserve_zero_and_original_typed_failures() {
             int fail() { throw WorkError('failed work', 73) }
             start() {
                 final results = Async.allSettled([Async.start(() -> this.fail()), Async.start(() -> 0)]).await()
-                print(results.len()) print(results[0].succeeded()) print(results[1].succeeded())
+                print(results.length()) print(results[0].succeeded()) print(results[1].succeeded())
                 print(results[1].value()) print(results[1].error() == null)
                 try { final value = results[0].value() }
                 catch (WorkError err) { print(err.message()) print(err.code()) }

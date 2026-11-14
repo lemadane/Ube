@@ -249,11 +249,11 @@ fn suspended_references_remain_rooted_and_are_released_on_completion() {
                 final holder = this.setup()
                 final ready = Channel<int>(1) final gate = Channel<int>(1)
                 final task = holder.work(ready, gate) final started = ready.receive().await()
-                final before = Gc.objects()
-                holder.current(null) Gc.collect()
-                print(Gc.objects() == before)
+                final before = GarbageCollector.objects()
+                holder.current(null) GarbageCollector.collect()
+                print(GarbageCollector.objects() == before)
                 final released = gate.send(1).await() print(task.await())
-                Gc.collect() print(Gc.objects() == before - 1)
+                GarbageCollector.collect() print(GarbageCollector.objects() == before - 1)
             }
         }
     "#,

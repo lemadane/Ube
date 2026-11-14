@@ -6,7 +6,7 @@ HTTP/1.1, HTTP/2, and HTTP/3 are supported. For example:
 ```ube
 class App {
     start() {
-        final server = Server()
+        final server = new Server()
         server.post(
           '/echo',
           (Request request) -> Response.ok(

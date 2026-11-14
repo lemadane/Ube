@@ -6,7 +6,7 @@ factories work with both HTTP/1.1 and HTTP/2.
 ```ube
 class App {
     start() {
-        final server = Server()
+        final server = new Server()
         server.enableHttp2()
         server.tls(
           'cert.pem',

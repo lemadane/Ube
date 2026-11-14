@@ -1333,7 +1333,7 @@ fn exact_money_api_checks_receiver_arity_and_non_null_text() {
 
 #[test]
 fn gc_api_requires_static_calls_and_no_arguments() {
-    for source in ["Gc()", "Gc.collect(1)", "Gc.objects(1)", "Gc.reclaimed(1)"] {
+    for source in ["GarbageCollector()", "GarbageCollector.collect(1)", "GarbageCollector.objects(1)", "GarbageCollector.reclaimed(1)"] {
         let errors = diagnostics(&format!("class App {{ start() {{ {source} }} }}"));
         assert!(!errors.is_empty(), "invalid collector call accepted: {source}");
     }
@@ -1436,10 +1436,10 @@ fn stacktrace_supports_error_compatible_traits_and_unthrown_instances() {
 #[test]
 fn native_math_arguments_match_decimal_and_integer_abis() {
     runs(r#"class App { start() {
-        Console.printLine(Math.sqrt(9))
-        Console.printLine(Math.pow(2,3))
-        Console.printLine(Math.isNaN(Math.sqrt(-1)))
-        Console.printLine(Math.gcd(12,8))
+        Console.printLine(Math.squareRoot(9))
+        Console.printLine(Math.power(2,3))
+        Console.printLine(Math.isNaN(Math.squareRoot(-1)))
+        Console.printLine(Math.greatestCommonDivisor(12,8))
         Console.printLine(Math.isEven(4))
         Console.printLine(Math.round(1.234,2))
     }}"#, "3\n8\ntrue\n4\ntrue\n1.23\n");

@@ -196,6 +196,26 @@ impl<'a> Parser<'a> {
             }
         };
 
+        // `permit` is contextual so existing variables and methods can keep that name.
+        let permits = if matches!(&self.current_token.kind, TokenKind::Identifier(name) if name == "permit") {
+            self.advance();
+            let mut names = Vec::new();
+            loop {
+                let TokenKind::Identifier(name) = self.current_token.kind.clone() else {
+                    self.diagnostics.push(Diagnostic::error(
+                        "Expected concrete class name in trait permit list",
+                        Some(self.current_token.span),
+                    ));
+                    return Err(());
+                };
+                names.push(name);
+                self.advance();
+                if !self.match_token(&TokenKind::Comma) { break; }
+            }
+            Some(names)
+        } else {
+            None
+        };
         self.expect(&TokenKind::OpenBrace, "{")?;
         let mut methods = Vec::new();
         self.in_trait = true;
@@ -209,6 +229,7 @@ impl<'a> Parser<'a> {
 
         Ok(TraitDecl {
             name: trait_name,
+            permits,
             methods,
             span: Span::combine(start_span, end_tok.span),
         })
@@ -1079,6 +1100,36 @@ impl<'a> Parser<'a> {
         self.advance();
 
         match tok.kind {
+            TokenKind::New => {
+                let TokenKind::Identifier(name) = self.current_token.kind.clone() else {
+                    self.diagnostics.push(Diagnostic::error(
+                        "Expected class name after 'new'", Some(self.current_token.span),
+                    ));
+                    return Err(());
+                };
+                if name == "print" || name == "log" {
+                    self.diagnostics.push(Diagnostic::error(
+                        "'new' requires a class constructor, not a logging or printing call", Some(self.current_token.span),
+                    ));
+                    return Err(());
+                }
+                if let Some(canonical) = crate::builtins::builtin_class_case_suggestion(&name) {
+                    self.diagnostics.push(Diagnostic::error(
+                        format!("Built-in classes require capitalization; use new {}()", canonical),
+                        Some(self.current_token.span),
+                    ));
+                    return Err(());
+                }
+                self.advance();
+                let generic_type = if self.match_token(&TokenKind::Less) {
+                    let ty = self.parse_type_spec()?;
+                    self.expect(&TokenKind::Greater, ">")?;
+                    Some(ty)
+                } else {
+                    None
+                };
+                self.parse_class_instantiation(tok.span, name, generic_type)
+            }
             TokenKind::Static => {
                 if !self.check(&TokenKind::Dot) {
                     self.diagnostics.push(Diagnostic::error("'static' must be followed by '.member'", Some(tok.span)));

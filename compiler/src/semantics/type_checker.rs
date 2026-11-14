@@ -18,6 +18,7 @@ pub struct ClassInfo {
 #[derive(Debug, Clone, PartialEq)]
 pub struct TraitInfo {
     pub name: String,
+    pub permits: Option<Vec<String>>,
     pub methods: HashMap<String, (Vec<Type>, Type)>,
     pub defaults: std::collections::HashSet<String>,
 }
@@ -33,6 +34,7 @@ pub struct TypeChecker {
     expression_yields: Vec<Vec<Type>>,
     in_static_context: bool,
     orm_declarations: HashMap<String, ClassDecl>,
+    // Concrete classes loaded from the program, including generated mocks; excludes built-ins.
     zero_init_classes: std::collections::HashSet<String>,
     loop_depth: usize,
     pub diagnostics: Vec<Diagnostic>,
@@ -93,6 +95,7 @@ impl TypeChecker {
             "Error".into(),
             TraitInfo {
                 name: "Error".into(),
+                permits: None,
                 methods: error_trait_methods,
                 defaults: Default::default(),
             },
@@ -120,8 +123,8 @@ impl TypeChecker {
             name: "Testicle".into(), fields: HashMap::new(), methods: HashMap::new(),
             param_types: Vec::new(), min_constructor_args: 0, max_constructor_args: 0,
         });
-        self.classes.insert("Gc".into(), ClassInfo {
-            name: "Gc".into(), fields: HashMap::new(),
+        self.classes.insert("GarbageCollector".into(), ClassInfo {
+            name: "GarbageCollector".into(), fields: HashMap::new(),
             methods: [("collect".into(), (Vec::new(), Type::Bool)), ("objects".into(), (Vec::new(), Type::Long)), ("reclaimed".into(), (Vec::new(), Type::Long))].into_iter().collect(),
             param_types: Vec::new(), min_constructor_args: 0, max_constructor_args: 0,
         });
@@ -267,7 +270,7 @@ impl TypeChecker {
             ),
         );
         datetime_methods.insert(
-            "fromUnixMillis".into(),
+            "fromUnixMilliseconds".into(),
             (
                 vec![Type::Int],
                 Type::Class {
@@ -284,7 +287,7 @@ impl TypeChecker {
         datetime_methods.insert("second".into(), (Vec::new(), Type::Int));
         datetime_methods.insert("timestamp".into(), (Vec::new(), Type::Int));
         datetime_methods.insert("unix".into(), (Vec::new(), Type::Int));
-        datetime_methods.insert("unixMillis".into(), (Vec::new(), Type::Int));
+        datetime_methods.insert("unixMilliseconds".into(), (Vec::new(), Type::Int));
         datetime_methods.insert("unixNanos".into(), (Vec::new(), Type::Int));
         datetime_methods.insert("zone".into(), (Vec::new(), Type::String));
         datetime_methods.insert(
@@ -335,7 +338,7 @@ impl TypeChecker {
             ),
         );
         datetime_methods.insert(
-            "diffSeconds".into(),
+            "differenceInSeconds".into(),
             (
                 vec![Type::Class {
                     name: "DateTime".into(),
@@ -848,7 +851,7 @@ impl TypeChecker {
         math_methods.insert("E".into(), (Vec::new(), Type::Decimal));
         math_methods.insert("TAU".into(), (Vec::new(), Type::Decimal));
 
-        math_methods.insert("abs".into(), (vec![Type::Decimal], Type::Decimal));
+        math_methods.insert("absolute".into(), (vec![Type::Decimal], Type::Decimal));
         math_methods.insert(
             "min".into(),
             (vec![Type::Decimal, Type::Decimal], Type::Decimal),
@@ -857,15 +860,15 @@ impl TypeChecker {
             "max".into(),
             (vec![Type::Decimal, Type::Decimal], Type::Decimal),
         );
-        math_methods.insert("sqrt".into(), (vec![Type::Decimal], Type::Decimal));
-        math_methods.insert("cbrt".into(), (vec![Type::Decimal], Type::Decimal));
+        math_methods.insert("squareRoot".into(), (vec![Type::Decimal], Type::Decimal));
+        math_methods.insert("cubeRoot".into(), (vec![Type::Decimal], Type::Decimal));
         math_methods.insert(
-            "pow".into(),
+            "power".into(),
             (vec![Type::Decimal, Type::Decimal], Type::Decimal),
         );
 
         math_methods.insert("floor".into(), (vec![Type::Decimal], Type::Decimal));
-        math_methods.insert("ceil".into(), (vec![Type::Decimal], Type::Decimal));
+        math_methods.insert("ceiling".into(), (vec![Type::Decimal], Type::Decimal));
         math_methods.insert("round".into(), (vec![Type::Decimal], Type::Decimal));
         math_methods.insert("truncate".into(), (vec![Type::Decimal], Type::Decimal));
         math_methods.insert(
@@ -893,15 +896,15 @@ impl TypeChecker {
         math_methods.insert("log".into(), (vec![Type::Decimal], Type::Decimal));
         math_methods.insert("log10".into(), (vec![Type::Decimal], Type::Decimal));
         math_methods.insert("log2".into(), (vec![Type::Decimal], Type::Decimal));
-        math_methods.insert("exp".into(), (vec![Type::Decimal], Type::Decimal));
+        math_methods.insert("exponential".into(), (vec![Type::Decimal], Type::Decimal));
 
         math_methods.insert("isNaN".into(), (vec![Type::Decimal], Type::Bool));
         math_methods.insert("isInfinite".into(), (vec![Type::Decimal], Type::Bool));
         math_methods.insert("isFinite".into(), (vec![Type::Decimal], Type::Bool));
         math_methods.insert("isEven".into(), (vec![Type::Int], Type::Bool));
         math_methods.insert("isOdd".into(), (vec![Type::Int], Type::Bool));
-        math_methods.insert("gcd".into(), (vec![Type::Int, Type::Int], Type::Int));
-        math_methods.insert("lcm".into(), (vec![Type::Int, Type::Int], Type::Int));
+        math_methods.insert("greatestCommonDivisor".into(), (vec![Type::Int, Type::Int], Type::Int));
+        math_methods.insert("leastCommonMultiple".into(), (vec![Type::Int, Type::Int], Type::Int));
 
         self.classes.insert(
             "Math".into(),
@@ -1694,7 +1697,7 @@ impl TypeChecker {
         );
 
         let mut jsonarray_methods = HashMap::new();
-        jsonarray_methods.insert("len".into(), (Vec::new(), Type::Int));
+        jsonarray_methods.insert("length".into(), (Vec::new(), Type::Int));
         jsonarray_methods.insert(
             "get".into(),
             (
@@ -1806,6 +1809,7 @@ impl TypeChecker {
                         tr.name.clone(),
                         TraitInfo {
                             name: tr.name.clone(),
+                            permits: tr.permits.clone(),
                             methods,
                             defaults: tr.methods.iter().filter(|m| !m.body.is_empty()).map(|m| m.name.clone()).collect(),
                         },
@@ -1895,6 +1899,28 @@ impl TypeChecker {
             }
         }
 
+        // Resolve permit entries after all classes and method signatures are registered.
+        for item in &program.items {
+            let Item::Trait(contract) = item else { continue };
+            let Some(permits) = &contract.permits else { continue };
+            let mut seen = std::collections::HashSet::new();
+            for name in permits {
+                let message = if !seen.insert(name) {
+                    Some(format!("Duplicate class '{name}' in permit list for '{}'", contract.name))
+                } else if !self.classes.contains_key(name) || self.traits.contains_key(name)
+                    || name.starts_with(crate::mockery::PREFIX) {
+                    Some(format!("Permit entry '{name}' for '{}' must name a concrete class", contract.name))
+                } else if !self.satisfies_trait(name, &contract.name) {
+                    Some(format!("Permitted class '{name}' does not satisfy trait '{}' method signatures", contract.name))
+                } else {
+                    None
+                };
+                if let Some(message) = message {
+                    self.diagnostics.push(Diagnostic::error(message, Some(contract.span)));
+                }
+            }
+        }
+
         let entry_class = program.items.iter().filter_map(|item| {
             let Item::Class(cls) = item else { return None };
             cls.methods.iter().find(|method| method.name.eq_ignore_ascii_case("start"))
@@ -1908,6 +1934,22 @@ impl TypeChecker {
                     }
                 }
                 self.check_class(cls);
+            }
+        }
+
+        // Defaults are executable code too: check them in the trait's own scope,
+        // including returns/arguments that mention restricted contracts.
+        for item in &program.items {
+            if let Item::Trait(contract) = item {
+                let scope = ClassDecl {
+                    name: contract.name.clone(), primary_params: vec![], static_fields: vec![],
+                    cases: vec![], methods: vec![], span: contract.span,
+                };
+                self.current_class = Some(contract.name.clone());
+                for method in contract.methods.iter().filter(|method| !method.body.is_empty()) {
+                    self.check_method(&scope, method);
+                }
+                self.current_class = None;
             }
         }
 
@@ -2221,6 +2263,7 @@ impl TypeChecker {
                             if let Some(act) = actual_ty {
                                 if !self.is_assignable_to(&act, &expected_ret)
                                     && (act != Type::Void
+                                        || self.is_trait_sensitive_type(&expected_ret)
                                         || matches!(expected_ret, Type::Function { .. } | Type::Stream(_) | Type::Sequence(_))
                                         || matches!(&expected_ret, Type::Class { name } if name == "Html" || name == "SQLStatement"))
                                 {
@@ -2249,6 +2292,15 @@ impl TypeChecker {
                 if let Some(ty) = self.check_expr(cls, expr) {
                     if let Some(yields) = self.expression_yields.last_mut() {
                         yields.push(ty);
+                    } else if let Some(expected) = self.current_return_type.as_ref()
+                        .filter(|expected| self.is_trait_sensitive_type(expected))
+                    {
+                        if !self.is_assignable_to(&ty, expected) {
+                            self.diagnostics.push(Diagnostic::error(
+                                format!("Mismatched yield type: expected '{}', found '{}'", expected, ty),
+                                Some(expr.span),
+                            ));
+                        }
                     } else if (matches!(&self.current_return_type, Some(Type::Class { name }) if name == "Html" || name == "SQLStatement")
                         || matches!(&self.current_return_type, Some(Type::Stream(_) | Type::Sequence(_))))
                         && Some(&ty) != self.current_return_type.as_ref()
@@ -2501,6 +2553,13 @@ impl TypeChecker {
                 }
                 if matches!(&callee.kind, ExprKind::MemberAccess { object, member, .. } if member == "mock" && matches!(&object.kind, ExprKind::Identifier(name) if name == "Mockery" && self.symbol_table.lookup(name).is_none())) {
                     if let [Expr { kind: ExprKind::Identifier(contract), .. }] = args.as_slice() {
+                        if self.traits.get(contract).is_some_and(|info| info.permits.is_some()) {
+                            self.diagnostics.push(Diagnostic::error(
+                                "Mockery.mock cannot create an unlisted implementation of a restricted trait",
+                                Some(expr.span),
+                            ));
+                            return None;
+                        }
                         let name = crate::mockery::class_name(contract);
                         if self.symbol_table.lookup(contract).is_none() && self.traits.contains_key(contract) && self.classes.contains_key(&name) {
                             return Some(Type::Class { name });
@@ -2570,8 +2629,19 @@ impl TypeChecker {
                                     }
                                     return Some(Type::Class { name: "Response".into() });
                                 }
-                                if (name == "List" || name == "Map") && member == "len" && args.is_empty() {
-                                    return Some(Type::Int);
+                                if name == "List" || name == "Map" {
+                                    if member == "len" {
+                                        self.diagnostics.push(Diagnostic::error(
+                                            format!("{name}.len() was renamed to {name}.length()"), Some(expr.span)));
+                                        return None;
+                                    }
+                                    if member == "length" {
+                                        if !args.is_empty() {
+                                            self.diagnostics.push(Diagnostic::error(
+                                                format!("{name}.length() expects no arguments"), Some(expr.span)));
+                                        }
+                                        return Some(Type::Int);
+                                    }
                                 }
                                 let class_receiver = matches!(&object.kind, ExprKind::Identifier(n) if self.symbol_table.lookup(n).is_none() && canonical_builtin_class_name(n).is_some());
                                 if !class_receiver && args.is_empty() {
@@ -2793,9 +2863,9 @@ impl TypeChecker {
                                     }
                                     return Some(Type::Void);
                                 }
-                                if name == "Gc" {
-                                    if !class_receiver || !args.is_empty() { self.diagnostics.push(Diagnostic::error("Gc methods require a class call with no arguments", Some(expr.span))); }
-                                    return self.classes["Gc"].methods.get(member).map(|(_, result)| result.clone()).or_else(|| { self.diagnostics.push(Diagnostic::error("Unknown Gc method", Some(expr.span))); None });
+                                if name == "GarbageCollector" {
+                                    if !class_receiver || !args.is_empty() { self.diagnostics.push(Diagnostic::error("GarbageCollector methods require a class call with no arguments", Some(expr.span))); }
+                                    return self.classes["GarbageCollector"].methods.get(member).map(|(_, result)| result.clone()).or_else(|| { self.diagnostics.push(Diagnostic::error("Unknown GarbageCollector method", Some(expr.span))); None });
                                 }
                                 if name == "Money" {
                                     let static_method = matches!(member.as_str(), "php" | "usd" | "eur" | "jpy" | "gbp" | "parse");
@@ -2828,7 +2898,7 @@ impl TypeChecker {
                                 if name == "ConsoleArgs" {
                                     let method = crate::builtins::console_args_methods().into_iter().find(|m| m.name == member);
                                     if class_receiver || method.as_ref().is_none_or(|m| m.params != arg_types || args.len() != m.params.len()) {
-                                        self.diagnostics.push(Diagnostic::error("ConsoleArgs supports instance calls len() and get(int)", Some(expr.span)));
+                                        self.diagnostics.push(Diagnostic::error("ConsoleArgs supports instance calls length() and get(int)", Some(expr.span)));
                                     }
                                     return method.map(|m| m.result);
                                 }
@@ -3104,6 +3174,13 @@ impl TypeChecker {
                     return None;
                 }
                 let class_name = canonical_builtin_class_name(class_name).unwrap_or(class_name);
+                if self.traits.contains_key(class_name) {
+                    self.diagnostics.push(Diagnostic::error(
+                        format!("Trait '{}' cannot be constructed; construct a compatible concrete class", class_name),
+                        Some(expr.span),
+                    ));
+                    return None;
+                }
                 if class_name == "Mockery" || class_name.starts_with(crate::mockery::PREFIX) {
                     self.diagnostics.push(Diagnostic::error("Use Mockery.mock(TraitName) to create a mock", Some(expr.span)));
                     return None;
@@ -3137,8 +3214,8 @@ impl TypeChecker {
                 if ["Xml","XmlDocument","XmlElement"].contains(&class_name) {
                     self.diagnostics.push(Diagnostic::error("Use Xml.toObject(text) or Xml.create(root); XML handles cannot be constructed",Some(expr.span)));return None;
                 }
-                if class_name == "Gc" {
-                    self.diagnostics.push(Diagnostic::error("Use Gc.collect(), Gc.objects(), or Gc.reclaimed(); Gc does not create instances", Some(expr.span)));
+                if class_name == "GarbageCollector" {
+                    self.diagnostics.push(Diagnostic::error("Use GarbageCollector.collect(), GarbageCollector.objects(), or GarbageCollector.reclaimed(); GarbageCollector does not create instances", Some(expr.span)));
                     return None;
                 }
                 if class_name == "Log" || class_name == "Console" {
@@ -3602,6 +3679,16 @@ impl TypeChecker {
                     self.symbol_table.pop_scope();
                 }
                 let yields = self.expression_yields.pop().unwrap();
+                if let Some(ty) = yield_ty.as_ref().filter(|ty| self.is_trait_sensitive_type(ty)) {
+                    if yields.iter().any(|actual| !self.is_assignable_to(actual, ty))
+                        || !then_branch.iter().any(|s| self.stmt_definitely_returns(s))
+                        || !else_branch.as_ref().is_some_and(|body| body.iter().any(|s| self.stmt_definitely_returns(s))) {
+                        self.diagnostics.push(Diagnostic::error(
+                            format!("If expressions producing '{}' must yield compatible values on both branches", ty),
+                            Some(expr.span),
+                        ));
+                    }
+                }
                 for template_type in yields.iter().filter(|ty|
                     matches!(ty, Type::Stream(_) | Type::Sequence(_))
                     || matches!(ty, Type::Class { name } if name == "Html" || name == "SQLStatement")
@@ -3678,6 +3765,31 @@ impl TypeChecker {
 
     pub fn satisfies_trait(&self, source: &str, target: &str) -> bool {
         let Some(required) = self.traits.get(target) else { return false; };
+        // Ordinary application contracts are structural within this program.
+        // Runtime handles and the built-in Error contract can carry foreign objects.
+        if required.permits.is_none() && target != "Error" {
+            if self.classes.contains_key(source) {
+                if !self.zero_init_classes.contains(source) { return false; }
+            } else {
+                let Some(contract) = self.traits.get(source) else { return false; };
+                if source == "Error" || contract.permits.as_ref().is_some_and(|names|
+                    names.iter().any(|name| !self.zero_init_classes.contains(name))) {
+                    return false;
+                }
+            }
+        }
+        if let Some(permits) = &required.permits {
+            if self.classes.contains_key(source) {
+                if !permits.iter().any(|name| name == source) { return false; }
+            } else {
+                // An erased open trait cannot prove that its value is permitted.
+                // Restricted sources are safe only when every possible class is permitted.
+                let Some(source_permits) = self.traits.get(source).and_then(|info| info.permits.as_ref()) else {
+                    return false;
+                };
+                if !source_permits.iter().all(|name| permits.contains(name)) { return false; }
+            }
+        }
         let methods = self.classes.get(source).map(|c| &c.methods)
             .or_else(|| self.traits.get(source).map(|t| &t.methods));
         methods.is_some_and(|methods| required.methods.iter().all(|(name, signature)| {
@@ -3704,9 +3816,23 @@ impl TypeChecker {
         )
     }
 
+    fn is_trait_sensitive_type(&self, ty: &Type) -> bool {
+        match ty {
+            Type::Class { name } => self.zero_init_classes.contains(name)
+                || (name != "Error" && self.traits.contains_key(name))
+                || self.traits.values().any(|info|
+                    info.permits.as_ref().is_some_and(|permits| permits.contains(name))),
+            Type::Nullable(inner) => self.is_trait_sensitive_type(inner),
+            _ => false,
+        }
+    }
+
     fn is_assignable_to(&self, from: &Type, to: &Type) -> bool {
         if matches!(to, Type::Class { name } if name == "Html" || name == "SQLStatement") {
             return from == to;
+        }
+        if from == &Type::Void && self.is_trait_sensitive_type(to) {
+            return false;
         }
         if matches!(to, Type::Function { .. } | Type::Stream(_) | Type::Sequence(_)) {
             return from == to;
@@ -3722,7 +3848,9 @@ impl TypeChecker {
                 from_name == to_name || self.satisfies_trait(from_name, to_name)
             }
             (Type::Orm { model: a, kind: ak, .. }, Type::Orm { model: b, kind: bk, joins }) if a == b && ak == bk && joins.is_empty() => true,
-            (Type::Channel(from), Type::Channel(to)) => self.is_assignable_to(from, to),
+            // Channels both consume and produce values. Widening an alias would
+            // allow it to send values forbidden by the original payload type.
+            (Type::Channel(from), Type::Channel(to)) => from == to,
             (from_ty, Type::Nullable(inner)) => {
                 from_ty == &Type::Nullable(Box::new(Type::Void))
                     || self.is_assignable_to(from_ty, inner)

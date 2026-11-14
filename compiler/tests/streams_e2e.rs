@@ -28,7 +28,7 @@ fn integer_pipelines_collect_reduce_and_short_circuit() {
             .unique().sort()
             .map((int n) -> n * 10)
             .skip(1).limit(2).toList()
-        print(result.len())
+        print(result.length())
         print(result[0])
         print(result.get(1))
         result.add(60)
@@ -105,14 +105,14 @@ fn object_elements_and_captured_values_survive_gc() {
         start() {
             final objects = this.items()
             final captured = this.captured()
-            Gc.collect()
+            GarbageCollector.collect()
             print(objects.map((Item item) -> item.value()).sum())
             print(captured.sum())
             final list = this.items().toList()
-            Gc.collect()
+            GarbageCollector.collect()
             print(list[0].value())
             final first = Stream.range(1, 4).map((int n) -> Item(n)).findFirst()
-            Gc.collect()
+            GarbageCollector.collect()
             print((first else Item(99)).value())
         }
     }"#,
@@ -198,7 +198,7 @@ fn find_first_predicate_short_circuits_and_preserves_nullable_values() {
         int failFallback() { throw 'unexpected fallback' }
         bool matches(int n) { print(n) return n == 2 }
         bool fails(int n) { throw 'predicate failed' }
-        bool second(Item item) { Gc.collect() return item.value() == 2 }
+        bool second(Item item) { GarbageCollector.collect() return item.value() == 2 }
         start() {
             print(Stream.range(1, 5).peek((int n) -> print(n))
                 .findFirst((int n) -> this.matches(n)) else -1)
@@ -212,7 +212,7 @@ fn find_first_predicate_short_circuits_and_preserves_nullable_values() {
             print(Stream.of('a', 'b').findFirst((string s) -> s == 'b') else 'missing')
             final first = Stream.range(1, 4).map((int n) -> Item(n))
                 .findFirst((Item item) -> this.second(item))
-            Gc.collect()
+            GarbageCollector.collect()
             print((first else Item(99)).value())
             final bad = Stream.of(1, 2)
             try { bad.findFirst((int n) -> this.fails(n)) }
@@ -282,8 +282,8 @@ fn sort_and_unique_preserve_order_laziness_and_compatibility() {
 fn empty_streams_and_skip_limit_boundaries() {
     run(
         r#"class App { start() {
-            print(Stream.of().toList().len())
-            print(Stream.of().collect().len())
+            print(Stream.of().toList().length())
+            print(Stream.of().collect().length())
             print(Stream.of().sum())
             print(Stream.of().reduce(42, (int a, int b) -> a + b))
             Stream.of().forEach((int n) -> print('unexpected'))
@@ -302,6 +302,24 @@ fn empty_streams_and_skip_limit_boundaries() {
         } }"#,
         "0\n0\n0\n42\n0\n0\n0\n3\n0\n0\n0\n4\nnegative\n2\n",
     );
+}
+
+#[test]
+fn collection_length_replaces_the_abbreviated_name() {
+    use ube_compiler::{lexer::Lexer, parser::Parser, semantics::TypeChecker};
+    for receiver in ["List", "Map", "List<int>", "JsonArray", "ConsoleArgs", "TaskOutcomes"] {
+        for (method, accepted) in [("length", true), ("len", false)] {
+            let source = format!(
+                "class App {{ int measure({receiver} values) {{ return values.{method}() }} start() {{}} }}"
+            );
+            let mut parser = Parser::new(Lexer::new(&source));
+            let program = parser.parse_program();
+            assert!(parser.diagnostics.is_empty(), "{source}");
+            let mut checker = TypeChecker::new();
+            assert_eq!(checker.check_program(&program), accepted,
+                "{receiver}.{method}(): {:?}", checker.diagnostics);
+        }
+    }
 }
 
 #[test]

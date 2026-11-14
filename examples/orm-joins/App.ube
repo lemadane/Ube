@@ -16,11 +16,11 @@ class App {
             users.migrate()
             orders.migrate()
             users.create(
-              User(
+              new User(
                 1L,
                 'Ada'))
             orders.create(
-              Order(
+              new Order(
                 10L,
                 1L,
                 'paid'))
