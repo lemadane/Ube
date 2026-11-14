@@ -2,6 +2,8 @@ use GameFactory
 use GameRules
 use GameCodec
 use Invader
+use Bomb
+use Shot
 
 class GameTests {
     testMovementAndFiring() {
@@ -39,26 +41,26 @@ class GameTests {
           368,
           game.playerX())
         Testicle.equal(
-          368,
-          game.shotX())
+          359,
+          game.shots().get(0).x())
         Testicle.equal(
-          240,
-          game.shotY())
+          246,
+          game.shots().get(0).y())
         rules.advance(
           game,
           0,
           true)
         Testicle.equal(
-          232,
-          game.shotY())
+          238,
+          game.shots().get(0).y())
     }
 
     testAlienCollisionAndShieldDamage() {
         final game = new GameFactory()
           .create()
         final rules = new GameRules()
-        game.shotX(64)
-        game.shotY(56)
+        game.shots().get(0).x(64)
+        game.shots().get(0).y(56)
         rules.advance(
           game,
           0,
@@ -72,9 +74,9 @@ class GameTests {
           game.score())
         Testicle.equal(
           -1,
-          game.shotY())
-        game.shotX(80)
-        game.shotY(232)
+          game.shots().get(0).y())
+        game.shots().get(0).x(80)
+        game.shots().get(0).y(232)
         rules.advance(
           game,
           0,
@@ -86,16 +88,16 @@ class GameTests {
             .health())
         Testicle.equal(
           -1,
-          game.shotY())
+          game.shots().get(0).y())
     }
 
     testLivesInvulnerabilityAndGameOver() {
         final game = new GameFactory()
           .create()
         final rules = new GameRules()
-        game.enemyShotX(
+        game.bombs().get(0).x(
           game.playerX())
-        game.enemyShotY(254)
+        game.bombs().get(0).y(254)
         rules.advance(
           game,
           0,
@@ -106,7 +108,7 @@ class GameTests {
         Testicle.equal(
           45,
           game.invulnerable())
-        game.enemyShotY(254)
+        game.bombs().get(0).y(254)
         rules.advance(
           game,
           0,
@@ -116,7 +118,7 @@ class GameTests {
           game.lives())
         game.invulnerable(0)
         game.lives(1)
-        game.enemyShotY(254)
+        game.bombs().get(0).y(254)
         rules.advance(
           game,
           0,
@@ -169,7 +171,7 @@ class GameTests {
           0,
           false)
         Testicle.isTrue(
-          game.enemyShotY() > 0)
+          game.bombs().get(0).y() > 0)
         each (enemy in game.invaders()) { enemy.alive(false) }
         game.score(800)
         rules.advance(
@@ -189,12 +191,170 @@ class GameTests {
               (Invader enemy) -> enemy.alive()))
         Testicle.equal(
           -1,
-          game.enemyShotY())
+          game.bombs().get(0).y())
+    }
+
+    testBombVolleysAndCapacity() {
+        final game = new GameFactory().create()
+        final rules = new GameRules()
+        // The lowest survivor fires when the bottom invader is dead.
+        game.invaders().get(33).alive(false)
+        game.tick(23)
+        rules.advance(game, 0, false)
+        Testicle.equal(3, game.bombs().stream()
+          .filter((Bomb bomb) -> bomb.y() >= 0).toList().length())
+        Testicle.equal(96, game.bombs().get(0).x())
+        Testicle.equal(127, game.bombs().get(0).y())
+        Testicle.equal(128, game.bombs().get(1).x())
+        Testicle.equal(160, game.bombs().get(2).x())
+        game.tick(47)
+        rules.advance(game, 0, false)
+        Testicle.equal(6, game.bombs().stream()
+          .filter((Bomb bomb) -> bomb.y() >= 0).toList().length())
+        final firstY = game.bombs().get(0).y()
+        game.tick(71)
+        rules.advance(game, 0, false)
+        Testicle.equal(6, game.bombs().length())
+        Testicle.equal(firstY + 4, game.bombs().get(0).y())
+        each (enemy in game.invaders()) { enemy.alive(false) }
+        rules.advance(game, 0, false)
+        Testicle.isTrue(game.bombs().stream()
+          .every((Bomb bomb) -> bomb.y() < 0))
+    }
+
+    testMultipleBombCollisionsAndReuse() {
+        final game = new GameFactory().create()
+        final rules = new GameRules()
+        game.bombs().get(0).x(80)
+        game.bombs().get(0).y(220)
+        game.bombs().get(1).x(20)
+        game.bombs().get(1).y(279)
+        game.bombs().get(2).x(game.playerX())
+        game.bombs().get(2).y(254)
+        game.bombs().get(3).x(game.playerX())
+        game.bombs().get(3).y(254)
+        rules.advance(game, 0, false)
+        Testicle.equal(3, game.shields().get(0).health())
+        Testicle.equal(2, game.lives())
+        Testicle.isTrue(game.bombs().stream()
+          .every((Bomb bomb) -> bomb.y() < 0))
+        // Only one occupied column remains: it must not fire duplicate bombs.
+        each (enemy in game.invaders()) { enemy.alive(false) }
+        game.invaders().get(0).alive(true)
+        game.tick(23)
+        rules.advance(game, 0, false)
+        Testicle.equal(1, game.bombs().stream()
+          .filter((Bomb bomb) -> bomb.y() >= 0).toList().length())
+        Testicle.equal(64, game.bombs().get(0).x())
+    }
+
+    testDualWingShots() {
+        final game = new GameFactory().create()
+        final rules = new GameRules()
+        game.playerX(12)
+        rules.advance(game, 0, true)
+        Testicle.equal(3, game.shots().get(0).x())
+        Testicle.equal(21, game.shots().get(1).x())
+        Testicle.equal(246, game.shots().get(0).y())
+        Testicle.equal(246, game.shots().get(1).y())
+        // A surviving shot prevents a new pair from replacing it.
+        game.shots().get(0).y(-1)
+        game.cooldown(0)
+        rules.advance(game, 1, true)
+        Testicle.equal(-1, game.shots().get(0).y())
+        Testicle.equal(21, game.shots().get(1).x())
+        Testicle.equal(238, game.shots().get(1).y())
+        game.shots().get(1).y(0)
+        rules.advance(game, 0, false)
+        game.playerX(372)
+        rules.advance(game, 0, true)
+        Testicle.equal(363, game.shots().get(0).x())
+        Testicle.equal(381, game.shots().get(1).x())
+        // Two shots hitting the same enemy score only once.
+        each (shot in game.shots()) { shot.x(64) shot.y(56) }
+        rules.advance(game, 0, false)
+        Testicle.equal(30, game.score())
+        Testicle.equal(-1, game.shots().get(0).y())
+        Testicle.equal(48, game.shots().get(1).y())
+        // Both wing shots independently damage a shield.
+        game.shots().get(0).x(71)
+        game.shots().get(1).x(89)
+        each (shot in game.shots()) { shot.y(232) }
+        rules.advance(game, 0, false)
+        Testicle.equal(2, game.shields().get(0).health())
+        Testicle.isTrue(game.shots().stream().every((Shot shot) -> shot.y() < 0))
+        rules.nextWave(game)
+        Testicle.isTrue(game.shots().stream().every((Shot shot) -> shot.y() < 0))
+    }
+
+    testPiercingLaserAndTiming() {
+        final game = new GameFactory().create()
+        final rules = new GameRules()
+        game.playerX(64)
+        rules.advanceWeapons(game, 0, false, true)
+        Testicle.equal(30, game.laserTicks())
+        Testicle.equal(300, game.laserCooldown())
+        Testicle.equal(90, game.score())
+        Testicle.equal(35, game.invaders().stream()
+          .filter((Invader enemy) -> enemy.alive()).toList().length())
+        // Holding the trigger cannot reset the beam duration or double-score.
+        each (tick in Stream.range(0, 29).toList()) { rules.fireLaser(game, true) }
+        Testicle.equal(1, game.laserTicks())
+        Testicle.equal(90, game.score())
+        rules.fireLaser(game, true)
+        Testicle.equal(0, game.laserTicks())
+        Testicle.equal(270, game.laserCooldown())
+        game.playerX(96)
+        each (tick in Stream.range(0, 269).toList()) { rules.fireLaser(game, true) }
+        Testicle.equal(0, game.laserTicks())
+        Testicle.equal(1, game.laserCooldown())
+        Testicle.equal(90, game.score())
+        rules.fireLaser(game, true)
+        Testicle.equal(30, game.laserTicks())
+        Testicle.equal(300, game.laserCooldown())
+        Testicle.equal(180, game.score())
+    }
+
+    testLaserMovementShieldAndWave() {
+        final game = new GameFactory().create()
+        final rules = new GameRules()
+        // The center beam passes through the middle shield without damaging it.
+        rules.advanceWeapons(game, 0, true, true)
+        Testicle.equal(90, game.score())
+        Testicle.equal(4, game.shields().get(1).health())
+        Testicle.equal(246, game.shots().get(0).y())
+        Testicle.equal(246, game.shots().get(1).y())
+        game.playerX(224)
+        rules.advanceWeapons(game, 0, false, false)
+        Testicle.equal(180, game.score())
+        Testicle.equal(29, game.laserTicks())
+        each (enemy in game.invaders()) { enemy.alive(false) }
+        rules.advanceWeapons(game, 0, false, false)
+        Testicle.equal(2, game.wave())
+        Testicle.equal(0, game.laserTicks())
+        Testicle.equal(298, game.laserCooldown())
+        game.gameOver(true)
+        rules.advanceWeapons(game, 0, false, true)
+        Testicle.equal(0, game.laserTicks())
+        Testicle.equal(298, game.laserCooldown())
+        final fresh = new GameFactory().create()
+        Testicle.equal(0, fresh.laserTicks())
+        Testicle.equal(0, fresh.laserCooldown())
     }
 
     testSessionCodecRoundTrip() {
         final game = new GameFactory()
           .create()
+        game.bombs().get(0).x(64)
+        game.bombs().get(0).y(150)
+        game.bombs().get(1).x(96)
+        game.bombs().get(1).y(180)
+        game.shots().get(0).x(91)
+        game.shots().get(0).y(120)
+        game.shots().get(1).x(109)
+        game.shots().get(1).y(160)
+        game.laserTicks(17)
+        game.laserCooldown(287)
         game.playerX(100)
         game.score(30)
         game.invaders()

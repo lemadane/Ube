@@ -1,5 +1,7 @@
 use GameState
 use Invader
+use Bomb
+use Shot
 
 // One call advances exactly 1/30 second. Integer coordinates keep pixels crisp.
 class GameRules {
@@ -11,6 +13,10 @@ class GameRules {
       GameState game,
       int movement,
       bool firing) {
+        this.advanceWeapons(game, movement, firing, false)
+    }
+
+    void advanceWeapons(GameState game, int movement, bool firing, bool laser) {
         if (game.gameOver()) {
             return
         }
@@ -31,11 +37,12 @@ class GameRules {
         if (game.gameOver()) {
             return
         }
+        this.fireLaser(game, laser)
         this.firePlayer(
           game,
           firing)
-        this.movePlayerShot(game)
-        this.moveEnemyShot(game)
+        each (shot in game.shots()) { this.movePlayerShot(game, shot) }
+        this.moveEnemyBombs(game)
         if (game.lives() <= 0) {
             game.gameOver(true)
         }
@@ -45,6 +52,36 @@ class GameRules {
           .none(
             (Invader enemy) -> enemy.alive())) {
             this.nextWave(game)
+        }
+    }
+
+    // At 30 ticks/second: one second of beam, ten seconds between activations.
+    // The piercing beam passes through shields and follows the center cannon.
+    void fireLaser(GameState game, bool trigger) {
+        if (game.laserTicks() > 0) {
+            game.laserTicks(game.laserTicks() - 1)
+        }
+        if (game.laserCooldown() > 0) {
+            game.laserCooldown(game.laserCooldown() - 1)
+        }
+        if (trigger and game.laserCooldown() == 0) {
+            game.laserTicks(30)
+            game.laserCooldown(300)
+        }
+        if (game.laserTicks() == 0) {
+            return
+        }
+        each (enemy in game.invaders()) {
+            final x = this.enemyX(game, enemy)
+            if (enemy.alive()
+              and x >= game.playerX() - 13
+              and x <= game.playerX() + 13
+              and this.enemyY(game, enemy) < static.playerY - 6) {
+                enemy.alive(false)
+                game.score(game.score()
+                  + (enemy.row() == 0 then 30 else (
+                    enemy.row() < 3 then 20 else 10)))
+            }
         }
     }
 
@@ -109,11 +146,11 @@ class GameRules {
       GameState game,
       bool firing) {
         if (firing
-          and game.shotY() < 0
+          and game.shots().stream().every((Shot shot) -> shot.y() < 0)
           and game.cooldown() == 0) {
-            game.shotX(
-              game.playerX())
-            game.shotY(static.playerY - 10)
+            game.shots().get(0).x(game.playerX() - 9)
+            game.shots().get(1).x(game.playerX() + 9)
+            each (shot in game.shots()) { shot.y(static.playerY - 4) }
             game.cooldown(8)
         }
     }
@@ -150,24 +187,24 @@ class GameRules {
         return false
     }
 
-    void movePlayerShot(GameState game) {
-        if (game.shotY() < 0) {
+    void movePlayerShot(GameState game, Shot shot) {
+        if (shot.y() < 0) {
             return
         }
-        game.shotY(
-          game.shotY() - 8)
+        shot.y(
+          shot.y() - 8)
         if (this.hitShield(
           game,
-          game.shotX(),
-          game.shotY())) {
-            game.shotY(-1)
+          shot.x(),
+          shot.y())) {
+            shot.y(-1)
             return
         }
         each (enemy in game.invaders()) {
             if (enemy.alive()
               and this.touches(
-              game.shotX(),
-              game.shotY(),
+              shot.x(),
+              shot.y(),
               this.enemyX(
                 game,
                 enemy),
@@ -179,75 +216,80 @@ class GameRules {
                 enemy.alive(false)
                 game.score(
                   game.score()
-                  + (enemy.row() == 0
-                    then 30
-                    else (enemy.row() < 3
-                      then 20
-                      else 10)))
-                game.shotY(-1)
+                  + (enemy.row() == 0 then 30 else (
+                    enemy.row() < 3 then 20 else 10)))
+                shot.y(-1)
                 return
             }
         }
     }
 
-    void moveEnemyShot(GameState game) {
-        if (game.enemyShotY() < 0
-          and game.tick() % 24 == 0) {
-            final alive = game.invaders()
-              .stream()
-              .filter(
-                (Invader enemy) -> enemy.alive())
-              .toList()
-            if (alive.length() > 0) {
-                final enemy = alive.get(
-                  (game.tick() / 24) % alive.length())
-                game.enemyShotX(
-                  this.enemyX(
-                    game,
-                    enemy))
-                game.enemyShotY(
-                  this.enemyY(
-                    game,
-                    enemy) + 9)
+    // Fire from up to three distinct occupied columns every 24 ticks.
+    // Six reusable slots bound the number of bombs and the serialized state.
+    void moveEnemyBombs(GameState game) {
+        if (game.tick() % 24 == 0) {
+            var launched = 0
+            each (offset in Stream.range(0, 8).toList()) {
+                if (launched < 3) {
+                    final column = (game.tick() / 24 + offset) % 8
+                    var bottom = -1
+                    var x = 0
+                    each (enemy in game.invaders()) {
+                        if (enemy.alive() and enemy.column() == column) {
+                            final y = this.enemyY(game, enemy)
+                            if (y > bottom) {
+                                bottom = y
+                                x = this.enemyX(game, enemy)
+                            }
+                        }
+                    }
+                    if (bottom >= 0) {
+                        var placed = false
+                        each (bomb in game.bombs()) {
+                            if (not placed and bomb.y() < 0) {
+                                bomb.x(x)
+                                bomb.y(bottom + 9)
+                                placed = true
+                                launched = launched + 1
+                            }
+                        }
+                    }
+                }
             }
         }
-        if (game.enemyShotY() < 0) {
+        each (bomb in game.bombs()) {
+            this.moveBomb(game, bomb)
+        }
+    }
+
+    void moveBomb(GameState game, Bomb bomb) {
+        if (bomb.y() < 0) {
             return
         }
-        game.enemyShotY(
-          game.enemyShotY() + 4)
-        if (game.enemyShotY() > 280
-          or this.hitShield(
-          game,
-          game.enemyShotX(),
-          game.enemyShotY())) {
-            game.enemyShotY(-1)
+        bomb.y(bomb.y() + 4)
+        if (bomb.y() > 280
+          or this.hitShield(game, bomb.x(), bomb.y())) {
+            bomb.y(-1)
             return
         }
-        if (this.touches(
-          game.enemyShotX(),
-          game.enemyShotY(),
-          game.playerX(),
-          static.playerY,
-          10,
-          7)) {
-            game.enemyShotY(-1)
+        if (this.touches(bomb.x(), bomb.y(), game.playerX(), static.playerY, 10, 7)) {
+            bomb.y(-1)
             if (game.invulnerable() == 0) {
-                game.lives(
-                  game.lives() - 1)
+                game.lives(game.lives() - 1)
                 game.invulnerable(45)
             }
         }
     }
 
     void nextWave(GameState game) {
+        game.laserTicks(0)
         game.wave(
           game.wave() + 1)
         game.formationX(0)
         game.formationY(0)
         game.direction(1)
-        game.shotY(-1)
-        game.enemyShotY(-1)
+        each (shot in game.shots()) { shot.y(-1) }
+        each (bomb in game.bombs()) { bomb.y(-1) }
         game.invulnerable(45)
         each (enemy in game.invaders()) {
             enemy.alive(true)

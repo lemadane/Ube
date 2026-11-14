@@ -6,7 +6,7 @@ class PlayerInput {
     constructor(onPause) {
         this.keys = new Set();
         this.buttons = new Set();
-        const controls = ['ArrowLeft', 'ArrowRight', 'KeyA', 'KeyD', 'Space'];
+        const controls = ['ArrowLeft', 'ArrowRight', 'KeyA', 'KeyD', 'Space', 'KeyL'];
         window.addEventListener('keydown', event => {
             if (controls.includes(event.code)) {
                 if (event.target.closest('button') && event.code === 'Space') return;
@@ -37,7 +37,8 @@ class PlayerInput {
         const right = this.keys.has('ArrowRight') || this.keys.has('KeyD') || this.buttons.has('right');
         return {
             move: left === right ? 'idle' : left ? 'left' : 'right',
-            fire: this.keys.has('Space') || this.buttons.has('fire') ? '1' : '0'
+            fire: this.keys.has('Space') || this.buttons.has('fire') ? '1' : '0',
+            laser: this.keys.has('KeyL') || this.buttons.has('laser') ? '1' : '0'
         };
     }
 }
@@ -174,6 +175,10 @@ class GameClient {
         const lives = this.game ? this.game.lives : 3;
         document.querySelector('#lives').textContent = '▲ '.repeat(Math.max(0, lives));
         document.querySelector('#lives').setAttribute('aria-label', lives + ' lives');
+        const laserActive = this.game && this.game.laserTicks > 0;
+        const laserCooldown = this.game ? this.game.laserCooldown : 0;
+        document.querySelector('#laser-status').textContent = laserActive ? 'FIRING' :
+            laserCooldown > 0 ? 'READY IN ' + Math.ceil(laserCooldown / 30) + 's' : 'READY';
         this.pauseButton.disabled = !['playing', 'paused'].includes(this.mode);
     }
 

@@ -32,8 +32,8 @@ assert.equal(state.lives, 3);
 assert.equal(state.playerX, 192);
 state = await first.post('/game/step?move=right&fire=1');
 assert.equal(state.playerX, 196);
-assert.equal(state.shotX, 196);
-assert.equal(state.shotY, 240);
+assert.deepEqual(state.shots.map(shot => shot.x), [187, 205]);
+assert.deepEqual(state.shots.map(shot => shot.y), [246, 246]);
 assert.equal(state.tick, 1);
 
 // A new browser session starts independently, including when /step is its first request.
@@ -43,10 +43,46 @@ assert.equal(state.tick, 0);
 state = await first.post('/game/step?move=left');
 assert.equal(state.playerX, 192);
 assert.equal(state.tick, 2);
-assert.equal(state.shotY, 232);
+assert.deepEqual(state.shots.map(shot => shot.y), [238, 238]);
 state = await first.post('/game/reset');
 assert.equal(state.tick, 0);
 assert.equal(state.score, 0);
-assert.equal(state.shotY, -1);
+assert.ok(state.shots.every(shot => shot.y < 0));
 assert.equal(state.invaders.filter(enemy => enemy.alive).length, 40);
-console.log('PASS: HTML, JSON, movement, firing, session persistence/isolation, reset');
+// Overlapping requests sharing a cookie must not overwrite each other's ticks.
+const snapshots = await Promise.all(Array.from({ length: 16 }, () =>
+    first.post('/game/step')));
+assert.deepEqual(snapshots.map(snapshot => snapshot.tick).sort((a, b) => a - b),
+    Array.from({ length: 16 }, (_, index) => index + 1));
+state = await first.post('/game/step');
+assert.equal(state.tick, 17);
+state = await second.post('/game/step');
+assert.equal(state.tick, 1);
+state = await first.post('/game/reset');
+assert.equal(state.tick, 0);
+// Bomb volleys survive serialization across successive HTTP requests.
+for (let tick = 1; tick <= 24; tick++) {
+    state = await first.post('/game/step');
+}
+assert.equal(state.bombs.length, 6);
+const activeBombs = state.bombs.filter(bomb => bomb.y >= 0);
+assert.equal(activeBombs.length, 3);
+assert.equal(new Set(activeBombs.map(bomb => bomb.x)).size, 3);
+state = await first.post('/game/step');
+assert.deepEqual(state.bombs.filter(bomb => bomb.y >= 0),
+    activeBombs.map(bomb => ({ ...bomb, y: bomb.y + 4 })));
+state = await first.post('/game/reset');
+assert.ok(state.bombs.every(bomb => bomb.y < 0));
+state = await first.post('/game/step?laser=1');
+assert.equal(state.laserTicks, 30);
+assert.equal(state.laserCooldown, 300);
+assert.equal(state.score, 90);
+assert.equal(state.invaders.filter(enemy => enemy.alive).length, 35);
+state = await first.post('/game/step?laser=1');
+assert.equal(state.laserTicks, 29);
+assert.equal(state.laserCooldown, 299);
+assert.equal(state.score, 90);
+state = await first.post('/game/reset');
+assert.equal(state.laserTicks, 0);
+assert.equal(state.laserCooldown, 0);
+console.log('PASS: HTML, JSON, movement, firing, session persistence/isolation, concurrent ticks, bomb volleys/persistence, piercing laser/cooldown, reset');

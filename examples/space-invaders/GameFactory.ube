@@ -1,6 +1,8 @@
 use GameState
 use Invader
 use Shield
+use Bomb
+use Shot
 
 class GameFactory {
     GameState create() {
@@ -20,6 +22,12 @@ class GameFactory {
           .toList()
         return new GameState(
           invaders,
-          shields)
+          shields,
+          Stream.range(0, 6)
+            .map((int index) -> new Bomb())
+            .toList(),
+          Stream.range(0, 2)
+            .map((int index) -> new Shot())
+            .toList())
     }
 }

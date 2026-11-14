@@ -1,10 +1,14 @@
 use Invader
 use Shield
+use Bomb
+use Shot
 
 // Serializable domain state; no HTTP, canvas, or input-device dependencies.
 class GameState(
     List<Invader> invaders,
     List<Shield> shields,
+    List<Bomb> bombs,
+    List<Shot> shots,
     var int playerX = 192,
     var int lives = 3,
     var int score = 0,
@@ -13,10 +17,8 @@ class GameState(
     var int formationX = 0,
     var int formationY = 0,
     var int direction = 1,
-    var int shotX = 0,
-    var int shotY = -1,
-    var int enemyShotX = 0,
-    var int enemyShotY = -1,
     var int cooldown = 0,
     var int invulnerable = 0,
-    var bool gameOver = false)
+    var bool gameOver = false,
+    var int laserTicks = 0,
+    var int laserCooldown = 0)

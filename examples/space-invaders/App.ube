@@ -4,7 +4,10 @@ use GamePage
 class App {
     start() {
         final server = new Server()
-        final game = new GameController()
+        // One token gives a task exclusive ownership of a session update.
+        final turns = new Channel<int>(1)
+        turns.send(1).await()
+        final game = new GameController(turns)
         server.get(
           '/',
           (Request request) -> Response.ok(

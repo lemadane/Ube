@@ -3,8 +3,30 @@ use GameCodec
 use GameRules
 
 // The browser sends only controls. The session owns the authoritative state.
-class GameController {
+class GameController(Channel<int> turns) {
     Response reset(Request request) {
+        return Async.start(() -> this.update(request, true)).await()
+    }
+
+    Response step(Request request) {
+        return Async.start(() -> this.update(request, false)).await()
+    }
+
+    // Keep read, simulation, and write together, including resets from other tabs.
+    // Always return the token, including when decoding or simulation throws.
+    Response update(Request request, bool reset) {
+        final token = this.turns().receive().await()
+        try {
+            if (reset) {
+                return this.resetState(request)
+            }
+            return this.stepState(request)
+        } finally {
+            this.turns().send(token).await()
+        }
+    }
+
+    Response resetState(Request request) {
         final game = new GameFactory()
           .create()
         final snapshot = game.toJson()
@@ -15,11 +37,11 @@ class GameController {
         return Response.json(snapshot)
     }
 
-    Response step(Request request) {
+    Response stepState(Request request) {
         final session = request.session()
         final saved = session.get('space-invaders')
         if (saved == null) {
-            return this.reset(request)
+            return this.resetState(request)
         }
         final game = new GameCodec()
           .decode(saved else '')
@@ -27,10 +49,11 @@ class GameController {
         final movement = direction == 'left' then -1 else (
           direction == 'right' then 1 else 0)
         new GameRules()
-          .advance(
+          .advanceWeapons(
             game,
             movement,
-            request.query('fire') == '1')
+            request.query('fire') == '1',
+            request.query('laser') == '1')
         final snapshot = game.toJson()
         session.set(
           'space-invaders',

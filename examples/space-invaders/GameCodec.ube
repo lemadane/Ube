@@ -1,6 +1,8 @@
 use GameState
 use Invader
 use Shield
+use Bomb
+use Shot
 
 // Ube sits between Java and Go
 // No inheritance OOP, compile to native
@@ -9,6 +11,8 @@ class GameCodec {
     GameState decode(string text) {
         final data = Json.toObject(text)
         final invaders = data.getArray('invaders')
+        final shots = data.getArray('shots')
+        final bombs = data.getArray('bombs')
         final shields = data.getArray('shields')
         return new GameState(
           Stream.range(
@@ -27,6 +31,12 @@ class GameCodec {
               this.shield(
                 shields.get(index)))
             .toList(),
+          Stream.range(0, bombs.length())
+            .map((int index) -> this.bomb(bombs.get(index)))
+            .toList(),
+          Stream.range(0, shots.length())
+            .map((int index) -> this.shot(shots.get(index)))
+            .toList(),
           data.getInt('playerX'),
           data.getInt('lives'),
           data.getInt('score'),
@@ -35,13 +45,11 @@ class GameCodec {
           data.getInt('formationX'),
           data.getInt('formationY'),
           data.getInt('direction'),
-          data.getInt('shotX'),
-          data.getInt('shotY'),
-          data.getInt('enemyShotX'),
-          data.getInt('enemyShotY'),
           data.getInt('cooldown'),
           data.getInt('invulnerable'),
-          data.getBool('gameOver'))
+          data.getBool('gameOver'),
+          data.getInt('laserTicks'),
+          data.getInt('laserCooldown'))
     }
 
     Invader invader(JsonObject value) {
@@ -50,6 +58,14 @@ class GameCodec {
           value.getInt('row'),
           value.getBool(
             'alive'))
+    }
+
+    Shot shot(JsonObject value) {
+        return new Shot(value.getInt('x'), value.getInt('y'))
+    }
+
+    Bomb bomb(JsonObject value) {
+        return new Bomb(value.getInt('x'), value.getInt('y'))
     }
 
     Shield shield(JsonObject value) {

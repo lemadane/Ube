@@ -57,7 +57,7 @@ class GamePage {
         .target span:first-child { font-size: 12px; letter-spacing: 2px; }
         .violet { color: #b29aff; } .cyan { color: #64d9e7; } .green { color: #a3ed9b; }
         .touch-controls { display: flex; gap: 8px; margin-top: 14px; }
-        .touch-controls button { touch-action: none; user-select: none; flex: 1; background: #17231d; color: #c9ff9c; border: 1px solid #425a46; padding: 14px; font-size: 14px; }
+        .touch-controls button { touch-action: none; user-select: none; flex: 1; background: #17231d; color: #c9ff9c; border: 1px solid #425a46; padding: 14px 8px; font-size: 12px; }
         .touch-controls .fire { flex: 2; }
         footer { display: flex; justify-content: space-between; margin-top: 25px; padding-top: 18px; border-top: 1px solid #29352f; color: #6f8878; font-size: 9px; letter-spacing: 1px; gap: 12px; }
         @media (max-width: 740px) {
@@ -86,7 +86,7 @@ class GamePage {
                     <div><small>LIVES</small><strong id="lives" aria-label="3 lives">▲ ▲ ▲</strong></div>
                 </div>
                 <div class="screen">
-                    <canvas width="384" height="288" aria-label="Pixel-art battlefield. Use left and right arrows to move and space to fire.">This game needs a browser with HTML canvas support.</canvas>
+                    <canvas width="384" height="288" aria-label="Pixel-art battlefield. Use left and right arrows to move and space for wing guns and L for the piercing laser.">This game needs a browser with HTML canvas support.</canvas>
                     <div class="scanlines"></div>
                     <div class="overlay" id="overlay">
                         <div class="dialog">
@@ -97,18 +97,21 @@ class GamePage {
                         </div>
                     </div>
                 </div>
-                <div class="bottom-bar"><span>● 384 × 288 / PIXEL DISPLAY</span><button class="subtle" id="pause" disabled>PAUSE</button></div>
+                <div class="bottom-bar"><span>LASER · <strong id="laser-status">READY</strong></span><button class="subtle" id="pause" disabled>PAUSE</button></div>
             </div>
             <div class="touch-controls" aria-label="Touch controls">
                 <button data-control="left" aria-label="Move left">←</button>
                 <button data-control="right" aria-label="Move right">→</button>
                 <button class="fire" data-control="fire">FIRE ✦</button>
+                <button data-control="laser" aria-label="Fire piercing laser">LASER</button>
             </div>
         </section>
         <aside>
             <section><h3>FLIGHT MANUAL</h3>
                 <div class="control"><span>Move</span><span><span class="keycap">←</span> <span class="keycap">→</span></span></div>
                 <div class="control"><span>Fire / hold</span><span class="keycap">SPACE</span></div>
+                <div class="control"><span>Piercing laser</span><span class="keycap">L</span></div>
+                <p>Laser: 1 second burst, 10 seconds between uses.</p>
                 <div class="control"><span>Pause</span><span class="keycap">P</span></div>
                 <p>A / D also work.<br>On touch screens, use the controls below the display.</p>
             </section>

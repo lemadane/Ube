@@ -64,13 +64,27 @@ class PixelRenderer {
         }
         if (!game.gameOver && (game.invulnerable === 0 || game.tick % 6 < 3)) {
             this.sprite('ship', game.playerX, 258, '#c9ff9c');
+            context.fillStyle = '#c9ff9c';
+            context.fillRect(game.playerX - 10, 251, 2, 7);
+            context.fillRect(game.playerX + 8, 251, 2, 7);
+        }
+        if (!game.gameOver && game.laserTicks > 0) {
+            context.fillStyle = '#64d9e750';
+            context.fillRect(game.playerX - 5, 0, 10, 252);
+            context.fillStyle = '#64d9e7';
+            context.fillRect(game.playerX - 2, 0, 4, 252);
+            context.fillStyle = '#efffff';
+            context.fillRect(game.playerX - 1, 0, 2, 252);
         }
         context.fillStyle = '#e5ffb6';
-        if (game.shotY >= 0) context.fillRect(game.shotX - 1, game.shotY - 4, 2, 7);
+        for (const shot of game.shots) {
+            if (shot.y >= 0) context.fillRect(shot.x - 1, shot.y - 4, 2, 7);
+        }
         context.fillStyle = '#ff9a86';
-        if (game.enemyShotY >= 0) {
-            context.fillRect(game.enemyShotX - 1, game.enemyShotY - 3, 2, 6);
-            context.fillRect(game.enemyShotX + (game.tick % 4 < 2 ? 1 : -2), game.enemyShotY, 2, 2);
+        for (const bomb of game.bombs) {
+            if (bomb.y < 0) continue;
+            context.fillRect(bomb.x - 1, bomb.y - 3, 2, 6);
+            context.fillRect(bomb.x + (game.tick % 4 < 2 ? 1 : -2), bomb.y, 2, 2);
         }
     }
 
