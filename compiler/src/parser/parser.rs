@@ -1,5 +1,4 @@
 use super::ast::*;
-use crate::builtins::canonical_builtin_class_name;
 use crate::diagnostics::{Diagnostic, Span};
 use crate::lexer::{Lexer, Token, TokenKind};
 
@@ -196,6 +195,8 @@ impl<'a> Parser<'a> {
             }
         };
 
+        let type_params = self.parse_type_parameters()?;
+
         // `permit` is contextual so existing variables and methods can keep that name.
         let permits = if matches!(&self.current_token.kind, TokenKind::Identifier(name) if name == "permit") {
             self.advance();
@@ -228,6 +229,7 @@ impl<'a> Parser<'a> {
         let end_tok = self.expect(&TokenKind::CloseBrace, "}")?;
 
         Ok(TraitDecl {
+            type_params,
             name: trait_name,
             permits,
             methods,
@@ -253,6 +255,7 @@ impl<'a> Parser<'a> {
             }
         };
 
+        let type_params = self.parse_type_parameters()?;
         let mut primary_params = Vec::new();
         if self.match_token(&TokenKind::OpenParen) {
             if !self.check(&TokenKind::CloseParen) {
@@ -320,6 +323,8 @@ impl<'a> Parser<'a> {
                 return Err(());
             }
             Ok(ClassDecl {
+            is_union: !cases.is_empty(),
+            type_params,
                 name: class_name,
                 primary_params,
                 static_fields,
@@ -329,6 +334,8 @@ impl<'a> Parser<'a> {
             })
         } else {
             Ok(ClassDecl {
+            is_union: !cases.is_empty(),
+            type_params,
                 name: class_name,
                 primary_params,
                 static_fields,
@@ -422,6 +429,8 @@ impl<'a> Parser<'a> {
         }
         let is_async = self.match_token(&TokenKind::Async);
 
+        let type_params = self.parse_type_parameters()?;
+
         // Check if return type is omitted: identifier followed directly by '('
         let (return_type, method_name) = match (&self.current_token.kind, &self.peek_token.kind) {
             (TokenKind::Use, TokenKind::OpenParen) => {
@@ -496,6 +505,7 @@ impl<'a> Parser<'a> {
         };
 
         Ok(MethodDecl {
+            type_params,
             name: method_name,
             params,
             return_type,
@@ -506,14 +516,79 @@ impl<'a> Parser<'a> {
         })
     }
 
+    fn parse_type_parameters(&mut self) -> Result<Vec<TypeParameter>, ()> {
+        if !self.match_token(&TokenKind::Less) { return Ok(vec![]); }
+        let mut result: Vec<TypeParameter> = vec![];
+        loop {
+            let name = self.expect_identifier()?;
+            if result.iter().any(|p| p.name == name) {
+                self.diagnostics.push(Diagnostic::error("Duplicate type parameter", Some(self.current_token.span)));
+                return Err(());
+            }
+            let mut bounds = vec![];
+            if self.match_token(&TokenKind::Colon) {
+                loop {
+                    bounds.push(self.parse_type_spec()?);
+                    if !self.match_token(&TokenKind::Plus) { break; }
+                }
+            }
+            result.push(TypeParameter { name, bounds });
+            if !self.match_token(&TokenKind::Comma) { break; }
+        }
+        self.expect(&TokenKind::Greater, "> after type parameters")?;
+        Ok(result)
+    }
+
+    fn parse_type_arguments(&mut self) -> Result<Vec<TypeSpec>, ()> {
+        let mut result = vec![self.parse_type_spec()?];
+        while self.match_token(&TokenKind::Comma) { result.push(self.parse_type_spec()?); }
+        self.expect(&TokenKind::Greater, "> after type arguments")?;
+        Ok(result)
+    }
+
     fn parse_type_spec(&mut self) -> Result<TypeSpec, ()> {
+        let first = self.parse_type_atom()?;
+        if !self.match_token(&TokenKind::Pipe) { return Ok(first); }
+        let mut members = vec![first, self.parse_type_atom()?];
+        while self.match_token(&TokenKind::Pipe) { members.push(self.parse_type_atom()?); }
+        Ok(TypeSpec::Union(members))
+    }
+
+    fn parse_type_atom(&mut self) -> Result<TypeSpec, ()> {
         if self.match_token(&TokenKind::OpenParen) {
-            let ty = self.parse_type_spec()?;
-            self.expect(&TokenKind::CloseParen, ") after grouped type")?;
-            return Ok(ty);
+            let ty = if matches!(&self.current_token.kind, TokenKind::Identifier(_))
+                && matches!(&self.peek_token.kind, TokenKind::Identifier(word) if word == "of")
+            {
+                let name = self.expect_identifier()?;
+                if let Some(canonical) = crate::builtins::builtin_class_case_suggestion(&name) {
+                    self.diagnostics.push(Diagnostic::error(
+                        format!("Built-in types require capitalization; use {}", canonical),
+                        Some(self.current_token.span),
+                    ));
+                    return Err(());
+                }
+                if name == "Task" {
+                    self.diagnostics.push(Diagnostic::error("Task has been renamed to Async; use (Async of T)", Some(self.current_token.span)));
+                    return Err(());
+                }
+                self.advance(); // contextual `of`
+                let mut types = vec![self.parse_type_spec()?];
+                if name == "Map" {
+                    self.expect(&TokenKind::Colon, ": between Map key and value types; use (Map of Key:Value)")?;
+                    types.push(self.parse_type_spec()?);
+                } else {
+                    while self.match_token(&TokenKind::Comma) { types.push(self.parse_type_spec()?); }
+                }
+                if types.len() == 1 { TypeSpec::Generic(name, Box::new(types.remove(0))) }
+                else { TypeSpec::Applied(name, types) }
+            } else {
+                self.parse_type_spec()?
+            };
+            self.expect(&TokenKind::CloseParen, ") after type")?;
+            return Ok(if self.match_token(&TokenKind::Question) { TypeSpec::Nullable(Box::new(ty)) } else { ty });
         }
         if matches!(&self.current_token.kind, TokenKind::Identifier(name) if name == "Task") {
-            self.diagnostics.push(Diagnostic::error("Task has been renamed to Async; use Async<T>", Some(self.current_token.span)));
+            self.diagnostics.push(Diagnostic::error("Task has been renamed to Async; use (Async of T)", Some(self.current_token.span)));
             return Err(());
         }
         if matches!(&self.current_token.kind, TokenKind::Identifier(name) if name == "Func") {
@@ -540,7 +615,7 @@ impl<'a> Parser<'a> {
         }
         let tok = self.current_token.clone();
         self.advance();
-        let mut base_type = match tok.kind {
+        let base_type = match tok.kind {
             TokenKind::IntType => TypeSpec::Int,
             TokenKind::DecimalType => TypeSpec::Decimal,
             TokenKind::ByteType => TypeSpec::Byte,
@@ -566,13 +641,14 @@ impl<'a> Parser<'a> {
             }
         };
 
-        if matches!(base_type, TypeSpec::Class(_)) && self.match_token(&TokenKind::Less) {
-            let TypeSpec::Class(name) = base_type else {
-                unreachable!()
-            };
-            let element = self.parse_type_spec()?;
-            self.expect(&TokenKind::Greater, ">")?;
-            base_type = TypeSpec::Generic(name, Box::new(element));
+        if let TypeSpec::Class(name) = &base_type {
+            if self.check(&TokenKind::Less) {
+                self.diagnostics.push(Diagnostic::error(
+                    format!("Generic types use '({name} of ...)'; angle-bracket type arguments are no longer supported"),
+                    Some(self.current_token.span),
+                ));
+                return Err(());
+            }
         }
 
         if self.match_token(&TokenKind::Question) {
@@ -692,10 +768,12 @@ impl<'a> Parser<'a> {
         let mut catches = Vec::new();
         while self.match_token(&TokenKind::Catch) {
             let span = self.current_token.span;
-            self.expect(&TokenKind::OpenParen, "(")?;
+            let parenthesized = self.match_token(&TokenKind::OpenParen);
             let type_name = self.parse_exception_identifier()?;
             let variable = self.parse_exception_identifier()?;
-            self.expect(&TokenKind::CloseParen, ")")?;
+            if parenthesized {
+                self.expect(&TokenKind::CloseParen, ")")?;
+            }
             let condition = if self.match_token(&TokenKind::If) {
                 self.expect(&TokenKind::OpenParen, "(")?;
                 let expr = self.parse_expr(Precedence::None)?;
@@ -720,7 +798,7 @@ impl<'a> Parser<'a> {
             self.advance();
             Ok(name)
         } else {
-            self.diagnostics.push(Diagnostic::error("Expected a catch type and variable: catch (Error err)", Some(self.current_token.span)));
+            self.diagnostics.push(Diagnostic::error("Expected a catch type and variable: catch Error err", Some(self.current_token.span)));
             Err(())
         }
     }
@@ -813,19 +891,20 @@ impl<'a> Parser<'a> {
         )
     }
 
+    // `of` is contextual: a generic type target begins a new expression,
+    // even when it follows a call on the preceding line.
+    fn is_generic_type_expression_start(&self) -> bool {
+        if !self.check(&TokenKind::OpenParen) { return false; }
+        let mut probe = self.clone();
+        probe.advance();
+        matches!(&probe.current_token.kind, TokenKind::Identifier(_))
+            && matches!(&probe.peek_token.kind, TokenKind::Identifier(word) if word == "of")
+    }
+
     fn is_typed_decl_start(&self) -> bool {
-        if matches!(&self.current_token.kind, TokenKind::Identifier(name) if name == "Func") {
-            return true;
-        }
-        if self.is_type_specifier(&self.current_token.kind) {
-            if matches!(self.peek_token.kind, TokenKind::Identifier(_)) {
-                return true;
-            }
-            if matches!(self.peek_token.kind, TokenKind::Question | TokenKind::Less) {
-                return true;
-            }
-        }
-        false
+        if !self.is_type_specifier(&self.current_token.kind) && !self.check(&TokenKind::OpenParen) { return false; }
+        let mut probe = self.clone();
+        probe.parse_type_spec().is_ok() && matches!(probe.current_token.kind, TokenKind::Identifier(_))
     }
 
     fn parse_parenthesized_function_decl(&mut self) -> Result<Stmt, ()> {
@@ -908,9 +987,9 @@ impl<'a> Parser<'a> {
     fn parse_if_stmt(&mut self) -> Result<Stmt, ()> {
         let start_span = self.current_token.span;
         self.expect(&TokenKind::If, "if")?;
-        self.expect(&TokenKind::OpenParen, "(")?;
+        // Expression grouping also handles legacy parenthesized conditions,
+        // while allowing grouped subexpressions such as `if (a or b) and c`.
         let condition = self.parse_expr(Precedence::None)?;
-        self.expect(&TokenKind::CloseParen, ")")?;
 
         self.expect(&TokenKind::OpenBrace, "{")?;
         let mut then_branch = Vec::new();
@@ -969,7 +1048,7 @@ impl<'a> Parser<'a> {
 
     fn parse_loop_header(&mut self, keyword: TokenKind) -> Result<(Option<String>, Option<String>, Option<Expr>), ()> {
         if keyword == TokenKind::For {
-            self.expect(&TokenKind::OpenParen, "(")?;
+            let parenthesized = self.match_token(&TokenKind::OpenParen);
             let variable = self.expect_identifier()?;
             let span = self.current_token.span;
             self.expect(&TokenKind::Equal, "=")?;
@@ -980,16 +1059,20 @@ impl<'a> Parser<'a> {
                 self.expect_contextual("by")?;
                 self.parse_expr(Precedence::None)?
             } else {
-                Expr { kind: ExprKind::IntLiteral(1), span }
+                Expr { kind: ExprKind::IntLiteral(1), span: end.span }
             };
-            let end_span = self.expect(&TokenKind::CloseParen, ")")?.span;
+            let end_span = if parenthesized {
+                self.expect(&TokenKind::CloseParen, ")")?.span
+            } else {
+                step.span
+            };
             let iterable = Expr {
                 kind: ExprKind::RangeIterator { start: Box::new(start), end: Box::new(end), step: Box::new(step) },
                 span: Span::combine(span, end_span),
             };
             Ok((Some(variable), None, Some(iterable)))
         } else if keyword == TokenKind::Each {
-            self.expect(&TokenKind::OpenParen, "(")?;
+            let parenthesized = self.match_token(&TokenKind::OpenParen);
             let first = self.expect_identifier()?;
             let (index_var, loop_var) = if self.match_token(&TokenKind::Comma) {
                 (Some(first), self.expect_identifier()?)
@@ -998,11 +1081,12 @@ impl<'a> Parser<'a> {
             };
             self.expect(&TokenKind::In, "in")?;
             let iterable = self.parse_expr(Precedence::None)?;
-            self.expect(&TokenKind::CloseParen, ")")?;
+            if parenthesized {
+                self.expect(&TokenKind::CloseParen, ")")?;
+            }
             Ok((Some(loop_var), index_var, Some(iterable)))
-        } else if self.match_token(&TokenKind::OpenParen) {
+        } else if !self.check(&TokenKind::OpenBrace) {
             let condition = self.parse_expr(Precedence::None)?;
-            self.expect(&TokenKind::CloseParen, ")")?;
             Ok((None, None, Some(condition)))
         } else {
             Ok((None, None, None))
@@ -1082,10 +1166,24 @@ impl<'a> Parser<'a> {
 
         while prec < Precedence::from_token(&self.current_token.kind) {
             if self.check(&TokenKind::OpenParen)
-                && self.current_token.span.start.line > left.span.end.line
-                && matches!(&self.peek_token.kind, TokenKind::Identifier(name) if name == "Func")
+                && (self.is_typed_decl_start()
+                    || self.is_generic_type_expression_start()
+                    || (self.current_token.span.start.line > left.span.end.line
+                        && matches!(&self.peek_token.kind, TokenKind::Identifier(name) if name == "Func")))
             {
                 break;
+            }
+            if self.check(&TokenKind::Less) && matches!(&left.kind, ExprKind::MemberAccess { .. } | ExprKind::Identifier(_)) {
+                let mut probe = self.clone();
+                probe.advance();
+                if let Ok(types) = probe.parse_type_arguments() {
+                    if probe.check(&TokenKind::OpenParen) {
+                        *self = probe;
+                        let span = left.span;
+                        left = Expr { span, kind: ExprKind::TypeApply { target: Box::new(left), types } };
+                        continue;
+                    }
+                }
             }
             left = self.parse_infix(left)?;
         }
@@ -1097,10 +1195,39 @@ impl<'a> Parser<'a> {
     fn parse_prefix(&mut self) -> Result<Expr, ()> {
         self.reject_kotlin_lambda()?;
         let tok = self.current_token.clone();
+        // A parenthesized generic type is also a constructor/static-member target.
+        if self.check(&TokenKind::OpenParen) {
+            let mut probe = self.clone();
+            if let Ok(ty) = probe.parse_type_spec() {
+                let application = match ty {
+                    TypeSpec::Generic(name, ty) => Some((name, vec![*ty])),
+                    TypeSpec::Applied(name, types) => Some((name, types)),
+                    _ => None,
+                };
+                if let Some((name, types)) = application {
+                    *self = probe;
+                    return Ok(Expr { span: tok.span, kind: ExprKind::TypeApply {
+                        target: Box::new(Expr { span: tok.span, kind: ExprKind::Identifier(name) }), types,
+                    }});
+                }
+            }
+        }
         self.advance();
 
         match tok.kind {
             TokenKind::New => {
+                if self.check(&TokenKind::OpenParen) {
+                    let target = self.parse_prefix()?;
+                    if !matches!(target.kind, ExprKind::TypeApply { .. }) {
+                        self.diagnostics.push(Diagnostic::error("Expected a generic type after 'new'", Some(tok.span)));
+                        return Err(());
+                    }
+                    if !self.check(&TokenKind::OpenParen) {
+                        self.diagnostics.push(Diagnostic::error("Expected constructor arguments after type", Some(self.current_token.span)));
+                        return Err(());
+                    }
+                    return self.parse_infix(target);
+                }
                 let TokenKind::Identifier(name) = self.current_token.kind.clone() else {
                     self.diagnostics.push(Diagnostic::error(
                         "Expected class name after 'new'", Some(self.current_token.span),
@@ -1121,14 +1248,13 @@ impl<'a> Parser<'a> {
                     return Err(());
                 }
                 self.advance();
-                let generic_type = if self.match_token(&TokenKind::Less) {
-                    let ty = self.parse_type_spec()?;
-                    self.expect(&TokenKind::Greater, ">")?;
-                    Some(ty)
-                } else {
-                    None
-                };
-                self.parse_class_instantiation(tok.span, name, generic_type)
+                if self.check(&TokenKind::Less) {
+                    self.diagnostics.push(Diagnostic::error(
+                        format!("Generic constructors use new ({name} of ...)(...)"), Some(self.current_token.span),
+                    ));
+                    return Err(());
+                }
+                self.parse_class_instantiation(tok.span, name, None)
             }
             TokenKind::Static => {
                 if !self.check(&TokenKind::Dot) {
@@ -1211,45 +1337,21 @@ impl<'a> Parser<'a> {
                         span: Span::combine(tok.span, body_expr.span),
                     });
                 }
-                if let Some(class_name) = canonical_builtin_class_name(&name) {
-                    let generic_type = if self.match_token(&TokenKind::Less) {
-                        let ty = self.parse_type_spec()?;
-                        self.expect(&TokenKind::Greater, ">")?;
-                        Some(ty)
-                    } else {
-                        None
-                    };
+                if name.chars().next().is_some_and(|c| c.is_uppercase()) {
+                    if self.check(&TokenKind::Less) {
+                        self.diagnostics.push(Diagnostic::error(
+                            format!("Generic types use '({name} of ...)'; angle-bracket type arguments are no longer supported"),
+                            Some(self.current_token.span),
+                        ));
+                        return Err(());
+                    }
                     if self.check(&TokenKind::OpenParen) {
-                        return self.parse_class_instantiation(
-                            tok.span,
-                            class_name.to_string(),
-                            generic_type,
-                        );
+                        return self.parse_class_instantiation(tok.span, name, None);
                     }
                 }
-                if name.chars().next().map_or(false, |c| c.is_uppercase()) {
-                    let generic_type = if self.match_token(&TokenKind::Less) {
-                        let ty = self.parse_type_spec()?;
-                        self.expect(&TokenKind::Greater, ">")?;
-                        Some(ty)
-                    } else {
-                        None
-                    };
-                    if self.check(&TokenKind::OpenParen) {
-                        return self.parse_class_instantiation(tok.span, name, generic_type);
-                    } else {
-                        return Ok(Expr {
-                            kind: ExprKind::Identifier(name),
-                            span: tok.span,
-                        });
-                    }
-                } else {
-                    return Ok(Expr {
-                        kind: ExprKind::Identifier(name),
-                        span: tok.span,
-                    });
-                }
+                Ok(Expr { kind: ExprKind::Identifier(name), span: tok.span })
             }
+
             TokenKind::Minus => {
                 let operand = self.parse_expr(Precedence::Unary)?;
                 let span = Span::combine(tok.span, operand.span);
@@ -1387,9 +1489,7 @@ impl<'a> Parser<'a> {
             }
             TokenKind::If => {
                 let start_span = tok.span;
-                self.expect(&TokenKind::OpenParen, "(")?;
                 let condition = self.parse_expr(Precedence::None)?;
-                self.expect(&TokenKind::CloseParen, ")")?;
 
                 self.expect(&TokenKind::OpenBrace, "{")?;
                 let mut then_branch = Vec::new();

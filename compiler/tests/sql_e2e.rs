@@ -197,7 +197,7 @@ fn orm_cli_class_mapping_queries_transactions_and_persistence() {
         r#"
 class User(long id, var string name, var bool active, int? age, long? serial, decimal? score, bool? verified, string? email)
 class App {
-    long countUsers(OrmModel<User> users) {
+    long countUsers((OrmModel of User) users) {
         final query = users.query()
         try { return query.count() } finally { query.close() }
     }
@@ -496,7 +496,7 @@ fn orm_groups_projections_and_aggregates_execute_with_typed_queries() {
 class User(long id, string name, bool active, decimal? score, string? email)
 class Order(long id, long userId, decimal amount)
 class App {
-    OrmProjection<User> names(OrmQuery<User> query) { return query.select('name') }
+    (OrmProjection of User) names((OrmQuery of User) query) { return query.select('name') }
     start() {
         final db = SQL.open('sqlite::memory:')
         final users = Orm.model(db, User, 'users')

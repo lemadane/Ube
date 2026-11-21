@@ -427,11 +427,19 @@ See the [runnable context example](examples/log_context/App.ube).
 - Optional chaining (`?.`), null coalescing (`??`), and null-coalescing assignment (`??=`).
 
 ### 12. Collections Policy & `each` / `while` / `for` Loops
+
+Outer parentheses are optional in `if` / `else if`, `while`, `each`, `for`, and
+`catch Error err` headers. Both statement and expression forms support this:
+`if ready { ... }`, `final result = if ready { yield 1 } else { yield 0 }`,
+`each item in items { ... }`, and `for i = 0 to 10, by 2 { ... }`.
+Braces remain required; existing parenthesized headers remain valid. Function
+calls and expression grouping retain their usual parentheses.
+
 - **`each` / `in` Iteration and `while` Loops**: Use `each (item in items)` for collections, and `while (condition)` or `while { ... }` for conditional or infinite loops. There is no classic three-part `for` or `do-while` loop in Ube.
 - **Numeric ranges**: `for (i = 0 to 10, by 3) { ... }` visits `0, 3, 6, 9`. Endpoints are inclusive; omit `, by ...` for a step of `1`.
 - **Loop `else` (0-Iteration Fallback)**: `each (item in items) { ... } else { ... }`. The `else` block executes **only when the loop body is entered zero times**, such as an empty collection or an initially false condition. Once the body is entered, even an immediate `break` or `continue` prevents the fallback. See the [worked examples](#zero-iteration-fallback).
 - **`break` & `continue`**: `break` exits the nearest loop; `continue` skips to the next iteration.
-- **Collection limits**: Generic `Array<T>`, `List<T>`, and `Map<K, V>` declarations are not public language types. Use `List` and `Map`; native binary-buffer exports are runtime implementation APIs.
+- **Collections**: `(List of T)` and `(Map of K:V)` preserve their element types. Untyped `List` and `Map` remain available. `(Array of T)` is not a public language type; native binary-buffer exports are runtime implementation APIs.
 - **`List`**: Dynamic growable sequence (`[1, 2, 3]` literal syntax, `.add()`, `.remove()`).
 - **`Map`**: Key-value hash map (`[1000L: 'Lem']` literal syntax, key-value `each (k, v in map)` syntax is parsed but native map iteration is not yet supported; integer bracket lookup returns `int?`, preserving missing entries separately from stored zero).
 
@@ -445,11 +453,11 @@ in executable Ube code yet. Use explicit `if`/`else` branches.
 - `Async.startAll([operations])` starts several zero-argument functions and collects their values in input order. `Async.completed(value)`, `Async.failed(error)`, and `Async.delay(ms)` construct tasks without an `async` declaration.
 - Tasks support `.cancel()`, `.timeout(ms)`, `.isCompleted()`, and `.isCancelled()`. `Async.all`, `Async.any`, `Async.race`, and `Async.allSettled` combine existing tasks.
 - The Rust runtime provides typed `Task<T>` results/errors, completion-based combinators, timeouts, cancellation, and bounded closable channels.
-- The compiler ABI transports task and channel values through an inline two-word value (64-bit payload plus presence metadata), encoding primitive values and pointers. `Async.start` produces `Async<T>`; `.await()` retrieves `T`; failures propagate into a surrounding `try`/`catch`.
+- The compiler ABI transports task and channel values through an inline two-word value (64-bit payload plus presence metadata), encoding primitive values and pointers. `Async.start` produces `(Async of T)`; `.await()` retrieves `T`; failures propagate into a surrounding `try`/`catch`.
 - One rule: **start work with `Async.start`, then call `.await()` when its result is needed.** Ordinary methods need no `async` declaration.
-- `new Channel<T>(capacity)` is a typed bounded channel: `ch.send(v).await()` (false once closed), `ch.receive().await()`, and `ch.close()`. A closed-channel receive after queued values are drained is catchable.
+- `new (Channel of T)(capacity)` is a typed bounded channel: `ch.send(v).await()` (false once closed), `ch.receive().await()`, and `ch.close()`. A closed-channel receive after queued values are drained is catchable.
 - `task.timeout(ms).await()` fails with a catchable `task timed out` and cancels the task; it works on any task, including `ch.receive()`.
-- Ube uses `Async<T>` and combinators such as `Async.all(...)` and `Async.race(...)`. Legacy `async` and prefix `await` forms remain accepted for source compatibility; new code should use `Async.start(() -> expression)` and `value.await()`.
+- Ube uses `(Async of T)` and combinators such as `Async.all(...)` and `Async.race(...)`. Legacy `async` and prefix `await` forms remain accepted for source compatibility; new code should use `Async.start(() -> expression)` and `value.await()`.
 - Unhandled failures propagate out of async code and otherwise stop the program with a clear error.
 
 ### 15. Exception Model (`try` / `catch` / `finally` & `throw`)
@@ -596,12 +604,12 @@ To include a backtick in a text block, prefix it with a backslash. Double quotes
 - **Builder/ORM foundation**: The query builder and ORM share this execution API, dialect helpers, parameters, results, and transaction context. Live-schema validation, migration diffs, streaming, and async SQL APIs are future work.
 - See [the complete SQL API and limitations](docs/sql.md) and [the runnable example](examples/sql/App.ube). The existing [SQLite-specific API](docs/sqlite.md) remains available.
 
-### 25. Typed ORM (`Orm`, `OrmModel<User>`, `OrmQuery<User>`, `OrmProjection<User>`, `OrmRows<User>`)
+### 25. Typed ORM (`Orm`, `(OrmModel of User)`, `(OrmQuery of User)`, `(OrmProjection of User)`, `(OrmRows of User)`)
 - **Ordinary classes**: `Orm.model(db, User, 'users')` maps scalar constructor fields to columns, with an application-assigned `int` or `long` primary key named `id`.
 - **Explicit CRUD**: `users.create(user)`, `users.save(user)`, `users.get(id)`, `users.find(id)`, and `users.delete(id)` operate on typed objects. `migrate()` creates a missing table without altering existing schemas.
 - **Fluent typed queries**: `users.query().where('active', '=', true).orderBy('id', 'asc').limit(20)` binds values and preserves the result model type. Literal column names and predicate types are checked during compilation.
 - **Grouped OR predicates**: `orWhere(...)`, `orWhereNull(...)`, and `orWhereNotNull(...)` support alternatives. `whereGroup(query)` and `orWhereGroup(query)` snapshot another query's predicates inside parentheses, including nested groups.
-- **Projections and aggregates**: `query.select('name').select('email')` creates an `OrmProjection<User>` snapshot returning ordinary `SQLResult` rows. `sum`, `avg`, `min`, `max`, and `countColumn` operate on filtered/joined rows. Empty sums, averages, and extrema return null. See [the runnable query example](examples/orm-queries/App.ube).
+- **Projections and aggregates**: `query.select('name').select('email')` creates an `(OrmProjection of User)` snapshot returning ordinary `SQLResult` rows. `sum`, `avg`, `min`, `max`, and `countColumn` operate on filtered/joined rows. Empty sums, averages, and extrema return null. See [the runnable query example](examples/orm-queries/App.ube).
 - **Related-table joins**: `query.join(orders, 'o', 'id', 'userId')` and `leftJoin(...)` preserve typed base-model results, support related-column filters, and return a new query. See [the join example](examples/orm-joins/App.ube).
 - **Shared SQL transactions**: `users.using(tx)` pins ORM operations to a `SQLTransaction`, including raw SQL and savepoints. Changes are persisted explicitly with `save()`.
 - See [the ORM API and limitations](docs/orm.md) and [the runnable example](examples/orm/App.ube).
@@ -643,7 +651,7 @@ Use `Func(parameterTypes) -> returnType` for a function value. Lambdas have type
 }
 ```
 
-Call the returned value with parentheses: `final addFive = this.makeAdder(5)`, then `addFive(10)`. A `Func() -> Async<int>` can be called and awaited as `first().await()`. Closures capture current local values, and captured object references remain alive through garbage collection. See [function values](docs/functions.md) and the [runnable example](examples/functions/App.ube).
+Call the returned value with parentheses: `final addFive = this.makeAdder(5)`, then `addFive(10)`. A `Func() -> (Async of int)` can be called and awaited as `first().await()`. Closures capture current local values, and captured object references remain alive through garbage collection. See [function values](docs/functions.md) and the [runnable example](examples/functions/App.ube).
 
 Function-typed locals may use parentheses to visually group long signatures: `(Func(int, string) -> bool) validator = (int id, string name) -> id > 0`.
 
@@ -886,22 +894,100 @@ class App {
 }
 ```
 
-### 6. Sum Classes: Current Limits
+### 6. Generics and Union Types
 
-Sum-class declarations are parsed and type-checked, but variant construction,
-pattern matching, and exhaustive native dispatch are not a complete implemented
-feature. Do not use the older `switch` examples as runnable Ube programs. Use
-ordinary classes and explicit `if`/`else` branches for executable code.
+Generic classes and traits accept one or more type parameters. Generic methods
+place their parameters before the return type. Type arguments are checked and
+retained in each concrete specialization, including runtime `is` tests.
 
 ```ube
-// Direction.ube — declaration syntax only
-class Direction {
-    case North
-    case South
-    case East
-    case West
+// Box.ube
+class Box<T>(T value)
+```
+
+```ube
+// Pair.ube
+class Pair<K, V>(K key, V value)
+```
+
+```ube
+// Utils.ube
+class Utils {
+    static <T> T identity(T value) { return value }
 }
 ```
+
+Use `(Box of int)(42)`, `new (Box of int)(42)`, or `Box(42)` when constructor arguments
+identify every type parameter. Method calls similarly accept explicit arguments
+(`Utils.identity<int>(42)`) or infer them (`Utils.identity(42)`). An annotation
+can supply missing type arguments. Ambiguous applications require explicit
+arguments; a bare generic type is not an erased type.
+
+Traits can be parameterized (`trait Value<T> { T value() }`). Bounds use a colon:
+`class Holder<T: Named>(T value)` and `static <T: Named> string name(T value)`.
+Multiple required bounds are separated by `+`. Concrete specializations must
+satisfy every bound. Templates are checked when instantiated. Expanding recursive
+specialization has a finite compiler resource limit; ordinary recursive types
+such as `(Node of T)?` preserve their identity.
+
+All mutable generic containers are invariant: `(List of Cat)` is not assignable to
+`(List of Cat | Dog)`. Generic arguments can themselves be generic, nullable, function,
+or union types. No wildcard or variance annotation syntax is provided.
+
+Generic type uses are written `(Type of argument, ...)`, including constructors
+and static case factories. Maps use a colon between key and value types:
+`(Map of Key:Value)`. Nest types with parentheses: `(List of (List of int))`.
+Angle-bracket type uses are rejected. Template declarations (`class Box<T>`) and
+explicit method arguments (`Utils.identity<int>(42)`) retain their syntax.
+
+`(List of T)` defaults to an independent empty list and accepts contextual literals.
+Indexed assignment replaces an existing element, or appends when the index equals
+`length()`: `(List of string) names = ['Lem', 'Ed']` followed by
+`names[2] = 'Anna'` produces three elements. Index zero appends to an empty list.
+Negative indexes and indexes beyond the length raise a catchable bounds error;
+no gaps are created. The index must be `int`, and the value must match the element
+type. Receiver, index, and value are evaluated once, in that order.
+
+`(Map of K:V)` defaults to an independent empty map, supports contextual map literals,
+and checks keys and values separately. Its API includes `put`, `get`, `containsKey`,
+`remove`, `clear`, `length`, `keys`, and `values`. Index reads use `get`; index writes
+use `put`. A missing key returns null, so use `containsKey` to distinguish absence
+from a stored null. Typed maps currently use linear key lookup and the key type's
+equality operation.
+
+```ube
+(List of string) names = ['Lemuel', 'Ed']
+names.add('Dianne')
+(Map of string:int) counts
+counts['visits'] = 1
+print(counts['visits'] else 0)
+(List of (List of int)) matrix = [[1, 2], [3]]
+```
+
+Anonymous unions use `|`: `(List of Cat | Dog)` can hold both kinds of animal, whereas
+`(List of Cat) | (List of Dog)` holds one of two distinct list types. Union order and duplicate
+members do not affect identity. A narrower union can widen into a union containing
+all its members. In `if value is Cat`, the matching branch gets a checked `Cat`
+binding. Narrowing does not change the original variable's type outside the branch.
+
+Named unions use `class` and `case`, and can also be generic:
+
+```ube
+// Result.ube
+class Result<T, E> {
+    case Ok(T value)
+    case Err(E error)
+}
+```
+
+Construct values with `(Result of string, int).Ok('done')` or `.Err(7)`. A declared
+`(Result of string, int)` destination also allows `Result.Ok('done')`. Use `isOk()` /
+`isErr()` to inspect the case and `unwrapOk()` / `unwrapErr()` for single-payload
+cases. Reading the wrong case raises a catchable error; nullable payloads retain
+null as a valid value. Cases without payloads are called with empty parentheses.
+Union declarations require explicit initialization and cannot be constructed through
+the ordinary class constructor. `switch` pattern matching and exhaustiveness
+checking are not implemented; use case checks or `is` branches.
 
 ### 7. Conditional Dispatch
 
@@ -943,7 +1029,7 @@ Ube uses `each (item in items)` for collection iteration, `for` for numeric rang
 | `while (condition)` | Repeat while a condition is true |
 | `while { ... }` | Repeat until control flow exits the loop |
 
-Collection iteration requires `each`, parentheses, and `in`; the old `each/from` spelling is rejected. All three loop forms require a braced body and support `break`, `continue`, and an optional zero-iteration `else` block.
+Collection iteration requires `each` and `in`, with optional outer parentheses; the old `each/from` spelling is rejected. All three loop forms require a braced body and support `break`, `continue`, and an optional zero-iteration `else` block.
 
 Range starts, endpoints, and steps must be `int`. They are evaluated once, left to right, before iteration. The loop variable is read-only and scoped to its body. A positive step requires the start to be at or below the endpoint; a negative step requires it to be at or above the endpoint. Otherwise the body executes zero times. A literal zero step is a compile error; a computed zero step raises a catchable `GenericError`. `continue` advances the counter; `break` skips the advance and exits. Counter arithmetic does not wrap at integer boundaries. `to` and `by` are contextual words in range headers. The separate `0..5` expression still has no native iteration support.
 
@@ -1218,7 +1304,7 @@ See [yielding support and limits](docs/concurrency.md#yielding-native-methods-fi
 and the [benchmark](benchmarks/README.md). `.await()` blocks a synchronous Ube caller; the Rust API's `join` is available to async Rust callers. `Task<T>` carries `Result<T, TaskError>` rather than turning failures into successful values. `T` must be cloneable and thread-safe because task results can be observed by multiple waiters.
 
 The following is the **Rust runtime API**, not Ube syntax; Rust retains its own
-`async`/`.await` syntax and `Task<T>` type. Ube programs use `Async<T>`.
+`async`/`.await` syntax and `Task<T>` type. Ube programs use `(Async of T)`.
 
 ```rust
 use std::time::Duration;
@@ -1246,9 +1332,9 @@ assert_eq!(channel.receive().await?, None);
 - `await_timeout` returns `TaskError::Timeout` and requests cancellation. Dropping an async future cancels it at await points. A generated Ube method callback already running on the blocking pool cannot be forcibly stopped; its task is marked cancelled but its synchronous body may continue.
 - `Channel<T>` is bounded (default capacity 64). Sends wait for capacity, receive returns `None` after close and buffered values are drained, and close wakes blocked senders/receivers with a closed outcome.
 
-The compiler schedules `Async.start(() -> expression)` and infers its `Async<T>` result type. Async method results are transported through a two-word ABI value (64-bit integer/boolean/decimal bits or pointer, plus presence and scalar-kind metadata); compiler-generated callbacks own their capture context, and task handles are cleaned up with the runtime. `Async.all`, `Async.any`, `Async.race`, and `Async.allSettled` also return tasks; the language wrappers cancel and join remaining workers before completing.
+The compiler schedules `Async.start(() -> expression)` and infers its `(Async of T)` result type. Async method results are transported through a two-word ABI value (64-bit integer/boolean/decimal bits or pointer, plus presence and scalar-kind metadata); compiler-generated callbacks own their capture context, and task handles are cleaned up with the runtime. `Async.all`, `Async.any`, `Async.race`, and `Async.allSettled` also return tasks; the language wrappers cancel and join remaining workers before completing.
 
-The compiler transports async method throws and runtime task failures to an enclosing `try`/`catch`; use `err.message()` to inspect the message and `err.stacktrace()` for captured Ube call frames. Unhandled errors also print those frames. See [error stack traces](docs/stacktraces.md) for location and async limits. Awaiting a failure without a matching `catch` propagates it from a task body to its awaiter; anywhere else the program stops with `Ube error: unhandled exception ...` (exit code 1). Generated async methods poll cancellation at basic-block boundaries and raise a catchable cancellation error so cleanup runs; a currently executing indivisible operation cannot be interrupted. `Async.start(() -> expression)` captures referenced locals when submitted and evaluates the expression on a worker. Language channels support explicit element types (`new Channel<T>(capacity)`) and `close()`; `send(value)` returns `Async<bool>` and `receive()` returns `Async<T>`, with the channel wait performed on Tokio. `send` completes with false if the channel is closed; after buffered values are drained, `receive` fails with a catchable channel-closed error. `task.timeout(ms)` wraps any task (including a channel operation) with a deadline; `Async.race` waits on several channels at once. The language channel bridge supports primitive values, pointer-sized values, and nullable scalars (`int?`, `long?`, `byte?`, `bool?`, `decimal?`). Scalar presence is stored separately, so null remains distinct from zero and false across locals, calls, fields, captures, tasks, and channels. Task errors and channel closure use the exception path, not a null payload. Untyped `List`/`Map` storage still uses single-word elements: storing nullable scalars or tasks with nullable scalar results is diagnosed, including lists passed to task combinators. Typed nullable collections/combinators remain Phase 1 follow-up work. Compiler and runtime must be rebuilt together for the new ABI.
+The compiler transports async method throws and runtime task failures to an enclosing `try`/`catch`; use `err.message()` to inspect the message and `err.stacktrace()` for captured Ube call frames. Unhandled errors also print those frames. See [error stack traces](docs/stacktraces.md) for location and async limits. Awaiting a failure without a matching `catch` propagates it from a task body to its awaiter; anywhere else the program stops with `Ube error: unhandled exception ...` (exit code 1). Generated async methods poll cancellation at basic-block boundaries and raise a catchable cancellation error so cleanup runs; a currently executing indivisible operation cannot be interrupted. `Async.start(() -> expression)` captures referenced locals when submitted and evaluates the expression on a worker. Language channels support explicit element types (`new (Channel of T)(capacity)`) and `close()`; `send(value)` returns `(Async of bool)` and `receive()` returns `(Async of T)`, with the channel wait performed on Tokio. `send` completes with false if the channel is closed; after buffered values are drained, `receive` fails with a catchable channel-closed error. `task.timeout(ms)` wraps any task (including a channel operation) with a deadline; `Async.race` waits on several channels at once. The language channel bridge supports primitive values, pointer-sized values, and nullable scalars (`int?`, `long?`, `byte?`, `bool?`, `decimal?`). Scalar presence is stored separately, so null remains distinct from zero and false across locals, calls, fields, captures, tasks, and channels. Task errors and channel closure use the exception path, not a null payload. Untyped `List`/`Map` storage still uses single-word elements: storing nullable scalars or tasks with nullable scalar results is diagnosed, including lists passed to task combinators. Typed nullable collections/combinators remain Phase 1 follow-up work. Compiler and runtime must be rebuilt together for the new ABI.
 
 Cancellation is delivered once per worker callback, either at a cancellation poll or while awaiting. After delivery, subsequent awaits, including those in `finally`, wait normally so async cleanup can finish. Errors and timeouts from cleanup operations still propagate; the original cancellation remains pending unless handled or replaced by a cleanup failure.
 
@@ -1568,6 +1654,7 @@ class App {
 | `bool` | `false` |
 | `string` | `''` |
 | Nullable type, such as `User?` | `null` |
+| `(List of T)` with a supported scalar or object element type | A fresh, empty, mutable list |
 | User-defined class | A new object with recursively zero-initialized fields |
 
 Each declaration creates independent class values; it does not share a singleton. Non-nullable nested class fields are recursively allocated without evaluating defaults. Recursive non-nullable layouts such as `class Node(Node next)` cannot be zero-initialized: use a nullable link (`Node? next`) to terminate the layout. Runtime objects such as servers, channels, and streams, and variables typed as traits, require an explicit initializer or a nullable declaration. A plain declaration never calls their creation APIs or acquires their resources.
@@ -1948,7 +2035,26 @@ Ube is open-source software licensed under the [MIT License](LICENSE).
 
 ## Collection streams
 
-Use `values.stream()` for existing integer lists or `Stream.of(...)` for typed scalar/object sources. Pipelines support lazy `filter`, `map`, `peek`, `limit`, `skip`, `unique`, and `sort`, with terminals including `toList`, `count`, `sum`, `reduce`, `forEach`, and short-circuiting matches. Collected `List<T>` results preserve element types. Streams are sequential and single-use; see [the stream guide](docs/streams.md) and [runnable example](examples/streams/App.ube).
+Typed list variables start as independent empty lists when no initializer is supplied.
+They also accept literal initializers:
+
+```ube
+(List of string) names
+names.add('Dianne')
+(List of string) initial = ['Lemuel', 'Ed']
+(List of string) empty = []
+```
+
+The declaration supplies the literal's element type. Each element is checked
+against that type, and later `add` calls must match it. Without a `(List of T)`
+annotation, list literals retain their existing untyped `List` behavior.
+A plain `(List of T)` declaration creates a non-null list; `(List of T)?` still defaults to null.
+Literal initialization also supports nested collections, generic classes, unions,
+and nullable elements. Nullable lists preserve null separately from zero or false;
+collection streams continue to require non-null elements.
+
+
+Use `values.stream()` for existing integer lists or `Stream.of(...)` for typed scalar/object sources. Pipelines support lazy `filter`, `map`, `peek`, `limit`, `skip`, `unique`, and `sort`, with terminals including `toList`, `count`, `sum`, `reduce`, `forEach`, and short-circuiting matches. Collected `(List of T)` results preserve element types. Streams are sequential and single-use; see [the stream guide](docs/streams.md) and [runnable example](examples/streams/App.ube).
 
 ### Space Invaders example
 

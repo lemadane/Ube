@@ -72,10 +72,10 @@ There is no implicit detached-task API.
 
 | Operation | Behavior |
 |---|---|
-| `Async.start(operation)` | Starts one `Func() -> T` and returns `Async<T>`. |
+| `Async.start(operation)` | Starts one `Func() -> T` and returns `(Async of T)`. |
 | `Async.startAll([operations])` | Starts zero-argument functions and returns their values in input order. The argument is currently a list literal. |
-| `Async.completed(value)` | Creates an already successful `Async<T>`. |
-| `Async.failed(error)` | Creates an already failed `Async<void>` that preserves the supplied `Error`. |
+| `Async.completed(value)` | Creates an already successful `(Async of T)`. |
+| `Async.failed(error)` | Creates an already failed `(Async of void)` that preserves the supplied `Error`. |
 | `Async.delay(ms)` | Completes after the delay; a negative delay fails. |
 | `Async.all(tasks).await()` | Values in input order; first failure cancels remaining work. |
 | `Async.any(tasks).await()` | First success; all failures produce an aggregate error. |
@@ -136,7 +136,7 @@ fields. This does not make a sequence of operations atomic: reading a counter
 and then writing an increment can still lose updates. `final` prevents rebinding;
 it does not freeze the referenced object.
 
-Use `Channel<T>` to coordinate ownership or multi-step changes. Channels are
+Use `(Channel of T)` to coordinate ownership or multi-step changes. Channels are
 bounded (default capacity 64); `send` and `receive` return tasks. `close()` wakes
 blocked operations and allows buffered values to drain. Sending to a closed
 channel completes with false; receiving after drain raises a catchable error.

@@ -746,6 +746,7 @@ pub fn sql_call_method(class: &str, name: &str, args: &[crate::types::Type]) -> 
     let methods = sql_methods(class);
     let index = methods.iter().position(|m| m.name == name && m.params.len() == args.len()
         && args.iter().zip(&m.params).all(|(a, p)| a == p || (*a == Type::Byte && *p == Type::Int)))
+        .or_else(|| methods.iter().position(|m| m.name == name && m.params.len() == args.len()))
         .or_else(|| methods.iter().position(|m| m.name == name))?;
     methods.into_iter().nth(index)
 }

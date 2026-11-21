@@ -307,7 +307,7 @@ fn closure_references(expr: &Expr, names: &mut std::collections::HashSet<String>
                 visit(value);
             }
         }
-        ExprKind::IsCheck { expr, .. } | ExprKind::AsyncSpawn(expr) | ExprKind::Await(expr) => {
+        ExprKind::Narrow { value: expr, .. } | ExprKind::TypeApply { target: expr, .. } | ExprKind::IsCheck { expr, .. } | ExprKind::AsyncSpawn(expr) | ExprKind::Await(expr) => {
             visit(expr)
         }
         ExprKind::SwitchExpr {

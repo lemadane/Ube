@@ -72,12 +72,12 @@ impl fmt::Display for Type {
             Type::InputStream => write!(f, "InputStream"),
             Type::OutputStream => write!(f, "OutputStream"),
             Type::FileStream => write!(f, "FileStream"),
-            Type::Async(result) => write!(f, "Async<{}>", result),
-            Type::Channel(element) => write!(f, "Channel<{}>", element),
-            Type::Stream(element) => write!(f, "Stream<{}>", element),
-            Type::Sequence(element) => write!(f, "List<{}>", element),
+            Type::Async(result) => write!(f, "(Async of {})", result),
+            Type::Channel(element) => write!(f, "(Channel of {})", element),
+            Type::Stream(element) => write!(f, "(Stream of {})", element),
+            Type::Sequence(element) => write!(f, "(List of {})", element),
             Type::Class { name } => write!(f, "{}", name),
-            Type::Orm { model, kind, .. } => write!(f, "{}<{}>", kind.class(), model),
+            Type::Orm { model, kind, .. } => write!(f, "({} of {})", kind.class(), model),
 
             Type::Nullable(inner) => write!(f, "{}?", inner),
             Type::AnonymousObject { field_types } => {

@@ -2,6 +2,7 @@
 use crate::types::Type;
 
 pub fn element_supported(ty: &Type) -> bool {
+    if let Type::Nullable(inner) = ty { return element_supported(inner); }
     matches!(
         ty,
         Type::Int
@@ -11,6 +12,7 @@ pub fn element_supported(ty: &Type) -> bool {
             | Type::Bool
             | Type::String
             | Type::Class { .. }
+            | Type::Sequence(_) | Type::Async(_) | Type::Channel(_) | Type::Function { .. }
     )
 }
 
@@ -40,10 +42,11 @@ pub fn call(receiver: &Type, method: &str, args: &[Type]) -> Option<Result<Type,
     }
     if let Type::Sequence(element) = receiver {
         return Some(match method {
-            "stream" if args.is_empty() => Ok(Type::Stream(element.clone())),
+            "stream" if args.is_empty() && !matches!(element.as_ref(), Type::Nullable(_)) => Ok(Type::Stream(element.clone())),
+            "stream" if matches!(element.as_ref(), Type::Nullable(_)) => Err("Streams require non-null elements; nullable lists support get, add, indexing, and iteration".into()),
             "length" if args.is_empty() => Ok(Type::Int),
             "get" if args == [Type::Int] => Ok(*element.clone()),
-            "add" if args == [*element.clone()] => Ok(Type::Void),
+            "add" if args.len()==1 && assignable_element(&args[0], element) => Ok(Type::Void),
             _ => error(),
         });
     }
@@ -113,4 +116,13 @@ pub fn call(receiver: &Type, method: &str, args: &[Type]) -> Option<Result<Type,
         "close" if args.is_empty() => Ok(Type::Void),
         _ => error(),
     })
+}
+
+fn assignable_element(actual: &Type, expected: &Type) -> bool {
+    actual == expected || match expected {
+        Type::Nullable(inner) => actual == &Type::Nullable(Box::new(Type::Void)) || assignable_element(actual,inner),
+        Type::Long => matches!(actual,Type::Int|Type::Byte),
+        Type::Decimal => matches!(actual,Type::Int|Type::Long|Type::Byte),
+        _ => false,
+    }
 }

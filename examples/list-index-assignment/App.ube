@@ -1,0 +1,54 @@
+use Item
+
+class App {
+    (List of string) receiver((List of string) values) { print('receiver') return values }
+    int index() { print('index') return 0 }
+    string value() { print('value') return 'Dianne' }
+
+    start() {
+        (List of string) nameList = ['Lem', 'Ed']
+        nameList[2] = 'Anna'
+        print(nameList[2])
+        print(nameList.length())
+        nameList[1] = 'Edward'
+        print(nameList[1])
+        print(nameList.length())
+
+        // Empty lists accept index zero; aliases observe the same update.
+        (List of string) empty
+        final alias = empty
+        empty[0] = 'first'
+        print(alias[0])
+        this.receiver(nameList)[this.index()] = this.value()
+        print(nameList[0])
+        print(nameList[0] = 'Lemuel')
+
+        // Out-of-range writes are catchable and do not resize the list.
+        try { nameList[-1] = 'bad' } catch (Error error) { print('negative') }
+        try { nameList[4] = 'bad' } catch (Error error) { print('gap') }
+        print(nameList.length())
+        print(nameList[2])
+
+        (List of int?) numbers = [42]
+        numbers[0] = null
+        numbers[1] = 0
+        print(numbers[0] else -1)
+        print(numbers[1] else -1)
+        numbers[0] = 7
+        print(numbers[0] else -1)
+        (List of decimal) amounts
+        amounts[0] = 2
+        print(amounts[0] == 2.0)
+        (List of (List of int)) nested = [[1]]
+        nested[0] = [2, 3]
+        nested[0][2] = 4
+        print(nested[0][2])
+        (List of Item) objects = [Item('old')]
+        objects[0] = Item('new')
+        print(objects[0].name())
+        (List of int | string) mixed = [1]
+        mixed[0] = 'text'
+        final item = mixed[0]
+        if item is string { print(item) }
+    }
+}

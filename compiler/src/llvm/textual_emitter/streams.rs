@@ -86,8 +86,29 @@ impl TextualLlvmEmitter {
             .first()
             .map(|a| self.emit_operand(a))
             .unwrap_or_else(|| "null".into());
+        if method == "list_set" {
+            let index = self.emit_operand(&args[1]);
+            let value = self.emit_operand(&args[2]);
+            let ty = args[2].get_type();
+            let id = format!("sequence_set_{}", self.string_counter);
+            self.string_counter += 1;
+            let (mut lines, payload, meta) = self.encode_value(&ty, &value, &id);
+            let (kind, name) = self.stream_kind(&ty);
+            let name = self.emit_operand(&IrOperand::ConstantString(name));
+            lines.push(format!("call void @ube_sequence_list_set(i8* {receiver}, i32 {index}, i64 {payload}, i64 {meta}, i64 {kind}, i8* {name})"));
+            return lines.join("\n  ");
+        }
         if method == "values_add" || method == "list_add" {
             let value = self.emit_operand(&args[1]);
+            if method == "list_add" && args[1].get_type().nullable_scalar_inner().is_some() {
+                let ty=args[1].get_type();
+                let (mut lines,payload,meta)=self.encode_value(&ty,&value,&format!("sequence_nullable_{}",self.string_counter));
+                self.string_counter+=1;
+                let (kind,name)=self.stream_kind(&ty);
+                let name=self.emit_operand(&IrOperand::ConstantString(name));
+                lines.push(format!("call void @ube_list_add_typed(i8* {receiver}, i64 {payload}, i64 {meta}, i64 {kind}, i8* {name})"));
+                return lines.join("\n  ");
+            }
             let (mut lines, payload) = self.encode_i64(
                 &args[1].get_type(),
                 &value,
@@ -112,6 +133,11 @@ impl TextualLlvmEmitter {
         if method == "get" {
             let index = self.emit_operand(&args[1]);
             let id = dest.unwrap().0;
+            if result.nullable_scalar_inner().is_some() {
+                let mut lines=vec![format!("%sequence_get_{id} = call {{ i64, i64 }} @ube_sequence_get_tagged(i8* {receiver}, i32 {index})")];
+                lines.extend(self.decode_value(result,&format!("%sequence_get_{id}"),&id.to_string()).0);
+                return lines.join("\n  ");
+            }
             let mut lines = vec![format!(
                 "%sequence_get_{id} = call i64 @ube_sequence_get(i8* {receiver}, i32 {index})"
             )];

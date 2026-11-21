@@ -12,7 +12,7 @@ class App {
         return count
     }
 
-    (Func() -> Async<int>) makeIncrement(
+    (Func() -> (Async of int)) makeIncrement(
       Cache cache,
       int count) {
         return () -> {

@@ -6,7 +6,7 @@
 Func(int) -> int
 Func(int, string) -> bool
 Func() -> void
-Func() -> Async<int>
+Func() -> (Async of int)
 Func(int) -> Func(int) -> int
 ```
 
@@ -111,12 +111,12 @@ final firstResult = firstTask.await()
 final secondResult = secondTask.await()
 ```
 
-`Async.start(Func() -> T)` returns `Async<T>`. The function is called by the task runtime, so the expression inside it is not evaluated before the task starts. Ordinary method declarations do not need an `async` modifier.
+`Async.start(Func() -> T)` returns `(Async of T)`. The function is called by the task runtime, so the expression inside it is not evaluated before the task starts. Ordinary method declarations do not need an `async` modifier.
 
-`Func() -> Async<int>` is a function that creates or returns a task when called:
+`Func() -> (Async of int)` is a function that creates or returns a task when called:
 
 ```ube
-(Func() -> Async<int>) makeIncrement(
+(Func() -> (Async of int)) makeIncrement(
   Cache cache,
   int count) {
     return () -> Async.start(
@@ -150,7 +150,7 @@ firstTask.await()
 secondTask.await()
 ```
 
-An existing `Async<int>` is awaited directly: `firstTask.await()`. Tasks are not callable.
+An existing `(Async of int)` is awaited directly: `firstTask.await()`. Tasks are not callable.
 
 Run the complete example:
 

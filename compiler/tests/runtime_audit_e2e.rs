@@ -380,7 +380,7 @@ fn nullable_channels_cancellation_and_cleanup_survive_repeated_native_execution(
         class App {
             int? number(int iteration) { if (iteration % 2 == 0) { return 0 } return null }
             bool? flag(int iteration) { if (iteration % 2 == 0) { return false } return null }
-            int? wait(Channel<int?> blocked, Channel<int> ready, Channel<int> completed) {
+            int? wait((Channel of int?) blocked, (Channel of int) ready, (Channel of int) completed) {
                 try {
                     final signal = ready.send(1).await()
                     return blocked.receive().await()
@@ -392,8 +392,8 @@ fn nullable_channels_cancellation_and_cleanup_survive_repeated_native_execution(
                 var closed = 0
                 var cancelled = 0
                 while (iteration < 32) {
-                    final numbers = Channel<int?>(1)
-                    final flags = Channel<bool?>(1)
+                    final numbers = (Channel of int?)(1)
+                    final flags = (Channel of bool?)(1)
                     final number = this.number(iteration)
                     final flag = this.flag(iteration)
                     final receivedNumber = numbers.receive()
@@ -406,9 +406,9 @@ fn nullable_channels_cancellation_and_cleanup_survive_repeated_native_execution(
                     flags.close()
                     try { final value = numbers.receive().await() }
                     catch (Error error) { closed = closed + 1 }
-                    final blocked = Channel<int?>(1)
-                    final ready = Channel<int>(1)
-                    final completed = Channel<int>(1)
+                    final blocked = (Channel of int?)(1)
+                    final ready = (Channel of int)(1)
+                    final completed = (Channel of int)(1)
                     final waiting = Async.start(() -> this.wait(blocked, ready, completed))
                     final started = ready.receive().timeout(2000).await()
                     final requested = waiting.cancel()
@@ -509,7 +509,7 @@ fn generated_tracing_heap_survives_parallel_collection_and_async_object_handoffs
                 print(outcomes[2])
                 print(outcomes[3])
                 final returned = Async.start(() -> this.echo(Node(null, 42))).await()
-                final channel = Channel<Node>(1)
+                final channel = (Channel of Node)(1)
                 final sent = channel.send(returned).await()
                 final received = channel.receive().await()
                 channel.close()
@@ -577,13 +577,13 @@ fn generated_temporary_objects_are_collected_automatically() {
 fn concurrent_collection_mutations_are_memory_safe_and_keep_all_entries() {
     expect_output(run_ube(r#"
         class App {
-            fill(List values, Channel<int> start, int seed) {
+            fill(List values, (Channel of int) start, int seed) {
                 final signal = start.receive().await()
                 var i = 0
                 while (i < 10000) { values.add(seed + i) i = i + 1 }
             }
             start() {
-                final values = [] final start = Channel<int>(2)
+                final values = [] final start = (Channel of int)(2)
                 final a = Async.start(() -> this.fill(values, start, 0))
                 final b = Async.start(() -> this.fill(values, start, 10000))
                 final one = start.send(1).await() final two = start.send(1).await()
@@ -636,12 +636,12 @@ fn settled_outcomes_preserve_zero_and_original_typed_failures() {
 fn combinator_deadline_joins_child_cleanup_and_cancels_pending_receives() {
     expect_output(run_ube(r#"
         class App {
-            int child(Channel<int> ready, Channel<int> blocked, Channel<int> done) {
+            int child((Channel of int) ready, (Channel of int) blocked, (Channel of int) done) {
                 try { final sent = ready.send(1).await() return blocked.receive().await() }
                 finally { final sent = done.send(7).await() }
             }
             start() {
-                final ready = Channel<int>(1) final blocked = Channel<int>(1) final done = Channel<int>(1)
+                final ready = (Channel of int)(1) final blocked = (Channel of int)(1) final done = (Channel of int)(1)
                 final child = Async.start(() -> this.child(ready, blocked, done))
                 final started = ready.receive().await()
                 try { final results = Async.all([child]).timeout(5).await() }
@@ -663,16 +663,16 @@ fn combinator_deadline_joins_child_cleanup_and_cancels_pending_receives() {
 fn parent_completion_cancels_and_joins_unawaited_children() {
     expect_output(run_ube(r#"
         class App {
-            child(Channel<int> ready, Channel<int> blocked, Channel<int> done) {
+            child((Channel of int) ready, (Channel of int) blocked, (Channel of int) done) {
                 try { final sent = ready.send(1).await() final value = blocked.receive().await() }
                 finally { final sent = done.send(9).await() }
             }
-            parent(Channel<int> ready, Channel<int> blocked, Channel<int> done) {
+            parent((Channel of int) ready, (Channel of int) blocked, (Channel of int) done) {
                 final child = Async.start(() -> this.child(ready, blocked, done))
                 final started = ready.receive().await()
             }
             start() {
-                final ready = Channel<int>(1) final blocked = Channel<int>(1) final done = Channel<int>(1)
+                final ready = (Channel of int)(1) final blocked = (Channel of int)(1) final done = (Channel of int)(1)
                 final finished = Async.start(() -> this.parent(ready, blocked, done)).await()
                 print(done.receive().timeout(1000).await())
                 print('parent completed')
@@ -686,12 +686,12 @@ fn deadline_and_cancellation_preserve_typed_cleanup_failures() {
     expect_output(run_ube(r#"
         class CleanupError(string message, int code)
         class App {
-            int work(Channel<int> ready, Channel<int> blocked) {
+            int work((Channel of int) ready, (Channel of int) blocked) {
                 try { final sent = ready.send(1).await() return blocked.receive().await() }
                 finally { throw CleanupError('cleanup failed', 9) }
             }
             start() {
-                final ready = Channel<int>(1) final blocked = Channel<int>(1)
+                final ready = (Channel of int)(1) final blocked = (Channel of int)(1)
                 final first = Async.start(() -> this.work(ready, blocked))
                 final started = ready.receive().await()
                 try { final value = first.timeout(5).await() }
@@ -737,12 +737,12 @@ fn shared_nullable_fields_remain_coherent_between_generated_workers() {
 fn root_scope_joins_workers_before_reporting_the_main_error() {
     let output = run_ube(r#"
         class App {
-            child(Channel<int> ready, Channel<int> blocked) {
+            child((Channel of int) ready, (Channel of int) blocked) {
                 try { final sent = ready.send(1).await() final value = blocked.receive().await() }
                 finally { print('child cleanup') throw 'cleanup failed' }
             }
             start() {
-                final ready = Channel<int>(1) final blocked = Channel<int>(1)
+                final ready = (Channel of int)(1) final blocked = (Channel of int)(1)
                 final task = Async.start(() -> this.child(ready, blocked))
                 final started = ready.receive().await()
                 throw 'main failed'

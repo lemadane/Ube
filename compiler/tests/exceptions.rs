@@ -185,7 +185,7 @@ fn async_failures_keep_type_fields_causes_and_finally_order() {
 #[test]
 fn timeout_and_closed_channel_failures_are_generic_errors() {
     runs(r#"class App { start() {
-      final ch = Channel<int>(1)
+      final ch = (Channel of int)(1)
       try { final value = ch.receive().timeout(5).await() } catch (GenericError err) { Console.printLine(err.message()) }
       ch.close()
       try { final value = ch.receive().await() } catch (Error err) { Console.printLine(err.message()) }
@@ -194,11 +194,11 @@ fn timeout_and_closed_channel_failures_are_generic_errors() {
 #[test]
 fn cancellation_unblocks_await_and_runs_worker_cleanup() {
     runs(r#"class App {
-      wait(Channel<int> ready, Channel<int> blocked) {
+      wait((Channel of int) ready, (Channel of int) blocked) {
         try { final sent = ready.send(1).await() final value = blocked.receive().await() }
         finally { Console.printLine('worker cleanup') }
       }
-      start() { final ready = Channel<int>(1) final blocked = Channel<int>(1)
+      start() { final ready = (Channel of int)(1) final blocked = (Channel of int)(1)
         final task = Async.start(() -> this.wait(ready, blocked)) final started = ready.receive().await()
         final cancelled = task.cancel()
         try { final value = task.await() } catch (Error err) { Console.printLine(err.message()) }
@@ -209,7 +209,7 @@ fn cancellation_unblocks_await_and_runs_worker_cleanup() {
 #[test]
 fn cancellation_allows_async_cleanup_and_preserves_original_failure() {
     runs(r#"class App {
-      work(Channel<int> ready, Channel<int> blocked, Channel<int> completed) {
+      work((Channel of int) ready, (Channel of int) blocked, (Channel of int) completed) {
         try {
           final sent = ready.send(1).await()
           final value = blocked.receive().await()
@@ -222,9 +222,9 @@ fn cancellation_allows_async_cleanup_and_preserves_original_failure() {
         }
       }
       start() {
-        final ready = Channel<int>(1)
-        final blocked = Channel<int>(1)
-        final completed = Channel<int>(1)
+        final ready = (Channel of int)(1)
+        final blocked = (Channel of int)(1)
+        final completed = (Channel of int)(1)
         final task = Async.start(() -> this.work(ready, blocked, completed))
         final started = ready.receive().await()
         final cancelled = task.cancel()
@@ -478,7 +478,7 @@ fn unsafe_zero_initialization_requires_nullable_links_or_explicit_initializers()
     rejects("class Node(Node next) class App { start() { Node node } }", "recursive non-nullable class");
     rejects("class A(B b) class B(A a) class App { start() { A value } }", "recursive non-nullable class");
     rejects("class App { start() { Server app } }", "requires an explicit initializer");
-    rejects("class App { start() { Channel<int> values } }", "requires an explicit initializer");
+    rejects("class App { start() { (Channel of int) values } }", "requires an explicit initializer");
     rejects("trait Named { string name() } class App { start() { Named value } }", "requires an explicit initializer");
 }
 
@@ -566,7 +566,7 @@ fn nullable_scalars_survive_tasks_channels_and_captures() {
     runs(r#"class App {
       int? score(int? value) { return value }
       start() {
-        final ch = Channel<int?>(2)
+        final ch = (Channel of int?)(2)
         int? missing = Async.start(() -> this.score(null)).await()
         int? zero = Async.start(() -> this.score(0)).await()
         Console.printLine(missing == null)
@@ -591,7 +591,7 @@ fn nullable_false_and_decimal_zero_are_present() {
       bool? truth(bool? value) { return value }
       decimal? amount(decimal? value) { return value }
       start() {
-        final ch = Channel<bool?>(2)
+        final ch = (Channel of bool?)(2)
         ch.send(null).await()
         ch.send(Async.start(() -> this.truth(false)).await()).await()
         bool? missing = ch.receive().await()
@@ -599,7 +599,7 @@ fn nullable_false_and_decimal_zero_are_present() {
         Console.printLine(missing == null)
         Console.printLine(present == null)
         Console.printLine(present ?? true)
-        final amounts = Channel<decimal?>(2)
+        final amounts = (Channel of decimal?)(2)
         amounts.send(Async.start(() -> this.amount(null)).await()).await()
         amounts.send(Async.start(() -> this.amount(0.0)).await()).await()
         decimal? a = amounts.receive().await()
@@ -628,14 +628,14 @@ fn nullable_fields_calls_and_presence_conditions_work_natively() {
           int? zero = this.echo(0)
           if (zero) { Console.printLine('present') }
           Console.printLine(this.echo(null))
-          final wide = Channel<long?>(2)
+          final wide = (Channel of long?)(2)
           wide.send(Async.start(() -> this.wide(null)).await()).await()
           wide.send(Async.start(() -> this.wide(9223372036854775807L)).await()).await()
           long? a = wide.receive().await()
           long? b = wide.receive().await()
           Console.printLine(a)
           Console.printLine(b)
-          final bytes = Channel<byte?>(2)
+          final bytes = (Channel of byte?)(2)
           byte value
           bytes.send(null).await()
           bytes.send(value).await()
@@ -653,7 +653,7 @@ fn nullable_payloads_do_not_hide_closure_failure_or_repeat_awaits() {
       int? absent() { return null }
       int? fail() { throw 'failed' }
       start() {
-        final ch = Channel<int?>(1)
+        final ch = (Channel of int?)(1)
         ch.send(null).await()
         ch.close()
         int? value = ch.receive().await()
@@ -898,7 +898,7 @@ fn log_context_values_records_and_cleanup() {
 #[test]
 fn log_context_task_snapshots_and_sibling_isolation() {
     let output = native(r#"class App {
-        string child(string name, Channel<int> ready, Channel<int> release) {
+        string child(string name, (Channel of int) ready, (Channel of int) release) {
             if (Log.get('request') != 'parent') { throw 'missing inherited context' }
             Log.put('request', name)
             ready.send(1).await()
@@ -909,7 +909,7 @@ fn log_context_task_snapshots_and_sibling_isolation() {
        fail() { Log.put('request', 'failed task') throw 'failure' }
         start() {
             Log.put('request', 'parent')
-            final ready = Channel<int>(2) final release = Channel<int>(2)
+            final ready = (Channel of int)(2) final release = (Channel of int)(2)
             final first = Async.start(() -> this.child('A', ready, release))
             final second = Async.start(() -> this.child('B', ready, release))
             ready.receive().await() ready.receive().await()
@@ -1203,7 +1203,9 @@ fn unified_sql_enforces_factory_arity_receiver_and_types() {
     rejects("class App { start() { SQL.open(42) } }", "Invalid SQL method argument types");
     rejects("class App { start() { final p = SQLParams.create() p.addInt('42') } }", "Invalid SQL method argument types");
     rejects("class App { start() { final p = SQLParams.create() p.addString(null) } }", "Invalid SQL method argument types");
-    rejects("class App { start() { final db = SQL.open('sqlite::memory:') db.query('SELECT 1') } }", "expects 2 arguments");
+    // A single argument must be SQLStatement; raw SQL also requires SQLParams.
+    rejects("class App { start() { final db = SQL.open('sqlite::memory:') db.query('SELECT 1') } }", "Invalid SQL method argument types");
+    rejects("class App { start() { final db = SQL.open('sqlite::memory:') db.query() } }", "expects 1 arguments");
     rejects("class App { start() { final db = SQL.open('sqlite::memory:') db.query('SELECT 1', null) } }", "Invalid SQL method argument types");
     rejects("class App { start() { final db = SQL.open('sqlite::memory:') db.missing() } }", "Unknown SQL method");
 }
@@ -1532,7 +1534,7 @@ fn while_loops_reject_legacy_for_and_invalid_headers() {
             assert!(!diagnostics(&source).is_empty(), "Unexpectedly accepted {source}");
         }
     }
-    for header in ["while true", "while (item from [1])", "while (i = 0; i < 3)"] {
+    for header in ["while true)", "while (item from [1])", "while (i = 0; i < 3)"] {
         let source = format!("class App {{ start() {{ {header} {{ break }} }} }}");
         assert!(!diagnostics(&source).is_empty(), "Unexpectedly accepted {source}");
     }

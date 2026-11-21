@@ -76,7 +76,7 @@ fn native_frame_keeps_locals_loops_branches_and_multiple_awaits() {
     let program = Program::new(
         r#"
         class App {
-            async int receive(Channel<int> inbox, int offset) {
+            async int receive((Channel of int) inbox, int offset) {
                 var sum = offset var index = 0
                 while (index < 3) {
                     final value = inbox.receive().await()
@@ -86,7 +86,7 @@ fn native_frame_keeps_locals_loops_branches_and_multiple_awaits() {
                 return sum
             }
             start() {
-                final inbox = Channel<int>(3) final task = this.receive(inbox, 10)
+                final inbox = (Channel of int)(3) final task = this.receive(inbox, 10)
                 final a = inbox.send(1).await() final b = inbox.send(-2).await() final c = inbox.send(3).await()
                 print(task.await())
             }
@@ -105,12 +105,12 @@ fn native_frame_cancellation_runs_yielding_finally_before_completion() {
     let program = Program::new(
         r#"
         class App {
-            async int work(Channel<int> ready, Channel<int> blocked, Channel<int> done) {
+            async int work((Channel of int) ready, (Channel of int) blocked, (Channel of int) done) {
                 try { final sent = ready.send(1).await() return blocked.receive().await() }
                 finally { final sent = done.send(7).await() }
             }
             start() {
-                final ready = Channel<int>(1) final blocked = Channel<int>(1) final done = Channel<int>(1)
+                final ready = (Channel of int)(1) final blocked = (Channel of int)(1) final done = (Channel of int)(1)
                 final task = this.work(ready, blocked, done) final started = ready.receive().await()
                 final cancelled = task.cancel()
                 try { final value = task.await() } catch (Error error) { print(error.message()) }
@@ -130,8 +130,8 @@ fn blocking_calls_keep_the_legacy_backend() {
     let program = Program::new(
         r#"
         class App {
-            async int work(Channel<int> inbox) { final value = inbox.receive().await() print(value) return value + 1 }
-            start() { final inbox = Channel<int>(1) final task = this.work(inbox) final sent = inbox.send(41).await() print(task.await()) }
+            async int work((Channel of int) inbox) { final value = inbox.receive().await() print(value) return value + 1 }
+            start() { final inbox = (Channel of int)(1) final task = this.work(inbox) final sent = inbox.send(41).await() print(task.await()) }
         }
     "#,
     );
@@ -166,13 +166,13 @@ fn thousands_of_suspended_methods_use_bounded_worker_threads() {
     let program = Program::new(
         r#"
         class App {
-            async int work(Channel<int> ready, Channel<int> gate) {
+            async int work((Channel of int) ready, (Channel of int) gate) {
                 final sent = ready.send(1).await()
                 final value = gate.receive().await()
                 return value + 1
             }
             start() {
-                final ready = Channel<int>(2048) final gate = Channel<int>(2048)
+                final ready = (Channel of int)(2048) final gate = (Channel of int)(2048)
                 final warm = this.work(ready, gate) final started = ready.receive().await()
                 final sent = gate.send(1).await() final warmed = warm.await()
                 print('warm') final begin = Console.readLine()
@@ -239,7 +239,7 @@ fn suspended_references_remain_rooted_and_are_released_on_completion() {
         class Payload(int value)
         class App(var Payload? current = null) {
             App setup() { return App(Payload(7)) }
-            async int work(Channel<int> ready, Channel<int> gate) {
+            async int work((Channel of int) ready, (Channel of int) gate) {
                 final saved = this._current
                 final sent = ready.send(1).await()
                 final released = gate.receive().await()
@@ -247,7 +247,7 @@ fn suspended_references_remain_rooted_and_are_released_on_completion() {
             }
             start() {
                 final holder = this.setup()
-                final ready = Channel<int>(1) final gate = Channel<int>(1)
+                final ready = (Channel of int)(1) final gate = (Channel of int)(1)
                 final task = holder.work(ready, gate) final started = ready.receive().await()
                 final before = GarbageCollector.objects()
                 holder.current(null) GarbageCollector.collect()
@@ -269,14 +269,14 @@ fn instruction_budget_allows_another_task_to_win_on_one_worker() {
     let program = Program::new(
         r#"
         class App {
-            async int spin(Channel<int> ready, Channel<int> gate) {
+            async int spin((Channel of int) ready, (Channel of int) gate) {
                 final sent = ready.send(1).await() final started = gate.receive().await()
                 var index = 0 while (index < 100000) { index = index + 1 }
                 return index
             }
-            async int quick(Channel<int> gate) { final started = gate.receive().await() return 7 }
+            async int quick((Channel of int) gate) { final started = gate.receive().await() return 7 }
             start() {
-                final ready = Channel<int>(1) final slowGate = Channel<int>(1) final fastGate = Channel<int>(1)
+                final ready = (Channel of int)(1) final slowGate = (Channel of int)(1) final fastGate = (Channel of int)(1)
                 final slow = this.spin(ready, slowGate) final started = ready.receive().await()
                 final quick = this.quick(fastGate) final winner = Async.race([slow, quick])
                 final startSlow = slowGate.send(1).await() final startFast = fastGate.send(1).await()
@@ -297,15 +297,15 @@ fn nullable_results_and_closed_channel_handlers_resume_correctly() {
     let program = Program::new(
         r#"
         class App {
-            async int? work(Channel<int?> inbox) { return inbox.receive().await() }
-            async int closed(Channel<int> inbox) {
+            async int? work((Channel of int?) inbox) { return inbox.receive().await() }
+            async int closed((Channel of int) inbox) {
                 try { return inbox.receive().await() } catch (Error error) { return -1 }
             }
             start() {
-                final inbox = Channel<int?>(1)
+                final inbox = (Channel of int?)(1)
                 final one = this.work(inbox) final sent = inbox.send(null).await() print(one.await())
                 final two = this.work(inbox) final zero = inbox.send(0).await() print(two.await())
-                final closed = Channel<int>(1) closed.close() print(this.closed(closed).await())
+                final closed = (Channel of int)(1) closed.close() print(this.closed(closed).await())
             }
         }
     "#,
@@ -324,13 +324,13 @@ fn logging_context_survives_suspension_without_leaking_to_main() {
     let program = Program::new(
         r#"
         class App {
-            async string? work(Channel<int> ready, Channel<int> gate) {
+            async string? work((Channel of int) ready, (Channel of int) gate) {
                 Log.put('trace', 'child') final sent = ready.send(1).await()
                 final released = gate.receive().await() return Log.get('trace')
             }
             start() {
                 Log.put('trace', 'parent')
-                final ready = Channel<int>(1) final gate = Channel<int>(1)
+                final ready = (Channel of int)(1) final gate = (Channel of int)(1)
                 final task = this.work(ready, gate) final started = ready.receive().await()
                 Log.put('trace', 'parent-changed') final released = gate.send(1).await()
                 print(task.await()) print(Log.get('trace'))
@@ -350,7 +350,7 @@ fn async_expression_uses_the_same_resumable_frame_for_captures() {
         r#"
         class App {
             start() {
-                final inbox = Channel<int>(1)
+                final inbox = (Channel of int)(1)
                 final task = Async.start(() -> (inbox.receive().await()))
                 final sent = inbox.send(42).await()
                 print(task.await())
@@ -368,12 +368,12 @@ fn async_expression_uses_the_same_resumable_frame_for_captures() {
 fn async_trace_links_nested_submissions_awaits_and_legacy_callbacks() {
     let program = Program::new(r#"
     class App {
-        async leaf(Channel<int> input) { final result=input.receive().await() }
-        async middle(Channel<int> input) { this.leaf(input).await() }
+        async leaf((Channel of int) input) { final result=input.receive().await() }
+        async middle((Channel of int) input) { this.leaf(input).await() }
         async legacyLeaf() { final exists=File.exists('/tmp') throw 'legacy failure' }
         async legacyMiddle() { this.legacyLeaf().await() }
         start() {
-            final input=Channel<int>(1)
+            final input=(Channel of int)(1)
             final task=this.middle(input)
             input.close()
             try { task.await() } catch(Error error) { print(error.stacktrace()) }
@@ -428,17 +428,17 @@ fn unhandled_async_chain_reports_leaf_submission_and_each_awaiter_in_order() {
     let program = Program::new(r#"
     class App {
         finished() { return }
-        async leaf(Channel<int> started, Channel<int> blocked) {
+        async leaf((Channel of int) started, (Channel of int) blocked) {
             started.send(1).await()
             blocked.receive().await()
         }
-        async relay(Channel<int> started, Channel<int> blocked) {
+        async relay((Channel of int) started, (Channel of int) blocked) {
             this.leaf(started, blocked).await()
         }
         start() {
             this.finished()
-            final started=Channel<int>(1)
-            final blocked=Channel<int>(1)
+            final started=(Channel of int)(1)
+            final blocked=(Channel of int)(1)
             final task=this.relay(started, blocked)
             started.receive().await()
             blocked.close()

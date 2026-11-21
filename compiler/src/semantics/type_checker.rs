@@ -1756,9 +1756,19 @@ impl TypeChecker {
         }
     }
 
+    pub(crate) fn builtin_signatures(&self) -> HashMap<String, ClassInfo> { self.classes.clone() }
+
     pub fn check_program(&mut self, program: &Program) -> bool {
+        self.check_program_impl(program, true)
+    }
+
+    pub(crate) fn check_specialized_program(&mut self, program: &Program) -> bool {
+        self.check_program_impl(program, false)
+    }
+
+    fn check_program_impl(&mut self, program: &Program, expand: bool) -> bool {
         self.diagnostics.clear();
-        for item in &program.items {
+        if expand { for item in &program.items {
             let declaration = match item {
                 Item::Class(class) => Some((&class.name, class.span)),
                 Item::Trait(contract) => Some((&contract.name, contract.span)),
@@ -1782,7 +1792,12 @@ impl TypeChecker {
                 }
             }
         }
-        let expanded = crate::mockery::expand(program);
+        }
+        let expanded = if expand {
+            let (specialized, errors) = crate::generics::expand(program);
+            self.diagnostics.extend(errors);
+            crate::mockery::expand(&specialized)
+        } else { program.clone() };
         let program = &expanded;
         self.orm_declarations = program.items.iter().filter_map(|item| if let Item::Class(c) = item { Some((c.name.clone(), c.clone())) } else { None }).collect();
         self.zero_init_classes = program.items.iter().filter_map(|item| {
@@ -1941,7 +1956,7 @@ impl TypeChecker {
         // including returns/arguments that mention restricted contracts.
         for item in &program.items {
             if let Item::Trait(contract) = item {
-                let scope = ClassDecl {
+                let scope = ClassDecl { is_union: false, type_params: vec![],
                     name: contract.name.clone(), primary_params: vec![], static_fields: vec![],
                     cases: vec![], methods: vec![], span: contract.span,
                 };
@@ -2061,6 +2076,10 @@ impl TypeChecker {
         match ty {
             Type::Int | Type::Long | Type::Byte | Type::Decimal | Type::Bool | Type::String
             | Type::Nullable(_) => Ok(()),
+            Type::Sequence(element) if crate::streams::element_supported(element) => Ok(()),
+            Type::Class { name } if self.orm_declarations.get(name).is_some_and(|c| c.is_union) => {
+                Err(format!("union type '{}' requires an explicit initializer", name))
+            }
             Type::Class { name } if self.zero_init_classes.contains(name) => {
                 if visiting.contains(name) {
                     return Err(format!("cannot zero-initialize recursive non-nullable class '{}'; make the recursive field nullable", name));
@@ -2078,6 +2097,35 @@ impl TypeChecker {
         }
     }
 
+    /// A declared List<T> supplies the element type for its literal initializer.
+    /// Unannotated literals retain the existing untyped List behavior.
+    fn check_initializer(&mut self, cls: &ClassDecl, expr: &Expr, expected: Option<&Type>) -> Option<Type> {
+        let expected = match expected {
+            Some(Type::Nullable(inner)) => Some(inner.as_ref()),
+            other => other,
+        };
+        if let (ExprKind::ListLiteral(values), Some(Type::Sequence(element))) = (&expr.kind, expected) {
+            if !crate::streams::element_supported(element) {
+                self.diagnostics.push(Diagnostic::error(
+                    format!("List literal element type '{}' is not supported by typed list storage", element),
+                    Some(expr.span),
+                ));
+            }
+            for value in values {
+                if let Some(actual) = self.check_expr(cls, value) {
+                    if actual == Type::Void || !self.is_assignable_to(&actual, element) {
+                        self.diagnostics.push(Diagnostic::error(
+                            format!("List literal expects elements of type '{}', found '{}'", element, actual),
+                            Some(value.span),
+                        ));
+                    }
+                }
+            }
+            return Some(Type::Sequence(element.clone()));
+        }
+        self.check_expr(cls, expr)
+    }
+
     fn check_stmt(&mut self, cls: &ClassDecl, stmt: &Stmt) {
         match &stmt.kind {
             StmtKind::LocalDecl {
@@ -2086,15 +2134,12 @@ impl TypeChecker {
                 type_annotation,
                 initializer,
             } => {
-                let init_ty = if let Some(init) = initializer {
-                    self.check_expr(cls, init)
-                } else {
-                    None
-                };
-
                 let declared_ty = type_annotation
                     .as_ref()
                     .map(|ann| self.type_spec_to_type(ann));
+                let init_ty = initializer.as_ref().and_then(|init| {
+                    self.check_initializer(cls, init, declared_ty.as_ref())
+                });
                 if initializer.is_none() {
                     if let Some(ty) = &declared_ty {
                         if let Err(message) = self.check_zero_value(ty, &mut Vec::new()) {
@@ -2366,6 +2411,16 @@ impl TypeChecker {
 
     fn check_expr(&mut self, cls: &ClassDecl, expr: &Expr) -> Option<Type> {
         match &expr.kind {
+            ExprKind::Narrow { value, target } => { self.check_expr(cls,value); Some(self.type_spec_to_type(target)) },
+            ExprKind::IsCheck { expr: value, target_type, .. } => {
+                self.check_expr(cls,value);
+                let target = self.type_spec_to_type(target_type);
+                if let Type::Class { name } = &target {
+                    if !self.classes.contains_key(name) && !self.traits.contains_key(name) {self.diagnostics.push(Diagnostic::error(format!("Unknown type '{name}'"),Some(expr.span)));}
+                }
+                Some(Type::Bool)
+            },
+
             ExprKind::IntLiteral(_) => Some(Type::Int),
             ExprKind::LongLiteral(_) => Some(Type::Long),
             ExprKind::DecimalLiteral(_) => Some(Type::Decimal),
@@ -3084,6 +3139,23 @@ impl TypeChecker {
                 Some(read)
             }
             ExprKind::Assign { target, value } => {
+                if let ExprKind::IndexAccess { target: list, index } = &target.kind {
+                    let list_ty = self.check_expr(cls, list);
+                    let index_ty = self.check_expr(cls, index);
+                    if let Some(Type::Sequence(element)) = list_ty {
+                        if index_ty != Some(Type::Int) {
+                            self.diagnostics.push(Diagnostic::error("List index must be int", Some(index.span)));
+                        }
+                        if let Some(actual) = self.check_initializer(cls, value, Some(&element)) {
+                            if actual == Type::Void || !self.is_assignable_to(&actual, &element) {
+                                self.diagnostics.push(Diagnostic::error(
+                                    format!("List assignment expects '{}', found '{}'", element, actual), Some(value.span),
+                                ));
+                            }
+                        }
+                        return Some(*element);
+                    }
+                }
                 let val_ty = self.check_expr(cls, value)?;
                 match &target.kind {
                     ExprKind::MemberAccess { object, member, .. } => {
@@ -3246,10 +3318,14 @@ impl TypeChecker {
                     self.diagnostics.push(Diagnostic::error("Use SQLite.open(path) or connection.query(sql) to create SQLite handles", Some(expr.span)));
                     return None;
                 }
+                if class_name == "List" && generic_type.is_some() {
+                    if !args.is_empty() { self.diagnostics.push(Diagnostic::error("(List of T)() expects no arguments", Some(expr.span))); }
+                    return Some(Type::Sequence(Box::new(self.type_spec_to_type(generic_type.as_ref().unwrap()))));
+                }
                 if class_name == "Channel" {
                     if args.len() > 1 {
                         self.diagnostics.push(Diagnostic::error(
-                            "Channel<T> accepts at most one capacity argument",
+                            "(Channel of T) accepts at most one capacity argument",
                             Some(expr.span),
                         ));
                     }
@@ -3861,6 +3937,7 @@ impl TypeChecker {
 
     fn type_spec_to_type(&self, spec: &TypeSpec) -> Type {
         match spec {
+            TypeSpec::Applied(..) | TypeSpec::Union(..) => Type::Void,
             TypeSpec::Int => Type::Int,
             TypeSpec::Decimal => Type::Decimal,
             TypeSpec::Byte => Type::Byte,

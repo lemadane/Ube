@@ -104,7 +104,7 @@ Ube provides exactly six primitive data types (plus `void` as a no-result functi
 
 Every user-defined type in Ube is declared using the `class` keyword. Methods without an explicit return type are **implicitly void**. Function types spell that result as `void`, such as `Func() -> void`.
 
-Use the optional `new` keyword to make construction explicit: `new Invoice('INV-001')`. Existing `Invoice('INV-001')` syntax remains valid and has identical constructor defaults, type checks, and allocation behavior. Both forms support nesting and member chaining; supported generic constructors also accept `new`, for example `new Channel<int>(1)`. Parentheses are required. `new` is a reserved keyword and cannot name a variable or method. It applies to constructors, not function calls or static factories such as `SQL.open(...)`. Traits cannot be constructed; construct a compatible concrete class instead.
+Use the optional `new` keyword to make construction explicit: `new Invoice('INV-001')`. Existing `Invoice('INV-001')` syntax remains valid and has identical constructor defaults, type checks, and allocation behavior. Both forms support nesting and member chaining; supported generic constructors also accept `new`, for example `new (Channel of int)(1)`. Parentheses are required. `new` is a reserved keyword and cannot name a variable or method. It applies to constructors, not function calls or static factories such as `SQL.open(...)`. Traits cannot be constructed; construct a compatible concrete class instead.
 
 ```ube
 class User(
@@ -281,7 +281,7 @@ class App {
 
 ---
 
-## 7. Concurrency (`Async<T>` and `Channel<T>`)
+## 7. Concurrency (`(Async of T)` and `(Channel of T)`)
 
 Start work with `Async.start(() -> expression)` and retrieve its result with
 `task.await()`. Ordinary methods remain synchronous until explicitly submitted
@@ -289,7 +289,7 @@ inside a zero-argument function. The task starts immediately; creating a functio
 alone does not execute it. Captures retain the current local values and shared
 object references.
 
-Channel operations, combinators, and timeouts also return `Async<T>` values.
+Channel operations, combinators, and timeouts also return `(Async of T)` values.
 Awaiting blocks a synchronous caller. Eligible task bodies use native resumable
 poll functions; bodies with ordinary method calls or other potentially blocking
 operations use the blocking pool. See [concurrency](docs/concurrency.md) for the
@@ -326,10 +326,10 @@ class App {
 
 `Async.all`, `Async.any`, `Async.race`, and `Async.allSettled` return tasks and coordinate based on completion. `all` preserves input order and fails fast; `any` returns the first successful result; `race` returns the first completed outcome; `allSettled` waits for every task. Empty `any`/`race` inputs fail.
 
-Channels declare an element type and optional positive capacity. `send(value)` returns `Async<bool>` that completes once capacity is available — `true` when queued, `false` if the channel is closed. `receive()` returns `Async<T>`; after buffered values are drained from a closed channel it fails with `channel is closed`. `close()` wakes every waiting operation.
+Channels declare an element type and optional positive capacity. `send(value)` returns `(Async of bool)` that completes once capacity is available — `true` when queued, `false` if the channel is closed. `receive()` returns `(Async of T)`; after buffered values are drained from a closed channel it fails with `channel is closed`. `close()` wakes every waiting operation.
 
 ```ube
-final events = new Channel<string>(16)
+final events = new (Channel of string)(16)
 final accepted = events.send('ready')
   .await()
 final event = events.receive()
@@ -425,30 +425,124 @@ class App {
 
 ---
 
-## 9. Sum Classes: Current Limits
+## 9. Generics and Union Types
 
-Sum-class declarations are parsed and type-checked, but variant construction,
-pattern matching, and exhaustive native dispatch are not a complete implemented
-feature. Do not use the older `switch` examples as runnable Ube programs. Use
-ordinary classes and explicit `if`/`else` branches for executable code.
+Generic classes and traits accept one or more type parameters. Generic methods
+place their parameters before the return type. Type arguments are checked and
+retained in each concrete specialization, including runtime `is` tests.
 
 ```ube
-// Direction.ube — declaration syntax only
-class Direction {
-    case North
-    case South
-    case East
-    case West
+// Box.ube
+class Box<T>(T value)
+```
+
+```ube
+// Pair.ube
+class Pair<K, V>(K key, V value)
+```
+
+```ube
+// Utils.ube
+class Utils {
+    static <T> T identity(T value) { return value }
 }
 ```
+
+Use `(Box of int)(42)`, `new (Box of int)(42)`, or `Box(42)` when constructor arguments
+identify every type parameter. Method calls similarly accept explicit arguments
+(`Utils.identity<int>(42)`) or infer them (`Utils.identity(42)`). An annotation
+can supply missing type arguments. Ambiguous applications require explicit
+arguments; a bare generic type is not an erased type.
+
+Traits can be parameterized (`trait Value<T> { T value() }`). Bounds use a colon:
+`class Holder<T: Named>(T value)` and `static <T: Named> string name(T value)`.
+Multiple required bounds are separated by `+`. Concrete specializations must
+satisfy every bound. Templates are checked when instantiated. Expanding recursive
+specialization has a finite compiler resource limit; ordinary recursive types
+such as `(Node of T)?` preserve their identity.
+
+All mutable generic containers are invariant: `(List of Cat)` is not assignable to
+`(List of Cat | Dog)`. Generic arguments can themselves be generic, nullable, function,
+or union types. No wildcard or variance annotation syntax is provided.
+
+Generic type uses are written `(Type of argument, ...)`, including constructors
+and static case factories. Maps use a colon between key and value types:
+`(Map of Key:Value)`. Nest types with parentheses: `(List of (List of int))`.
+Angle-bracket type uses are rejected. Template declarations (`class Box<T>`) and
+explicit method arguments (`Utils.identity<int>(42)`) retain their syntax.
+
+`(List of T)` defaults to an independent empty list and accepts contextual literals.
+Indexed assignment replaces an existing element, or appends when the index equals
+`length()`: `(List of string) names = ['Lem', 'Ed']` followed by
+`names[2] = 'Anna'` produces three elements. Index zero appends to an empty list.
+Negative indexes and indexes beyond the length raise a catchable bounds error;
+no gaps are created. The index must be `int`, and the value must match the element
+type. Receiver, index, and value are evaluated once, in that order.
+
+`(Map of K:V)` defaults to an independent empty map, supports contextual map literals,
+and checks keys and values separately. Its API includes `put`, `get`, `containsKey`,
+`remove`, `clear`, `length`, `keys`, and `values`. Index reads use `get`; index writes
+use `put`. A missing key returns null, so use `containsKey` to distinguish absence
+from a stored null. Typed maps currently use linear key lookup and the key type's
+equality operation.
+
+```ube
+(List of string) names = ['Lemuel', 'Ed']
+names.add('Dianne')
+(Map of string:int) counts
+counts['visits'] = 1
+print(counts['visits'] else 0)
+(List of (List of int)) matrix = [[1, 2], [3]]
+```
+
+Anonymous unions use `|`: `(List of Cat | Dog)` can hold both kinds of animal, whereas
+`(List of Cat) | (List of Dog)` holds one of two distinct list types. Union order and duplicate
+members do not affect identity. A narrower union can widen into a union containing
+all its members. In `if value is Cat`, the matching branch gets a checked `Cat`
+binding. Narrowing does not change the original variable's type outside the branch.
+
+Named unions use `class` and `case`, and can also be generic:
+
+```ube
+// Result.ube
+class Result<T, E> {
+    case Ok(T value)
+    case Err(E error)
+}
+```
+
+Construct values with `(Result of string, int).Ok('done')` or `.Err(7)`. A declared
+`(Result of string, int)` destination also allows `Result.Ok('done')`. Use `isOk()` /
+`isErr()` to inspect the case and `unwrapOk()` / `unwrapErr()` for single-payload
+cases. Reading the wrong case raises a catchable error; nullable payloads retain
+null as a valid value. Cases without payloads are called with empty parentheses.
+Union declarations require explicit initialization and cannot be constructed through
+the ordinary class constructor. `switch` pattern matching and exhaustiveness
+checking are not implemented; use case checks or `is` branches.
 
 ---
 
 ## 10. `each` / `in` and `while` Loops & Control Flow (`break` & `continue`)
 
+Outer parentheses are optional in `if` / `else if` conditions, `while` conditions,
+`each` and `for` headers, and typed `catch` bindings. This applies in statement
+and expression positions, including blocks that produce values with `yield`.
+Braces remain required, and existing parenthesized forms remain valid. Use
+parentheses within expressions for grouping; function calls still require them.
+
+```ube
+if ready { print('Ready') } else if retry { print('Retry') }
+final label = if ready { yield 'Ready' } else { yield 'Waiting' }
+while remaining > 0 { remaining = remaining - 1 }
+each index, item in items { print(item) }
+for i = 0 to 10, by 2 { print(i) }
+try { performOperation() } catch Error err { print(err.message()) }
+finally { cleanup() }
+```
+
 Ube uses `each (item in items)` for collection iteration, `for` for numeric ranges, and `while` for conditional and infinite loops. There is no classic three-part `for` or `do-while` loop in the language. `break` exits the loop immediately, while `continue` skips to the next iteration.
 
-An iteration header is `each (item in iterable)` or `each (index, item in iterable)`. The two-variable form binds a list index and element. Map key/value traversal uses the same syntax, but native map iteration is not yet supported. Numeric ranges use `for (i = 0 to 5)`. The separate `0..5` expression still has no native iteration support. Parentheses and a braced body are required. A comprehension uses the same header in expression position and emits values with `yield`:
+An iteration header is `each (item in iterable)` or `each (index, item in iterable)`. The two-variable form binds a list index and element. Map key/value traversal uses the same syntax, but native map iteration is not yet supported. Numeric ranges use `for (i = 0 to 5)`. The separate `0..5` expression still has no native iteration support. Outer parentheses are optional; a braced body is required. A comprehension uses the same header in expression position and emits values with `yield`:
 
 ```ube
 final doubled = each (value in [1, 2, 3]) {
@@ -743,7 +837,7 @@ Supported HTMX attributes also accept the `data-hx-*` spelling with identical in
 
 ## Collection streams and typed collected lists
 
-`Stream<T>` represents a sequential, single-use collection pipeline; it is distinct from IO stream types. `Stream.of(...)`, `Stream.range(int, int)`, and collection `.stream()` methods construct streams. Callbacks have exact `Func` signatures; `map` determines a new element type. Terminal `toList()`/`collect()` returns `List<T>`, preserving types for indexing, iteration, and further streams. Existing list literals remain untyped lists; their `.stream()` method validates integer elements at runtime.
+`(Stream of T)` represents a sequential, single-use collection pipeline; it is distinct from IO stream types. `Stream.of(...)`, `Stream.range(int, int)`, and collection `.stream()` methods construct streams. Callbacks have exact `Func` signatures; `map` determines a new element type. Terminal `toList()`/`collect()` returns `(List of T)`, preserving types for indexing, iteration, and further streams. Existing list literals remain untyped lists; their `.stream()` method validates integer elements at runtime.
 
 Pipeline execution is lazy and ordered. Linking invalidates the previous handle; terminal operations consume the pipeline even on exception. `findFirst()` and `findFirst(Func(T) -> bool)` return `T?`; the predicate overload stops at the first matching element or returns `null` if none matches. `reduce` requires an identity. See [collection streams](docs/streams.md) for the supported operations, limits, and cleanup behavior.
 

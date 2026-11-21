@@ -1,0 +1,56 @@
+use Box
+use Data
+use Result
+
+class App {
+    (List of string) names() {
+        return ['Lemuel', 'Ed']
+    }
+
+    start() {
+        // A declaration without an initializer creates an empty collection.
+        (List of string) names
+        names.add('Dianne')
+        print(names.get(0))
+        (List of string)().add('temporary')
+        (Map of string:Data) dataMap
+        dataMap['first'] = Data('hello')
+        final first = dataMap['first'] else Data('missing')
+        print(first.value())
+
+        // Literals and nested generic arguments preserve their types.
+        (List of string) friends = this.names()
+        print(friends.get(0))
+        (List of (List of int)) matrix = [[1, 2], [3]]
+        print(matrix.get(0).get(1))
+
+        // Explicit generic constructors, with or without new.
+        final boxed = (Box of string)('Ed')
+        final number = new (Box of int)(42)
+        print(boxed.value())
+        print(number.value())
+
+        // Union type arguments and generic union case factories.
+        (List of int | string) values = [42, 'hello']
+        each value in values {
+            if value is int { print(value + 1) }
+            else { if value is string { print(value) } }
+        }
+        (Result of string, int) result = (Result of string, int).Ok('done')
+        print(result.unwrapOk())
+
+        // Nullable values remain distinct from missing keys.
+        (Map of string:string?) nicknames
+        nicknames['first'] = null
+        print(nicknames.containsKey('first'))
+        print(nicknames.containsKey('missing'))
+
+        // Map types use a colon, including nested types and constructors.
+        (Map of string:(Map of string:int)) nested = ['outer': ['inner': 42]]
+        final inner = nested['outer'] else (Map of string:int)()
+        print(inner['inner'] else 0)
+        final explicit = new (Map of string:int)()
+        explicit['answer'] = 7
+        print(explicit['answer'] else 0)
+    }
+}

@@ -10,6 +10,8 @@ pub enum TypeSpec {
     String,
     Class(String),
     Generic(String, Box<TypeSpec>),
+    Applied(String, Vec<TypeSpec>),
+    Union(Vec<TypeSpec>),
     Nullable(Box<TypeSpec>),
     Function {
         params: Vec<TypeSpec>,
@@ -34,7 +36,14 @@ pub struct Param {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub struct TypeParameter {
+    pub name: String,
+    pub bounds: Vec<TypeSpec>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct MethodDecl {
+    pub type_params: Vec<TypeParameter>,
     pub name: String,
     pub params: Vec<Param>,
     pub return_type: Option<TypeSpec>, // None means implicit void
@@ -62,6 +71,8 @@ pub struct StaticFieldDecl {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ClassDecl {
+    pub is_union: bool,
+    pub type_params: Vec<TypeParameter>,
     pub name: String,
     pub primary_params: Vec<ConstructorParam>,
     pub static_fields: Vec<StaticFieldDecl>,
@@ -80,6 +91,7 @@ pub struct ImportDecl {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct TraitDecl {
+    pub type_params: Vec<TypeParameter>,
     pub name: String,
     /// None is structural within the application; Some restricts implementations to these classes.
     pub permits: Option<Vec<String>>,
@@ -135,6 +147,9 @@ pub struct SwitchCase {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum ExprKind {
+    // Inserted only in the branch guarded by a runtime type test.
+    Narrow { value: Box<Expr>, target: TypeSpec },
+    TypeApply { target: Box<Expr>, types: Vec<TypeSpec> },
     IntLiteral(i64),
     LongLiteral(i64),
     DecimalLiteral(f64),

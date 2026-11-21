@@ -285,6 +285,7 @@ impl IrBuilder {
 
     fn type_spec_to_type(&self, ts: &TypeSpec) -> Type {
         match ts {
+            TypeSpec::Applied(..) | TypeSpec::Union(..) => Type::Void,
             TypeSpec::Int => Type::Int,
             TypeSpec::Decimal => Type::Decimal,
             TypeSpec::Byte => Type::Byte,
@@ -836,17 +837,20 @@ impl IrBuilder {
     }
 
     pub fn build_program(&mut self, program: &Program) -> IrProgram {
-        let mut normalized = crate::mockery::expand(program);
+        let (specialized, _) = crate::generics::expand(program);
+        let mut normalized = crate::mockery::expand(&specialized);
+        // Check the exact tree we lower: specialization owns independent closure
+        // and conditional metadata for every concrete application.
+        let mut checker = crate::semantics::TypeChecker::new();
+        checker.check_specialized_program(&normalized);
         for name in ["RestInPeaceError", "MockeryError", "AssertionError", "MoneyError", "CurrencyMismatchError", "SQLError", "SQLiteError", "GenericError", "OutOfBoundsError", "FileError", "FileNotFoundError", "PermissionError", "AlreadyExistsError", "InvalidPathError", "DiskFullError", "LocationPermissionError", "LocationUnavailableError", "JsonError", "JsonParseError", "MissingFieldError", "InvalidTypeError", "XmlError", "XmlParseError"] {
             if !normalized.items.iter().any(|i| matches!(i, Item::Class(c) if c.name == name)) {
-                normalized.items.push(Item::Class(ClassDecl { static_fields: vec![], name: name.into(), primary_params: vec![ConstructorParam {
+                normalized.items.push(Item::Class(ClassDecl { is_union: false, type_params: vec![], static_fields: vec![], name: name.into(), primary_params: vec![ConstructorParam {
                     name: "message".into(), type_spec: TypeSpec::String, is_var: false,
                     default_value: Some(Expr { kind: ExprKind::StringLiteral(String::new()), span: Default::default() }), span: Default::default()
                 }], cases: vec![], methods: vec![], span: Default::default() }));
             }
         }
-        let mut checker = crate::semantics::TypeChecker::new();
-        checker.check_program(program);
         // Materialize defaults only on classes that satisfy the complete trait.
         // Specialized calls then refer to real concrete implementations.
         let declared_traits = normalized.items.iter().filter_map(|item| {
@@ -1000,7 +1004,7 @@ impl IrBuilder {
                     ir_functions.extend(fns);
                 }
                 Item::Trait(tr) => {
-                    let dummy_cls = ClassDecl {
+                    let dummy_cls = ClassDecl { is_union: false, type_params: vec![],
                         static_fields: vec![],
                         name: tr.name.clone(),
                         primary_params: Vec::new(),
@@ -1370,6 +1374,7 @@ impl IrBuilder {
             Type::Bool => IrOperand::ConstantBool(false),
             Type::String => IrOperand::ConstantString(String::new()),
             Type::Nullable(_) => IrOperand::NullOf(ty.clone()),
+            Type::Sequence(_) => self.runtime("ube_list_create", vec![], ty.clone()),
             Type::Class { name } => {
                 if visiting.contains(name) {
                     self.diagnostics.push(Diagnostic::error(
@@ -1458,6 +1463,25 @@ impl IrBuilder {
         IrOperand::Register(dest, channel_ty)
     }
 
+    fn build_initializer(&mut self, expr: &Expr, expected: Option<&Type>) -> IrOperand {
+        let expected = match expected {
+            Some(Type::Nullable(inner)) => Some(inner.as_ref()),
+            other => other,
+        };
+        if let (ExprKind::ListLiteral(values), Some(Type::Sequence(element))) = (&expr.kind, expected) {
+            let list = self.runtime("ube_list_create", vec![], Type::Sequence(element.clone()));
+            for value in values {
+                let value = self.build_expr(value);
+                // Store the declared representation (e.g. int -> decimal), not
+                // the literal's original payload interpreted as another type.
+                let value = self.cast(value, *element.clone());
+                self.runtime("ube_sequence_list_add", vec![list.clone(), value], Type::Void);
+            }
+            return list;
+        }
+        self.build_expr(expr)
+    }
+
     fn build_stmt(&mut self, stmt: &Stmt) {
         self.emit(IrInstruction::CallRuntime {
             dest: None, symbol: "ube_trace_location".into(),
@@ -1476,15 +1500,15 @@ impl IrBuilder {
                 type_annotation,
                 ..
             } => {
+                let declared_ty = type_annotation.as_ref().map(|t| self.type_spec_to_type(t));
                 let init_op = if let Some(init) = initializer {
-                    self.build_expr(init)
-                } else if let Some(ts) = type_annotation {
-                    let ty = self.type_spec_to_type(ts);
-                    self.build_zero_value(&ty, &mut Vec::new())
+                    self.build_initializer(init, declared_ty.as_ref())
+                } else if let Some(ty) = &declared_ty {
+                    self.build_zero_value(ty, &mut Vec::new())
                 } else {
                     IrOperand::ConstantInt(0)
                 };
-                let ty = type_annotation.as_ref().map(|t| self.type_spec_to_type(t)).unwrap_or_else(|| init_op.get_type());
+                let ty = declared_ty.unwrap_or_else(|| init_op.get_type());
                 let init_op = self.cast(init_op, ty.clone());
                 let ptr_reg = self.fresh_reg();
                 self.emit(IrInstruction::Alloca {
@@ -1873,6 +1897,21 @@ impl IrBuilder {
 
     fn build_expr(&mut self, expr: &Expr) -> IrOperand {
         match &expr.kind {
+            ExprKind::Narrow { value, target } => { let value=self.build_expr(value); let ty=self.type_spec_to_type(target); self.cast(value,ty) },
+            ExprKind::IsCheck { expr: value, target_type, is_negated } => {
+                let value = self.build_expr(value);
+                let target = self.type_spec_to_type(target_type);
+                let matched = if let Type::Class { name } = target {
+                    if matches!(value.get_type(), Type::Class { .. }) || matches!(value.get_type(),Type::Nullable(inner) if matches!(*inner,Type::Class { .. })) {self.object_matches(value,&name)}
+                    else {IrOperand::ConstantBool(false)}
+                } else {IrOperand::ConstantBool(value.get_type()==target)};
+                if *is_negated {
+                    let dest=self.fresh_reg();
+                    self.emit(IrInstruction::Binary {dest,op:BinaryOp::Equal,left:matched,right:IrOperand::ConstantBool(false),operand_ty:Type::Bool,result_ty:Type::Bool});
+                    IrOperand::Register(dest,Type::Bool)
+                } else {matched}
+            },
+
             ExprKind::IntLiteral(v) => IrOperand::ConstantInt(*v),
             ExprKind::LongLiteral(v) => IrOperand::ConstantLong(*v),
             ExprKind::DecimalLiteral(v) => IrOperand::ConstantDecimal(*v),
@@ -2022,6 +2061,10 @@ impl IrBuilder {
             } => {
                 if class_name=="XmlOptions" {return self.runtime("ube_xml_options_create",vec![],Type::Class{name:"XmlOptions".into()});}
 
+                if class_name == "List" && generic_type.is_some() {
+                    let element = self.type_spec_to_type(generic_type.as_ref().unwrap());
+                    return self.runtime("ube_list_create", vec![], Type::Sequence(Box::new(element)));
+                }
                 if class_name == "Channel" {
                     let ty = generic_type
                         .as_ref()
@@ -3832,6 +3875,17 @@ impl IrBuilder {
                 IrOperand::Register(dest, ty)
             }
             ExprKind::Assign { target, value } => {
+                if let ExprKind::IndexAccess { target: list, index } = &target.kind {
+                    // Evaluate each operand exactly once, in source order.
+                    let receiver = self.build_expr(list);
+                    if let Type::Sequence(element) = receiver.get_type() {
+                        let index = self.build_expr(index);
+                        let value = self.build_initializer(value, Some(&element));
+                        let value = self.cast(value, *element);
+                        self.runtime("ube_sequence_list_set", vec![receiver, index, value.clone()], Type::Void);
+                        return value;
+                    }
+                }
                 let val_op = self.build_expr(value);
                 match &target.kind {
                     ExprKind::MemberAccess { object, member, .. } => {

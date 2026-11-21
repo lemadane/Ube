@@ -305,14 +305,14 @@ fn static_fields_work_across_native_async_suspension() {
         r#"
     class Work {
         static var int total = 0
-        static async int receive(Channel<int> inbox) {
+        static async int receive((Channel of int) inbox) {
             final value = await inbox.receive()
             static.total = value
             return static.total
         }
     }
     class App { start() {
-        final inbox = Channel<int>(1)
+        final inbox = (Channel of int)(1)
         final task = Work.receive(inbox)
         final sent = await inbox.send(42)
         print(await task) print(Work.total)

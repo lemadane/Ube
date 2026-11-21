@@ -525,6 +525,20 @@ pub extern "C" fn ube_sequence_list_add(
     collections::add_typed(list, payload, 1, kind, &text(name));
 }
 
+#[no_mangle]
+pub extern "C" fn ube_sequence_list_set(
+    list: *mut collections::UbeList,
+    index: i32,
+    payload: i64,
+    meta: u64,
+    kind: i64,
+    name: *const c_char,
+) {
+    if !collections::set_typed(list, index, payload, meta, kind, &text(name)) {
+        exceptions::set_pending(exceptions::generic("List index out of bounds".into()));
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -619,4 +633,12 @@ mod tests {
 pub extern "C" fn ube_sequence_invalid_callback() -> i64 {
     exceptions::set_pending(error("callback does not implement its declared signature"));
     0
+}
+
+#[no_mangle]
+pub extern "C" fn ube_sequence_get_tagged(list: *mut collections::UbeList, index: i32) -> crate::concurrency::AbiValue {
+    match collections::get_tagged(list, index) {
+        Some(value) => value,
+        None => { ube_sequence_get(list,index); crate::concurrency::AbiValue::default() }
+    }
 }

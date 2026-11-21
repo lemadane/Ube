@@ -3,7 +3,7 @@ use GameCodec
 use GameRules
 
 // The browser sends only controls. The session owns the authoritative state.
-class GameController(Channel<int> turns) {
+class GameController((Channel of int) turns) {
     Response reset(Request request) {
         return Async.start(() -> this.update(request, true)).await()
     }

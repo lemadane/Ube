@@ -100,7 +100,7 @@ class App(var int calls) {
         cache.increment('count', count)
         return count
     }
-    Func() -> Async<int> makeIncrement(Cache cache, int count) {
+    Func() -> (Async of int) makeIncrement(Cache cache, int count) {
         return () -> Async.start(() -> this.incrementMany(cache, count))
     }
     int fail() { throw 'closure failure' }
@@ -127,7 +127,7 @@ class App(var int calls) {
         final deferred = Async.start(() -> (() -> 7))
         final seven = deferred.await()
         Console.printLine(seven())
-        Func() -> Async<void> deferredOutput = () -> Async.start(() -> Console.printLine('async void'))
+        Func() -> (Async of void) deferredOutput = () -> Async.start(() -> Console.printLine('async void'))
         deferredOutput().await()
         cache.close()
     }
@@ -279,16 +279,16 @@ fn legacy_async_methods_preserve_eager_execution_types_and_failures() {
     runs(
         r#"
 class App {
-    async int exchange(Channel<int> outgoing, Channel<int> incoming, int value) {
+    async int exchange((Channel of int) outgoing, (Channel of int) incoming, int value) {
         outgoing.send(value).await()
         return incoming.receive().await()
     }
     async int fail() { throw 'async failed' }
     start() {
-        final left = Channel<int>(1)
-        final right = Channel<int>(1)
-        Async<int> first = this.exchange(left, right, 10)
-        Async<int> second = this.exchange(right, left, 20)
+        final left = (Channel of int)(1)
+        final right = (Channel of int)(1)
+        (Async of int) first = this.exchange(left, right, 10)
+        (Async of int) second = this.exchange(right, left, 20)
         Console.printLine(first.await())
         Console.printLine(second.await())
         Console.printLine(first.await())
@@ -320,7 +320,7 @@ fn async_await_methods_reject_invalid_receivers_and_arguments() {
         ("class App { start() { 1.await(2) } }", "takes no arguments"),
         ("class App { start() { 1.await } }", "after .await"),
         (
-            "class App(Task<int> result)",
+            "class App((Task of int) result)",
             "Task has been renamed to Async",
         ),
     ] {

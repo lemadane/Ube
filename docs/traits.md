@@ -63,7 +63,7 @@ Each declaration belongs in a separate file matching its type name. Import permi
 - `permit` follows the trait name and takes one or more comma-separated concrete class names.
 - Unknown names, trait names, repeated names, and incompatible classes are declaration errors, even if the trait is never used.
 - Restrictions apply to variable initialization and assignment, fields, arguments, callbacks, return values (including method-level `yield`), and nullable trait values.
-- Channel aliases must have exactly the same payload type: a `Channel<AuthorizedUser>` cannot become a `Channel<OpenUser>`, since that would allow sending an unlisted implementation through the alias.
+- Channel aliases must have exactly the same payload type: a `(Channel of AuthorizedUser)` cannot become a `(Channel of OpenUser)`, since that would allow sending an unlisted implementation through the alias.
 - Default methods are available only to compatible, permitted classes.
 - Ordinary structural conversion to an open trait remains available.
 - Ordinary traits are open within the compiled application, not to foreign objects. Catch clauses use the same application-class boundary.

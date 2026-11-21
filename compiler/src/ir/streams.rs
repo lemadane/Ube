@@ -4,7 +4,7 @@ impl IrBuilder {
         receiver_type: &Type,
         receiver: IrOperand,
         method: &str,
-        args: Vec<IrOperand>,
+        mut args: Vec<IrOperand>,
         result: Type,
     ) -> IrOperand {
         if matches!(receiver_type, Type::Class { name } if name == "Stream") {
@@ -30,7 +30,8 @@ impl IrBuilder {
         if method == "stream" {
             return self.runtime("ube_sequence_source", vec![receiver], result);
         }
-        if matches!(receiver_type, Type::Sequence(_)) {
+        if let Type::Sequence(element) = receiver_type {
+            if method == "add" && args.len() == 1 { args[0] = self.cast(args[0].clone(), *element.clone()); }
             let mut all = vec![receiver];
             all.extend(args);
             return self.runtime(

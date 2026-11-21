@@ -63,15 +63,15 @@ SQL. Schema-qualified table mapping is not implemented.
 
 | Operation | Result | Meaning |
 | --- | --- | --- |
-| `Orm.model(db, User, 'users')` | `OrmModel<User>` | Creates a typed mapping on an existing `SQL` client. Pass the class, not an instance. |
+| `Orm.model(db, User, 'users')` | `(OrmModel of User)` | Creates a typed mapping on an existing `SQL` client. Pass the class, not an instance. |
 | `users.migrate()` | `void` | Executes `CREATE TABLE IF NOT EXISTS` for this model. |
 | `users.create(user)` | `long` | Inserts all fields, including the application-assigned ID. |
 | `users.save(user)` | `long` | Updates all non-ID fields of the row matching `user.id()`. |
 | `users.get(id)` | `User` | Fetches by primary key; throws `SQLError` if absent. |
 | `users.find(id)` | `User?` | Fetches by primary key; returns `null` if absent. |
 | `users.delete(id)` | `long` | Deletes only the row with the supplied primary key. |
-| `users.query()` | `OrmQuery<User>` | Creates a new mutable query. |
-| `users.using(tx)` | `OrmModel<User>` | Creates a mapping pinned to an existing `SQLTransaction`. |
+| `users.query()` | `(OrmQuery of User)` | Creates a new mutable query. |
+| `users.using(tx)` | `(OrmModel of User)` | Creates a mapping pinned to an existing `SQLTransaction`. |
 | `users.close()` | `void` | Releases the mapping handle without closing its SQL connection. |
 
 `create` rejects duplicate IDs through the database's primary-key constraint.
@@ -99,8 +99,8 @@ final user = users.find(7L)
     null)
 ```
 
-The compiler preserves the model through `OrmModel<User>`, `OrmQuery<User>`, and
-`OrmRows<User>`. These types can also appear in method signatures. Passing an
+The compiler preserves the model through `(OrmModel of User)`, `(OrmQuery of User)`, and
+`(OrmRows of User)`. These types can also appear in method signatures. Passing an
 unrelated class to `create` or `save` is a compile-time error. `get`, `find`, and
 row mapping construct ordinary Ube objects in constructor-field order. Each
 read produces a fresh object; objects do not have a hidden persistence context.
@@ -144,13 +144,13 @@ try {
 | `whereNull(column)` / `whereNotNull(column)` | Adds an SQL NULL predicate. |
 | `orderBy(column, direction)` | Adds a sort key; direction is `asc` or `desc`. |
 | `limit(count)` / `offset(count)` | Sets a nonnegative integer pagination value. |
-| `all()` | Returns a materialized `OrmRows<User>` cursor. |
+| `all()` | Returns a materialized `(OrmRows of User)` cursor. |
 | `first()` | Returns the first matching `User?`, honoring ordering and offset. A zero limit returns null. |
 | `count()` | Returns the matching row count, ignoring pagination and ordering. |
 | `countColumn(column)` | Counts matching rows whose column is non-NULL, ignoring pagination and ordering. |
 | `sum(column)` / `avg(column)` | Returns `decimal?` for a numeric column, or null when no non-NULL values match. |
 | `min(column)` / `max(column)` | Returns the nullable column type for numeric or string columns. |
-| `select(column)` | Creates an `OrmProjection<Model>` snapshot that returns `SQLResult` cursors. |
+| `select(column)` | Creates an `(OrmProjection of Model)` snapshot that returns `SQLResult` cursors. |
 | `close()` | Releases the query handle. |
 
 Comparisons support `=`, `!=`, `<>`, `<`, `<=`, `>`, `>=`, `LIKE`, and `NOT LIKE`.
@@ -172,7 +172,7 @@ it. Execution takes a snapshot. Queries support at most 128 predicate nodes
 (including groups), 16 levels of group nesting, 128 sort keys, and 16 MiB of predicate text and values. SQL
 parameter/result size limits still apply. Streaming is a future extension.
 
-`OrmRows<User>` supports `next()`, `get()`, `rowCount()`, `reset()`, and `close()`.
+`(OrmRows of User)` supports `next()`, `get()`, `rowCount()`, `reset()`, and `close()`.
 Call `next()` before `get()`. Rows are detached from the database connection and
 remain readable after it closes. Close result, query, and repository handles in
 `finally` blocks; repeated close is safe. Closing a repository releases that
@@ -252,8 +252,8 @@ try {
 }
 ```
 
-The first `select(column)` on an `OrmQuery<Model>` creates a new
-`OrmProjection<Model>` snapshot. The original query still returns complete model
+The first `select(column)` on an `(OrmQuery of Model)` creates a new
+`(OrmProjection of Model)` snapshot. The original query still returns complete model
 objects. Further `select` calls append columns to the same projection handle.
 Projections retain model and join validation through filters, ordering,
 pagination, and joins, and can appear in method signatures. Dynamic column

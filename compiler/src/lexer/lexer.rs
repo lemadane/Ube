@@ -175,6 +175,7 @@ impl<'a> Lexer<'a> {
                     TokenKind::Greater
                 }
             }
+            '|' => { self.advance(); TokenKind::Pipe },
             ':' => {
                 self.advance();
                 TokenKind::Colon

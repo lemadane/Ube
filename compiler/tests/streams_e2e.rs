@@ -50,9 +50,9 @@ fn integer_pipelines_collect_reduce_and_short_circuit() {
 fn typed_mapping_strings_decimals_and_callbacks() {
     run(
         r#"class App {
-        Stream<string> names() { return Stream.of('pear', 'apple', 'pear') }
+        (Stream of string) names() { return Stream.of('pear', 'apple', 'pear') }
         start() {
-            List<string> names = this.names().unique().sort().collect()
+            (List of string) names = this.names().unique().sort().collect()
             print(names[0])
             each (name in names) { print(name) }
             names.stream().forEach((string name) -> print(name))
@@ -97,8 +97,8 @@ fn object_elements_and_captured_values_survive_gc() {
     run(
         r#"class Item(int value)
     class App {
-        Stream<Item> items() { return Stream.of(Item(7), Item(9)) }
-        Stream<int> captured() {
+        (Stream of Item) items() { return Stream.of(Item(7), Item(9)) }
+        (Stream of int) captured() {
             final item = Item(4)
             return Stream.range(1, 3).map((int n) -> n + item.value())
         }
@@ -158,8 +158,8 @@ fn invalid_callbacks_and_typed_container_forgery_are_rejected() {
         "Stream.of(1, 'text')",
         "Stream.of(null)",
         "Stream.of(1).reduce(0L, (int a, int b) -> a + b)",
-        "Stream<int> stream = [1, 2]",
-        "List<string> names = Stream.of(1).toList()",
+        "(Stream of int) stream = [1, 2]",
+        "(List of string) names = Stream.of(1).toList()",
         "Stream.of('x').toList().add(42)",
         "Stream()",
         "final x = if (true) { yield Stream.of(1) } else { yield 1 }",
@@ -167,8 +167,8 @@ fn invalid_callbacks_and_typed_container_forgery_are_rejected() {
     ] {
         rejected(&format!("class App {{ start() {{ {body} }} }}"));
     }
-    rejected("class App { Stream<int> values() { return print('x') } start() {} }");
-    rejected("class App { List<int> values() { yield 42 } start() {} }");
+    rejected("class App { (Stream of int) values() { return print('x') } start() {} }");
+    rejected("class App { (List of int) values() { yield 42 } start() {} }");
 }
 fn rejected(source: &str) {
     let dir = tempfile::tempdir().unwrap();
@@ -307,7 +307,7 @@ fn empty_streams_and_skip_limit_boundaries() {
 #[test]
 fn collection_length_replaces_the_abbreviated_name() {
     use ube_compiler::{lexer::Lexer, parser::Parser, semantics::TypeChecker};
-    for receiver in ["List", "Map", "List<int>", "JsonArray", "ConsoleArgs", "TaskOutcomes"] {
+    for receiver in ["List", "Map", "(List of int)", "JsonArray", "ConsoleArgs", "TaskOutcomes"] {
         for (method, accepted) in [("length", true), ("len", false)] {
             let source = format!(
                 "class App {{ int measure({receiver} values) {{ return values.{method}() }} start() {{}} }}"

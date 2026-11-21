@@ -1928,7 +1928,7 @@ fn test_e2e_typed_closable_channel() {
     let source = r#"
         class App {
             start() {
-                Channel<string> messages = Channel<string>(2)
+                (Channel of string) messages = (Channel of string)(2)
                 final receivedTask = messages.receive()
                 final sentTask = messages.send('hello')
                 final sent = sentTask.await()
@@ -2213,7 +2213,7 @@ fn test_e2e_task_timeout_wraps_any_task() {
         
         class App {
             start() {
-                Channel<int> inbox = Channel<int>(1)
+                (Channel of int) inbox = (Channel of int)(1)
                 try {
                     final quick = (Async.start(() -> 500)).timeout(2000).await()
                     Console.printLine(quick)

@@ -48,7 +48,7 @@ fn expressions(expr: &Expr, requested: &mut HashSet<String>) {
                 visit(value);
             }
         }
-        ExprKind::IsCheck { expr, .. } | ExprKind::AsyncSpawn(expr) | ExprKind::Await(expr) => {
+        ExprKind::Narrow { value: expr, .. } | ExprKind::TypeApply { target: expr, .. } | ExprKind::IsCheck { expr, .. } | ExprKind::AsyncSpawn(expr) | ExprKind::Await(expr) => {
             visit(expr)
         }
         ExprKind::SwitchExpr {
@@ -314,7 +314,7 @@ pub fn expand(program: &Program) -> Program {
                 generated
             })
             .collect();
-        result.items.push(Item::Class(ClassDecl {
+        result.items.push(Item::Class(ClassDecl { is_union: false, type_params: vec![],
             static_fields: vec![],
             name,
             span,

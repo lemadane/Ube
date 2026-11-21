@@ -5,7 +5,7 @@ class App {
     start() {
         final server = new Server()
         // One token gives a task exclusive ownership of a session update.
-        final turns = new Channel<int>(1)
+        final turns = new (Channel of int)(1)
         turns.send(1).await()
         final game = new GameController(turns)
         server.get(

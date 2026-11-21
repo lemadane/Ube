@@ -60,6 +60,27 @@ pub(crate) fn add_with_retention(ptr: *mut UbeList, val: i64, meta: u64, kind: i
     }
 }
 
+// Replacement and append-at-length share one critical section with metadata.
+// A failed bounds check leaves the list unchanged.
+pub(crate) fn set_typed(ptr: *mut UbeList, index: i32, val: i64, meta: u64, kind: i64, name: &str) -> bool {
+    let Some(list) = (unsafe { ptr.as_ref() }) else { return false; };
+    let mut items = list.items.lock().unwrap();
+    let mut types = list.json_types.lock().unwrap();
+    if index < 0 || index as usize > items.len() { return false; }
+    if matches!(kind & 255, 6 | 7 | 8 | 10 | 11) && val != 0 {
+        crate::gc::ube_gc_escape(val as *mut std::ffi::c_void);
+    }
+    let entry = (meta, kind, name.into());
+    if index as usize == items.len() {
+        items.push(val);
+        types.push(entry);
+    } else {
+        items[index as usize] = val;
+        types[index as usize] = entry;
+    }
+    true
+}
+
 #[no_mangle]
 pub extern "C" fn ube_list_add_typed(ptr: *mut UbeList, val: i64, meta: u64, kind: i64, name: *const std::ffi::c_char) {
     let name = if name.is_null() { "unknown".into() } else { unsafe { std::ffi::CStr::from_ptr(name) }.to_string_lossy() };
@@ -223,6 +244,39 @@ mod allocation_tests {
     }
 
     #[test]
+    fn indexed_list_writes_preserve_metadata_and_reject_gaps() {
+        let list = ube_list_create();
+        assert!(set_typed(list, 0, 42, 1, 1, "int"));
+        assert!(set_typed(list, 0, 0, 0, 1, "int"));
+        assert!(set_typed(list, 1, 0, 1, 4, "bool"));
+        let snapshot = json_snapshot(list, 2).unwrap();
+        assert_eq!(snapshot, vec![(0, 0, 1, "int".into()), (0, 1, 4, "bool".into())]);
+        assert!(!set_typed(list, -1, 99, 1, 1, "int"));
+        assert!(!set_typed(list, 3, 99, 1, 1, "int"));
+        assert_eq!(json_snapshot(list, 2).unwrap(), snapshot);
+        unsafe { drop(Box::from_raw(list)); }
+    }
+
+    #[test]
+    fn concurrent_indexed_writes_keep_payload_and_presence_coherent() {
+        let list = ube_list_create();
+        assert!(set_typed(list, 0, 0, 0, 1, "int"));
+        let address = list as usize;
+        let writers: Vec<_> = (0..4).map(|_| std::thread::spawn(move || {
+            let list = address as *mut UbeList;
+            for index in 0..1000 {
+                let present = index % 2;
+                assert!(set_typed(list, 0, present * 42, present as u64, 1, "int"));
+                let value = get_tagged(list, 0).unwrap();
+                assert_eq!(value.payload, value.meta as i64 * 42);
+            }
+        })).collect();
+        for writer in writers { writer.join().unwrap(); }
+        assert_eq!(ube_list_len(list), 1);
+        unsafe { drop(Box::from_raw(list)); }
+    }
+
+    #[test]
     fn failed_array_allocation_never_retains_requested_capacity() {
         // Exercise arithmetic overflow and an unrepresentable allocator layout
         // without asking the operating system for an enormous allocation.
@@ -242,4 +296,13 @@ mod allocation_tests {
         }
         crate::memory::ube_free(array.data.cast(), 32, 8);
     }
+}
+
+/// Read payload and presence under the same lock order used by writers.
+pub(crate) fn get_tagged(ptr: *mut UbeList, index: i32) -> Option<crate::concurrency::AbiValue> {
+    let list = unsafe { ptr.as_ref() }?;
+    if index < 0 { return None; }
+    let items = list.items.lock().unwrap();
+    let types = list.json_types.lock().unwrap();
+    Some(crate::concurrency::AbiValue { payload: *items.get(index as usize)?, meta: types.get(index as usize)?.0 })
 }

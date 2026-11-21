@@ -28,7 +28,7 @@ fn explicit_construction_supports_defaults_nesting_chaining_generics_and_traits(
                 Allowed allowed = new Person('restricted')
                 print(named.name())
                 print(allowed.name())
-                final channel = new Channel<int>(1)
+                final channel = new (Channel of int)(1)
                 channel.send(7)
                 print(channel.receive().await())
                 channel.close()

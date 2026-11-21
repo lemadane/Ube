@@ -5,10 +5,10 @@ use Shot
 
 // Serializable domain state; no HTTP, canvas, or input-device dependencies.
 class GameState(
-    List<Invader> invaders,
-    List<Shield> shields,
-    List<Bomb> bombs,
-    List<Shot> shots,
+    (List of Invader) invaders,
+    (List of Shield) shields,
+    (List of Bomb) bombs,
+    (List of Shot) shots,
     var int playerX = 192,
     var int lives = 3,
     var int score = 0,

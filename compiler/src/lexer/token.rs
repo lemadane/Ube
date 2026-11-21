@@ -79,6 +79,7 @@ pub enum TokenKind {
     QuestionQuestion,      // ??
     QuestionQuestionEqual, // ??=
     Arrow,                 // ->
+    Pipe,
     Colon,
     Comma,
     Dot,

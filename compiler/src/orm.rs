@@ -41,7 +41,7 @@ pub fn scalar(spec: &TypeSpec) -> Option<Type> {
     })
 }
 pub fn fields(class: &ClassDecl) -> Result<Vec<(String, Type)>, String> {
-    if !class.cases.is_empty()
+    if class.is_union || !class.cases.is_empty()
         || class.primary_params.is_empty()
         || class.primary_params.len() > 128
     {

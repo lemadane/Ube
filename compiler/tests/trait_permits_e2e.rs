@@ -66,8 +66,8 @@ fn permitted_classes_work_in_fields_arguments_returns_and_nullable_values() {
                 final callback = (AuthorizedUser value) -> value.isAuthorized()
                 print(callback(Admin()))
                 print(this.yieldedLogin().isAuthorized())
-                final channel = Channel<AuthorizedUser>(1)
-                Channel<AuthorizedUser> alias = channel
+                final channel = (Channel of AuthorizedUser)(1)
+                (Channel of AuthorizedUser) alias = channel
                 alias.send(Admin()).await()
                 print(channel.receive().await().isAuthorized())
                 channel.close()
@@ -165,7 +165,7 @@ fn unlisted_implementations_cannot_enter_restricted_traits() {
         "start() { final mock = Mockery.mock(AuthorizedUser) }",
         "start() { AuthorizedUser user = if (true) { yield Stranger() } else { yield Stranger() } }",
         "start() { final f = (AuthorizedUser user) -> user.isAuthorized() OpenUser erased = Stranger() f(erased) }",
-        "start() { final restricted = Channel<AuthorizedUser>(1) Channel<OpenUser> widened = restricted widened.send(Stranger()) AuthorizedUser user = restricted.receive().await() }",
+        "start() { final restricted = (Channel of AuthorizedUser)(1) (Channel of OpenUser) widened = restricted widened.send(Stranger()) AuthorizedUser user = restricted.receive().await() }",
     ] {
         let source = format!("{AUTH} class App {{ {app} }}");
         let result = execute(&source, "check");
