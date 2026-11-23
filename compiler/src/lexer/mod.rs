@@ -29,6 +29,18 @@ mod tests {
     fn lex(source: &str) -> TokenKind { Lexer::new(source).next_token().kind }
 
     #[test]
+    fn arrows_do_not_change_assignment_equality_or_subtraction() {
+        let mut lexer = Lexer::new("=> = == - > ->");
+        for expected in [TokenKind::Arrow, TokenKind::Equal, TokenKind::EqualEqual,
+            TokenKind::Minus, TokenKind::Greater] {
+            assert_eq!(lexer.next_token().kind, expected);
+        }
+        assert!(matches!(lexer.next_token().kind, TokenKind::Error(message)
+            if message.contains("use '=>'")));
+        assert_eq!(lex("'->'"), TokenKind::StringLiteral("->".into()));
+    }
+
+    #[test]
     fn loop_keywords_distinguish_while_each_and_for() {
         assert_eq!(lex("while"), TokenKind::While);
         assert_eq!(lex("each"), TokenKind::Each);

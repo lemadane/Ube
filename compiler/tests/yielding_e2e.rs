@@ -222,7 +222,7 @@ fn thousands_of_suspended_methods_use_bounded_worker_threads() {
     let suspended = threads(child.0.id());
     assert!(
         suspended <= baseline + 2,
-        "worker growth: {baseline} -> {suspended}"
+        "worker growth: {baseline} => {suspended}"
     );
     writeln!(child.0.stdin.as_mut().unwrap()).unwrap();
     assert_eq!(recv.recv_timeout(Duration::from_secs(20)).unwrap(), "4096");
@@ -351,7 +351,7 @@ fn async_expression_uses_the_same_resumable_frame_for_captures() {
         class App {
             start() {
                 final inbox = (Channel of int)(1)
-                final task = Async.start(() -> (inbox.receive().await()))
+                final task = Async.start(() => (inbox.receive().await()))
                 final sent = inbox.send(42).await()
                 print(task.await())
             }

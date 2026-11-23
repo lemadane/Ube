@@ -76,7 +76,7 @@ final client = OAuth2.create(
   'http://127.0.0.1:8080/callback')
 server.get(
   '/authorize',
-  (Request request) -> Response.redirect(
+  (Request request) => Response.redirect(
     client.authorize(
       request.session(),
       'read')))

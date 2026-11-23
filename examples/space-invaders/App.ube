@@ -10,15 +10,15 @@ class App {
         final game = new GameController(turns)
         server.get(
           '/',
-          (Request request) -> Response.ok(
+          (Request request) => Response.ok(
             new GamePage()
               .render()))
         server.post(
           '/game/reset',
-          (Request request) -> game.reset(request))
+          (Request request) => game.reset(request))
         server.post(
           '/game/step',
-          (Request request) -> game.step(request))
+          (Request request) => game.step(request))
         print('Space Invaders: http://127.0.0.1:8081')
         server.start(8081)
     }

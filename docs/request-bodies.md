@@ -9,11 +9,11 @@ class App {
         final server = new Server()
         server.post(
           '/echo',
-          (Request request) -> Response.ok(
+          (Request request) => Response.ok(
             request.body()))
         server.put(
           '/echo',
-          (Request request) -> Response.ok(
+          (Request request) => Response.ok(
             request.body()))
         server.start(8080)
     }

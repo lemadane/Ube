@@ -321,8 +321,8 @@ fn native_test_runner_supports_parallel_async_http_requests() {
                 return value
             }
             testParallel() {
-                final one = Async.start(() -> this.fetch('one'))
-                final two = Async.start(() -> this.fetch('two'))
+                final one = Async.start(() => this.fetch('one'))
+                final two = Async.start(() => this.fetch('two'))
                 Testicle.equal('one', one.await())
                 Testicle.equal('two', two.await())
             }
@@ -470,8 +470,8 @@ fn rest_in_peace_tests_a_real_compiled_ube_http_service() {
             r#"
         class App {{ start() {{
             final server = Server()
-            server.get('/health', (Request request) -> Response.ok('ready'))
-            server.post('/echo', (Request request) -> Response.ok(request.body()))
+            server.get('/health', (Request request) => Response.ok('ready'))
+            server.post('/echo', (Request request) => Response.ok(request.body()))
             server.start({port})
         }} }}
     "#

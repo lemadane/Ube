@@ -113,14 +113,14 @@ fn mocks_work_with_native_test_runner_async_consumers_and_parallel_calls() {
             testWorker() {
                 final mock = Mockery.mock(Worker)
                 Mockery.returns(mock, 'value', 42)
-                final first = Async.start(() -> Consumer(mock).read())
-                final second = Async.start(() -> Consumer(mock).read())
+                final first = Async.start(() => Consumer(mock).read())
+                final second = Async.start(() => Consumer(mock).read())
                 Testicle.equal(42, first.await())
                 Testicle.equal(42, second.await())
                 Mockery.verify(mock, 'value', 2)
                 Mockery.throws(mock, 'value', 'async failure')
                 var caught = false
-                try { final value = Async.start(() -> Consumer(mock).read()).await() }
+                try { final value = Async.start(() => Consumer(mock).read()).await() }
                 catch (MockeryError error) { caught = true }
                 Testicle.isTrue(caught)
                 Mockery.verify(mock, 'value', 3)

@@ -68,7 +68,7 @@ fn transactions_closures_conditionals_and_errors_use_existing_sql_semantics() {
         db.execute(sql`CREATE TABLE items (id INTEGER PRIMARY KEY)`)
         final tx = db.begin()
         final id = 42
-        final make = () -> sql`INSERT INTO items VALUES (${id})`
+        final make = () => sql`INSERT INTO items VALUES (${id})`
         GarbageCollector.collect()
         print(tx.execute(make()))
         final query = true then sql`SELECT id FROM items` else sql`SELECT 0`
@@ -112,7 +112,7 @@ fn expressions_evaluate_once_in_order_and_temporary_statements_are_collected() {
         start() {
             final db = SQL.open('sqlite::memory:')
             final statement = sql`SELECT ${this.value(1)}, ${this.value(2)}`
-            final execute = () -> db.query(statement)
+            final execute = () => db.query(statement)
             GarbageCollector.collect()
             final rows = execute()
             rows.next()
@@ -197,7 +197,7 @@ fn unsafe_contexts_and_unsupported_types_fail_check() {
             "SQL interpolation requires",
         ),
         (
-            "final q = sql`SELECT ${() -> 1}`",
+            "final q = sql`SELECT ${() => 1}`",
             "SQL interpolation requires",
         ),
         ("final q = SQLStatement()", "cannot be constructed"),

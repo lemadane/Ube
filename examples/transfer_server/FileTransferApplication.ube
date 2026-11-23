@@ -17,7 +17,7 @@ class FileTransferApplication {
 
         server.post(
           '/files/example.txt',
-          (Request request) -> {
+          (Request request) => {
               File.write(
                 filePath,
                 request.body())
@@ -33,7 +33,7 @@ class FileTransferApplication {
 
         server.get(
           '/files/example.txt',
-          (Request request) -> {
+          (Request request) => {
               if (not File.exists(filePath)) {
                   return Response.notFound('File not found')
               }
@@ -43,7 +43,7 @@ class FileTransferApplication {
 
         server.get(
           '/files/example.txt/info',
-          (Request request) -> {
+          (Request request) => {
               if (not File.exists(filePath)) {
                   return Response.notFound('File not found')
               }
@@ -57,7 +57,7 @@ class FileTransferApplication {
 
         server.delete(
           '/files/example.txt',
-          (Request request) -> {
+          (Request request) => {
               if (not File.exists(filePath)) {
                   return Response.notFound('File not found')
               }

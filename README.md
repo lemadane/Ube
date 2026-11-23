@@ -345,7 +345,7 @@ ube run App.ube -- hello 'two words' --verbose
 - **Sum-class declarations**: `case` clauses can be parsed and type-checked, but variant construction and pattern-matching execution are incomplete. See [current limits](#6-sum-classes-current-limits).
 
 ### 5. No `void` Keyword & Implicit Void Return Types
-- **No-result methods**: Omit the return type on a method with no result. Function signatures spell that result as `void`, for example `Func() -> void`.
+- **No-result methods**: Omit the return type on a method with no result. Function signatures spell that result as `void`, for example `Func() => void`.
 - **Implicit Void Return Type**: Methods declared without a return type automatically return void (`start() { ... }` or `birthday() { ... }`).
 - **Explicit Return Types**: Methods returning values specify the return type before the method name (`int getAge() { return this._age }`).
 
@@ -449,7 +449,7 @@ calls and expression grouping retain their usual parentheses.
 in executable Ube code yet. Use explicit `if`/`else` branches.
 
 ### 14. Concurrency Runtime (Tokio)
-- `Async.start(() -> expression)` submits a zero-argument function to the shared multithreaded Tokio runtime. Captured values are retained for the task, and `.await()` returns its result.
+- `Async.start(() => expression)` submits a zero-argument function to the shared multithreaded Tokio runtime. Captured values are retained for the task, and `.await()` returns its result.
 - `Async.startAll([operations])` starts several zero-argument functions and collects their values in input order. `Async.completed(value)`, `Async.failed(error)`, and `Async.delay(ms)` construct tasks without an `async` declaration.
 - Tasks support `.cancel()`, `.timeout(ms)`, `.isCompleted()`, and `.isCancelled()`. `Async.all`, `Async.any`, `Async.race`, and `Async.allSettled` combine existing tasks.
 - The Rust runtime provides typed `Task<T>` results/errors, completion-based combinators, timeouts, cancellation, and bounded closable channels.
@@ -457,7 +457,7 @@ in executable Ube code yet. Use explicit `if`/`else` branches.
 - One rule: **start work with `Async.start`, then call `.await()` when its result is needed.** Ordinary methods need no `async` declaration.
 - `new (Channel of T)(capacity)` is a typed bounded channel: `ch.send(v).await()` (false once closed), `ch.receive().await()`, and `ch.close()`. A closed-channel receive after queued values are drained is catchable.
 - `task.timeout(ms).await()` fails with a catchable `task timed out` and cancels the task; it works on any task, including `ch.receive()`.
-- Ube uses `(Async of T)` and combinators such as `Async.all(...)` and `Async.race(...)`. Legacy `async` and prefix `await` forms remain accepted for source compatibility; new code should use `Async.start(() -> expression)` and `value.await()`.
+- Ube uses `(Async of T)` and combinators such as `Async.all(...)` and `Async.race(...)`. Legacy `async` and prefix `await` forms remain accepted for source compatibility; new code should use `Async.start(() => expression)` and `value.await()`.
 - Unhandled failures propagate out of async code and otherwise stop the program with a clear error.
 
 ### 15. Exception Model (`try` / `catch` / `finally` & `throw`)
@@ -498,7 +498,7 @@ The conditional binds more loosely than arithmetic, comparisons, logical operato
 Do not prefix a ternary expression with `if`; use `condition then yes else no`. Line breaks are allowed before `then` and `else`, and parentheses around the condition are optional. `then` remains contextual, so qualified member names retain their usual behavior. Braced `if` expressions with `yield` remain supported.
 
 ### 17. Lambdas & Method References
-- **Brace Syntax**: `{ (x) -> x * 2 }`.
+- **Brace Syntax**: `{ (x) => x * 2 }`.
 - **Compiler Lowering**: Lowered to synthetic, immutable single-method closure classes.
 - **Method References**: `this.methodName` syntax for instance method callbacks.
 
@@ -521,7 +521,7 @@ Do not prefix a ternary expression with `if`; use `condition then yes else no`. 
 - **Directories & Paths**: `Directory.create('logs')`, `Path.join('src', 'main.Ube')`.
 
 ### 21. Web Server Standard Library (`Server`, `Request`, `Response`)
-- **Lambda and route syntax**: Use Java-style lambdas inside the argument list: `server.get('/', (Request request) -> { return Response.ok('hello') })`. Expression bodies such as `(Request request) -> Response.ok('hello')` also work. Kotlin-style trailing handler blocks are rejected.
+- **Lambda and route syntax**: Use Java-style lambdas inside the argument list: `server.get('/', (Request request) => { return Response.ok('hello') })`. Expression bodies such as `(Request request) => Response.ok('hello')` also work. Kotlin-style trailing handler blocks are rejected.
 - **Built-in naming**: Built-in classes require their canonical capitalized names, such as `Server`, `Request`, `Response`, `Json`, and `SQLite`. Lowercase class aliases are not supported. Instance variables such as `server` and `request` may still be lowercase.
 - **Routing**: Register exact method/path routes with `server.get()`, `server.post()`, `server.put()`, or `server.delete()`, then call `server.start(8080)`. Middleware, static-file serving, and WebSockets are not implemented.
 - **OAuth 2.0 & JWT**: `OAuth2.create(...)` supports external authorization-code providers with session-bound state, S256 PKCE, and refresh tokens. `Jwt.sign(...)` and `Jwt.verify(...)` support HS256/RS256 with explicit issuer, audience, and expiration validation. See [authentication setup and API](docs/authentication.md), [the OAuth example](examples/oauth2/App.ube), and [the JWT example](examples/jwt/App.ube).
@@ -641,19 +641,19 @@ class User(
 
 #### Function values
 
-Use `Func(parameterTypes) -> returnType` for a function value. Lambdas have typed parameters and an inferred result. Use an expression body or a Java-style block with explicit `return`:
+Use `Func(parameterTypes) => returnType` for a function value. Lambdas have typed parameters and an inferred result. Use an expression body or a Java-style block with explicit `return`:
 
 ```ube
-(Func(int) -> int) makeAdder(int amount) {
-    return (int value) -> {
+(Func(int) => int) makeAdder(int amount) {
+    return (int value) => {
         return value + amount
     }
 }
 ```
 
-Call the returned value with parentheses: `final addFive = this.makeAdder(5)`, then `addFive(10)`. A `Func() -> (Async of int)` can be called and awaited as `first().await()`. Closures capture current local values, and captured object references remain alive through garbage collection. See [function values](docs/functions.md) and the [runnable example](examples/functions/App.ube).
+Call the returned value with parentheses: `final addFive = this.makeAdder(5)`, then `addFive(10)`. A `Func() => (Async of int)` can be called and awaited as `first().await()`. Closures capture current local values, and captured object references remain alive through garbage collection. See [function values](docs/functions.md) and the [runnable example](examples/functions/App.ube).
 
-Function-typed locals may use parentheses to visually group long signatures: `(Func(int, string) -> bool) validator = (int id, string name) -> id > 0`.
+Function-typed locals may use parentheses to visually group long signatures: `(Func(int, string) => bool) validator = (int id, string name) => id > 0`.
 
 ### 2. Structural `trait` Subtyping (No `implements` Keyword)
 
@@ -1332,9 +1332,9 @@ assert_eq!(channel.receive().await?, None);
 - `await_timeout` returns `TaskError::Timeout` and requests cancellation. Dropping an async future cancels it at await points. A generated Ube method callback already running on the blocking pool cannot be forcibly stopped; its task is marked cancelled but its synchronous body may continue.
 - `Channel<T>` is bounded (default capacity 64). Sends wait for capacity, receive returns `None` after close and buffered values are drained, and close wakes blocked senders/receivers with a closed outcome.
 
-The compiler schedules `Async.start(() -> expression)` and infers its `(Async of T)` result type. Async method results are transported through a two-word ABI value (64-bit integer/boolean/decimal bits or pointer, plus presence and scalar-kind metadata); compiler-generated callbacks own their capture context, and task handles are cleaned up with the runtime. `Async.all`, `Async.any`, `Async.race`, and `Async.allSettled` also return tasks; the language wrappers cancel and join remaining workers before completing.
+The compiler schedules `Async.start(() => expression)` and infers its `(Async of T)` result type. Async method results are transported through a two-word ABI value (64-bit integer/boolean/decimal bits or pointer, plus presence and scalar-kind metadata); compiler-generated callbacks own their capture context, and task handles are cleaned up with the runtime. `Async.all`, `Async.any`, `Async.race`, and `Async.allSettled` also return tasks; the language wrappers cancel and join remaining workers before completing.
 
-The compiler transports async method throws and runtime task failures to an enclosing `try`/`catch`; use `err.message()` to inspect the message and `err.stacktrace()` for captured Ube call frames. Unhandled errors also print those frames. See [error stack traces](docs/stacktraces.md) for location and async limits. Awaiting a failure without a matching `catch` propagates it from a task body to its awaiter; anywhere else the program stops with `Ube error: unhandled exception ...` (exit code 1). Generated async methods poll cancellation at basic-block boundaries and raise a catchable cancellation error so cleanup runs; a currently executing indivisible operation cannot be interrupted. `Async.start(() -> expression)` captures referenced locals when submitted and evaluates the expression on a worker. Language channels support explicit element types (`new (Channel of T)(capacity)`) and `close()`; `send(value)` returns `(Async of bool)` and `receive()` returns `(Async of T)`, with the channel wait performed on Tokio. `send` completes with false if the channel is closed; after buffered values are drained, `receive` fails with a catchable channel-closed error. `task.timeout(ms)` wraps any task (including a channel operation) with a deadline; `Async.race` waits on several channels at once. The language channel bridge supports primitive values, pointer-sized values, and nullable scalars (`int?`, `long?`, `byte?`, `bool?`, `decimal?`). Scalar presence is stored separately, so null remains distinct from zero and false across locals, calls, fields, captures, tasks, and channels. Task errors and channel closure use the exception path, not a null payload. Untyped `List`/`Map` storage still uses single-word elements: storing nullable scalars or tasks with nullable scalar results is diagnosed, including lists passed to task combinators. Typed nullable collections/combinators remain Phase 1 follow-up work. Compiler and runtime must be rebuilt together for the new ABI.
+The compiler transports async method throws and runtime task failures to an enclosing `try`/`catch`; use `err.message()` to inspect the message and `err.stacktrace()` for captured Ube call frames. Unhandled errors also print those frames. See [error stack traces](docs/stacktraces.md) for location and async limits. Awaiting a failure without a matching `catch` propagates it from a task body to its awaiter; anywhere else the program stops with `Ube error: unhandled exception ...` (exit code 1). Generated async methods poll cancellation at basic-block boundaries and raise a catchable cancellation error so cleanup runs; a currently executing indivisible operation cannot be interrupted. `Async.start(() => expression)` captures referenced locals when submitted and evaluates the expression on a worker. Language channels support explicit element types (`new (Channel of T)(capacity)`) and `close()`; `send(value)` returns `(Async of bool)` and `receive()` returns `(Async of T)`, with the channel wait performed on Tokio. `send` completes with false if the channel is closed; after buffered values are drained, `receive` fails with a catchable channel-closed error. `task.timeout(ms)` wraps any task (including a channel operation) with a deadline; `Async.race` waits on several channels at once. The language channel bridge supports primitive values, pointer-sized values, and nullable scalars (`int?`, `long?`, `byte?`, `bool?`, `decimal?`). Scalar presence is stored separately, so null remains distinct from zero and false across locals, calls, fields, captures, tasks, and channels. Task errors and channel closure use the exception path, not a null payload. Untyped `List`/`Map` storage still uses single-word elements: storing nullable scalars or tasks with nullable scalar results is diagnosed, including lists passed to task combinators. Typed nullable collections/combinators remain Phase 1 follow-up work. Compiler and runtime must be rebuilt together for the new ABI.
 
 Cancellation is delivered once per worker callback, either at a cancellation poll or while awaiting. After delivery, subsequent awaits, including those in `finally`, wait normally so async cleanup can finish. Errors and timeouts from cleanup operations still propagate; the original cancellation remains pending unless handled or replaced by a cleanup failure.
 
@@ -1541,7 +1541,7 @@ class App {
 
         server.get(
           '/',
-          (Request request) -> Response.ok('Hello from Ube!'))
+          (Request request) => Response.ok('Hello from Ube!'))
 
         server.start(8080)
     }

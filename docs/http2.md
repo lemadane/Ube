@@ -13,7 +13,7 @@ class App {
           'key.pem')
         server.get(
           '/',
-          (Request request) -> Response.ok(
+          (Request request) => Response.ok(
             'Hello over ${request.protocol()}'))
         server.start(8443)
     }

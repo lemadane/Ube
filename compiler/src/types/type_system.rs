@@ -97,7 +97,7 @@ impl fmt::Display for Type {
                     .map(|p| p.to_string())
                     .collect::<Vec<_>>()
                     .join(", ");
-                write!(f, "Func({}) -> {}", params_str, return_type)
+                write!(f, "Func({}) => {}", params_str, return_type)
             }
         }
     }

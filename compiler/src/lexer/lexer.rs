@@ -103,7 +103,7 @@ impl<'a> Lexer<'a> {
                 self.advance();
                 if self.peek() == Some('>') {
                     self.advance();
-                    TokenKind::Arrow
+                    TokenKind::Error("'->' is no longer supported; use '=>'".into())
                 } else {
                     TokenKind::Minus
                 }
@@ -125,6 +125,9 @@ impl<'a> Lexer<'a> {
                 if self.peek() == Some('=') {
                     self.advance();
                     TokenKind::EqualEqual
+                } else if self.peek() == Some('>') {
+                    self.advance();
+                    TokenKind::Arrow
                 } else {
                     TokenKind::Equal
                 }

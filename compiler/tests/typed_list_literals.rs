@@ -26,7 +26,7 @@ fn string_literal_can_be_mutated_indexed_iterated_and_streamed() {
         print(names.get(2))
         print(names[0])
         each (name in names) { print(name) }
-        print(names.stream().filter((string name) -> name == 'Ed').count())
+        print(names.stream().filter((string name) => name == 'Ed').count())
     } }"#, "3\nDianne\nLemuel\nLemuel\nEd\nDianne\n1\n");
 }
 

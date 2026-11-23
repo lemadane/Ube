@@ -15,7 +15,7 @@ class App {
         server.enableHttp3(8443)
         server.get(
           '/',
-          (Request request) -> Response.ok(
+          (Request request) => Response.ok(
             'Hello over ${request.protocol()}'))
         server.start(8443)
     }

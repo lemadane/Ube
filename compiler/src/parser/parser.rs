@@ -79,7 +79,7 @@ impl<'a> Parser<'a> {
                 && probe.peek_token.kind == TokenKind::Arrow
             {
                 self.diagnostics.push(Diagnostic::error(
-                    "Kotlin-style lambdas are not supported; pass a Java-style lambda inside the argument list: server.get('/', (Request request) -> { return Response.ok('hello') })",
+                    "Kotlin-style lambdas are not supported; pass a Java-style lambda inside the argument list: server.get('/', (Request request) => { return Response.ok('hello') })",
                     Some(self.current_token.span),
                 ));
                 return Err(());
@@ -607,7 +607,7 @@ impl<'a> Parser<'a> {
                 }
             }
             self.expect(&TokenKind::CloseParen, ")")?;
-            self.expect(&TokenKind::Arrow, "-> after Func parameter types")?;
+            self.expect(&TokenKind::Arrow, "=> after Func parameter types")?;
             return Ok(TypeSpec::Function {
                 params,
                 return_type: Box::new(self.parse_type_spec()?),

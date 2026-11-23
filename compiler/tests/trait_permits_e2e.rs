@@ -63,7 +63,7 @@ fn permitted_classes_work_in_fields_arguments_returns_and_nullable_values() {
                 AuthorizedUser? missing = null
                 print((missing else LegitUser()).isAuthorized())
                 print(this.open(Stranger()))
-                final callback = (AuthorizedUser value) -> value.isAuthorized()
+                final callback = (AuthorizedUser value) => value.isAuthorized()
                 print(callback(Admin()))
                 print(this.yieldedLogin().isAuthorized())
                 final channel = (Channel of AuthorizedUser)(1)
@@ -155,7 +155,7 @@ fn unlisted_implementations_cannot_enter_restricted_traits() {
         "AuthorizedUser login() { yield print('forged') } start() {}",
         "Admin login() { yield Stranger() } start() {}",
         "bool allowed(AuthorizedUser user) { return user.isAuthorized() } start() { this.allowed(Stranger()) }",
-        "start() { final f = (AuthorizedUser user) -> user.isAuthorized() f(Stranger()) }",
+        "start() { final f = (AuthorizedUser user) => user.isAuthorized() f(Stranger()) }",
         "start() { OpenUser erased = Admin() AuthorizedUser user = erased }",
         "AuthorizedUser login() { return print('forged') } start() {}",
         "start() { AuthorizedUser user = print('forged') }",
@@ -164,7 +164,7 @@ fn unlisted_implementations_cannot_enter_restricted_traits() {
         "start() { AuthorizedUser user = if (true) { yield Admin() } }",
         "start() { final mock = Mockery.mock(AuthorizedUser) }",
         "start() { AuthorizedUser user = if (true) { yield Stranger() } else { yield Stranger() } }",
-        "start() { final f = (AuthorizedUser user) -> user.isAuthorized() OpenUser erased = Stranger() f(erased) }",
+        "start() { final f = (AuthorizedUser user) => user.isAuthorized() OpenUser erased = Stranger() f(erased) }",
         "start() { final restricted = (Channel of AuthorizedUser)(1) (Channel of OpenUser) widened = restricted widened.send(Stranger()) AuthorizedUser user = restricted.receive().await() }",
     ] {
         let source = format!("{AUTH} class App {{ {app} }}");

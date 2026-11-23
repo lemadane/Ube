@@ -157,7 +157,7 @@
         },
         {
           "name": "keyword.operator.arrow.ube",
-          "match": "->"
+          "match": "=>"
         },
         {
           "name": "keyword.operator.comparison.ube",

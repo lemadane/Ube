@@ -6,7 +6,7 @@ class App {
         // server.tls('cert.pem', 'key.pem')
         server.get(
           '/',
-          (Request request) -> {
+          (Request request) => {
               final theme = request.session()
                 .get('theme')
                 ?? 'light'
@@ -14,7 +14,7 @@ class App {
           })
         server.post(
           '/theme',
-          (Request request) -> {
+          (Request request) => {
               request.session()
                 .set(
                   'theme',
@@ -23,14 +23,14 @@ class App {
           })
         server.post(
           '/rotate',
-          (Request request) -> {
+          (Request request) => {
               request.session()
                 .regenerate()
               return Response.ok('Session ID replaced')
           })
         server.post(
           '/logout',
-          (Request request) -> {
+          (Request request) => {
               request.session()
                 .destroy()
               return Response.ok('Session deleted')

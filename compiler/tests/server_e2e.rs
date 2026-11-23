@@ -130,15 +130,15 @@ fn compiled_ube_server_stays_running_and_serves_http_requests() {
     let source = format!(
         r#"
         class App {{
-            Func(Request) -> Response makeHandler(string message) {{
-                return (Request request) -> Response.ok(message)
+            Func(Request) => Response makeHandler(string message) {{
+                return (Request request) => Response.ok(message)
             }}
             start() {{
                 final server = Server()
                 final res = `Hello from Ube e2e!
 This is a captured multiline string.
 `
-                server.get('/', (Request request) -> Response.ok(res))
+                server.get('/', (Request request) => Response.ok(res))
                 server.get('/func', this.makeHandler('returned function'))
                 GarbageCollector.collect()
                 server.start({port})
@@ -217,8 +217,8 @@ fn compiled_ube_server_serves_http2_and_reports_actual_protocol() {
             start() {{
                 final server = Server()
                 server.enableHttp2()
-                server.get('/protocol', (Request request) -> Response.ok('${{request.protocol()}} ${{request.isHttp3()}}'))
-                server.get('/stop', (Request request) -> {{
+                server.get('/protocol', (Request request) => Response.ok('${{request.protocol()}} ${{request.isHttp3()}}'))
+                server.get('/stop', (Request request) => {{
                     server.stop()
                     return Response.ok('stopped')
                 }})
@@ -345,27 +345,27 @@ fn compiled_sessions_work_across_http1_and_http2() {
             start() {{
                 final server = Server()
                 server.enableHttp2()
-                server.get('/get', (Request request) -> Response.ok(this.readUser(request.session())))
-                server.get('/set', (Request request) -> {{
+                server.get('/get', (Request request) => Response.ok(this.readUser(request.session())))
+                server.get('/set', (Request request) => {{
                     final session = request.session()
                     session.set('userId', '123')
                     this._saved = session
                     return Response.ok(request.session().get('userId') ?? 'missing')
                 }})
-                server.get('/rotate', (Request request) -> {{
+                server.get('/rotate', (Request request) => {{
                     final session = request.session()
                     session.regenerate()
                     return Response.ok(session.get('userId') ?? 'anonymous')
                 }})
-                server.get('/remove', (Request request) -> {{
+                server.get('/remove', (Request request) => {{
                     request.session().remove('userId')
                     return Response.ok(request.session().get('userId') ?? 'anonymous')
                 }})
-                server.get('/logout', (Request request) -> {{
+                server.get('/logout', (Request request) => {{
                     request.session().destroy()
                     return Response.ok(request.session().get('userId') ?? 'anonymous')
                 }})
-                server.get('/stale', (Request request) -> Response.ok(this.checkStale(request)))
+                server.get('/stale', (Request request) => Response.ok(this.checkStale(request)))
                 server.start({port})
             }}
         }}
@@ -535,10 +535,10 @@ fn compiled_oauth_redirect_pkce_callback_and_session_work() {
                 final client = OAuth2.create('https://provider.example/authorize', 'http://{token_address}/token', 'native-client', '', 'http://127.0.0.1:{port}/callback')
                 final server = Server()
                 server.enableHttp2()
-                server.get('/login', (Request request) -> Response.redirect(client.authorize(request.session(), 'read')))
-                server.get('/callback', (Request request) -> this.callback(client, request))
-                server.get('/profile', (Request request) -> Response.ok(request.session().get('accessToken') ?? 'anonymous'))
-                server.get('/headers', (Request request) -> {{
+                server.get('/login', (Request request) => Response.redirect(client.authorize(request.session(), 'read')))
+                server.get('/callback', (Request request) => this.callback(client, request))
+                server.get('/profile', (Request request) => Response.ok(request.session().get('accessToken') ?? 'anonymous'))
+                server.get('/headers', (Request request) => {{
                     final authorization = request.header('Authorization')
                     return Response.ok('${{authorization}} ${{request.hasBearerToken()}}')
                 }})
@@ -712,13 +712,13 @@ fn compiled_http3_server_serves_quic_with_shared_sessions_and_stops() {
             server.tls('{cert}', '{key}')
             server.enableHttp2()
             server.enableHttp3(0)
-            server.get('/ports', (Request request) -> Response.ok('${{server.port()}} ${{server.http3Port()}}'))
-            server.get('/protocol', (Request request) -> Response.ok('${{request.protocol()}} ${{request.isHttp3()}}'))
-            server.get('/set', (Request request) -> {{ request.session().set('user', '123') return Response.ok('set') }})
-            server.get('/get', (Request request) -> Response.ok(request.session().get('user') ?? 'anonymous'))
-            server.get('/echo', (Request request) -> Response.ok(request.query('q')))
-            server.get('/redirect', (Request request) -> Response.redirect('/protocol'))
-            server.get('/stop', (Request request) -> {{ server.stop() return Response.ok('stopped') }})
+            server.get('/ports', (Request request) => Response.ok('${{server.port()}} ${{server.http3Port()}}'))
+            server.get('/protocol', (Request request) => Response.ok('${{request.protocol()}} ${{request.isHttp3()}}'))
+            server.get('/set', (Request request) => {{ request.session().set('user', '123') return Response.ok('set') }})
+            server.get('/get', (Request request) => Response.ok(request.session().get('user') ?? 'anonymous'))
+            server.get('/echo', (Request request) => Response.ok(request.query('q')))
+            server.get('/redirect', (Request request) => Response.redirect('/protocol'))
+            server.get('/stop', (Request request) => {{ server.stop() return Response.ok('stopped') }})
             server.start({port})
         }} }}
     "#,
@@ -938,10 +938,10 @@ fn compiled_ube_server_receives_post_and_put_bodies() {
             }}
             start() {{
                 final server = Server()
-                server.post('/echo', (Request request) -> this.echo(request))
-                server.put('/echo', (Request request) -> this.echo(request))
-                server.get('/calls', (Request request) -> Response.ok('${{this._calls}}'))
-                server.post('/checked', (Request request) -> this.checked(request))
+                server.post('/echo', (Request request) => this.echo(request))
+                server.put('/echo', (Request request) => this.echo(request))
+                server.get('/calls', (Request request) => Response.ok('${{this._calls}}'))
+                server.post('/checked', (Request request) => this.checked(request))
                 server.start({port})
             }}
         }}
@@ -1229,11 +1229,11 @@ fn compiled_multiplexed_body_server(
                 server.tls('{cert}', '{key}')
                 server.enableHttp2()
                 {enable_h3}
-                server.get('/ports', (Request request) -> Response.ok('${{server.http3Port()}}'))
-                server.get('/calls', (Request request) -> Response.ok('${{this._calls}}'))
-                server.post('/echo', (Request request) -> this.echo(request))
-                server.put('/echo', (Request request) -> this.echo(request))
-                server.post('/checked', (Request request) -> this.checked(request))
+                server.get('/ports', (Request request) => Response.ok('${{server.http3Port()}}'))
+                server.get('/calls', (Request request) => Response.ok('${{this._calls}}'))
+                server.post('/echo', (Request request) => this.echo(request))
+                server.put('/echo', (Request request) => this.echo(request))
+                server.post('/checked', (Request request) => this.checked(request))
                 server.start({port})
             }}
         }}
@@ -1688,15 +1688,15 @@ fn compiled_server_survives_caught_and_uncaught_currency_mismatches() {
             }}
             start() {{
                 final server = Server()
-                server.get('/caught-add', (Request request) -> this.recover(false))
-                server.get('/caught-subtract', (Request request) -> this.recover(true))
-                server.get('/uncaught-add', (Request request) -> this.uncaught(false))
-                server.get('/uncaught-subtract', (Request request) -> this.uncaught(true))
-                server.post('/caught', (Request request) -> this.recover(request.body() == 'subtract'))
-                server.post('/uncaught', (Request request) -> this.uncaught(request.body() == 'subtract'))
-                server.get('/valid', (Request request) -> this.valid())
-                server.get('/stats', (Request request) -> Response.ok('${{this._cleaned}} ${{this._continued}}'))
-                server.get('/health', (Request request) -> Response.ok('alive'))
+                server.get('/caught-add', (Request request) => this.recover(false))
+                server.get('/caught-subtract', (Request request) => this.recover(true))
+                server.get('/uncaught-add', (Request request) => this.uncaught(false))
+                server.get('/uncaught-subtract', (Request request) => this.uncaught(true))
+                server.post('/caught', (Request request) => this.recover(request.body() == 'subtract'))
+                server.post('/uncaught', (Request request) => this.uncaught(request.body() == 'subtract'))
+                server.get('/valid', (Request request) => this.valid())
+                server.get('/stats', (Request request) => Response.ok('${{this._cleaned}} ${{this._continued}}'))
+                server.get('/health', (Request request) => Response.ok('alive'))
                 server.start({port})
             }}
         }}
@@ -1829,11 +1829,11 @@ fn ussr_components_serve_html_pages_and_htmx_fragments() {
             }
             start() {
                 final server = Server()
-                server.get('/', (Request request) -> Response.ok(html`<!doctype html><html><body><ul>${this.row('<test>', false)}</ul></body></html>`))
-                server.post('/toggle', (Request request) -> Response.ok(this.row('<test>', true)))
-                server.get('/plain', (Request request) -> Response.ok('<b>plain</b>'))
-                server.get('/alias', (Request request) -> Response.html(html`<p>alias</p>`))
-                server.get('/unsafe', (Request request) -> Response.ok(html`<a href="${request.query('url')}">link</a>`))
+                server.get('/', (Request request) => Response.ok(html`<!doctype html><html><body><ul>${this.row('<test>', false)}</ul></body></html>`))
+                server.post('/toggle', (Request request) => Response.ok(this.row('<test>', true)))
+                server.get('/plain', (Request request) => Response.ok('<b>plain</b>'))
+                server.get('/alias', (Request request) => Response.html(html`<p>alias</p>`))
+                server.get('/unsafe', (Request request) => Response.ok(html`<a href="${request.query('url')}">link</a>`))
                 server.start(PORT)
             }
         }

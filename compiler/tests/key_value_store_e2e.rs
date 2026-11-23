@@ -190,8 +190,8 @@ class App {
         }
         if(args[1]=='concurrent'){
             store.set('counter','0') store.set('winners','0')
-            final a=Async.start(() -> this.work(store,0)) final b=Async.start(() -> this.work(store,1))
-            final c=Async.start(() -> this.work(store,2)) final d=Async.start(() -> this.work(store,3))
+            final a=Async.start(() => this.work(store,0)) final b=Async.start(() => this.work(store,1))
+            final c=Async.start(() => this.work(store,2)) final d=Async.start(() => this.work(store,3))
             a.await() b.await() c.await() d.await()
         }
         if(args[1]=='concurrent' or args[1]=='verify-concurrent'){

@@ -1,6 +1,6 @@
 class App {
-    (Func(int) -> int) makeAdder(int amount) {
-        return (int value) -> value + amount
+    (Func(int) => int) makeAdder(int amount) {
+        return (int value) => value + amount
     }
 
     int incrementMany(
@@ -12,12 +12,12 @@ class App {
         return count
     }
 
-    (Func() -> (Async of int)) makeIncrement(
+    (Func() => (Async of int)) makeIncrement(
       Cache cache,
       int count) {
-        return () -> {
+        return () => {
             return Async.start(
-              () -> this.incrementMany(
+              () => this.incrementMany(
                 cache,
                 count))
         }

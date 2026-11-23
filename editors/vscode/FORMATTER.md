@@ -16,8 +16,8 @@ The formatter follows the starter program's formatting needs:
 - For all call chains, put each method after the first call on its own line, indented two spaces beyond the base expression. Indent its arguments another two spaces. Keep simple chained calls such as `.limit(10)` compact.
 - Keep each multiline call's closing parenthesis immediately after its final argument. Nested calls therefore end with adjacent parentheses such as `value))`; structural closing braces remain on their own lines.
 - Indent Java-style lambda bodies four spaces beyond their parameter line. Align their closing `}` (including `})`) with the parameter line; do not keep the body indentation on the closing line.
-- Apply multiline parameter layout to class constructors and method declarations. Preserve `Func(A, B) -> T` signatures, grouped function types, closure parameters, and control-flow parentheses as language constructs rather than independent calls.
-- Wrap function types in parentheses: `Func(int) -> int makeAdder(int amount)` becomes `(Func(int) -> int) makeAdder(int amount)`. Apply this to parameters, locals, and nested function types too; preserve existing grouping.
+- Apply multiline parameter layout to class constructors and method declarations. Preserve `Func(A, B) => T` signatures, grouped function types, closure parameters, and control-flow parentheses as language constructs rather than independent calls.
+- Wrap function types in parentheses: `Func(int) => int makeAdder(int amount)` becomes `(Func(int) => int) makeAdder(int amount)`. Apply this to parameters, locals, and nested function types too; preserve existing grouping.
 - Apply indentation consistently to comment-only lines.
 - Preserve string literals, comments, and source tokens. One-line strings and characters use single quotes; interpolated text blocks use backticks. Preserve their whitespace, backslashes, and line endings exactly. Double quotes are reserved for JSON content.
 - Preserve `field()` getters, `field(value)` setters, and private `this._field` access. Formatting does not add constructors to zero-initialized declarations or evaluate constructor defaults.
@@ -33,7 +33,7 @@ class App {
         final server = Server()
         server.get(
           '/',
-          (Request request) -> Response.ok(
+          (Request request) => Response.ok(
             'Hello from my Ube server!'))
         server.start(8080)
     }

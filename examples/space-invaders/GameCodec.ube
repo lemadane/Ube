@@ -19,7 +19,7 @@ class GameCodec {
             0,
             invaders.length())
             .map(
-              (int index) ->
+              (int index) =>
               this.invader(
                 invaders.get(index)))
             .toList(),
@@ -27,15 +27,15 @@ class GameCodec {
             0,
             shields.length())
             .map(
-              (int index) ->
+              (int index) =>
               this.shield(
                 shields.get(index)))
             .toList(),
           Stream.range(0, bombs.length())
-            .map((int index) -> this.bomb(bombs.get(index)))
+            .map((int index) => this.bomb(bombs.get(index)))
             .toList(),
           Stream.range(0, shots.length())
-            .map((int index) -> this.shot(shots.get(index)))
+            .map((int index) => this.shot(shots.get(index)))
             .toList(),
           data.getInt('playerX'),
           data.getInt('lives'),

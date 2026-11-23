@@ -10,7 +10,7 @@ class App {
         final server = new Server()
         server.get(
           '/',
-          (Request request) -> {
+          (Request request) => {
               final theme = request.session()
                 .get('theme')
                 ?? 'light'
@@ -18,7 +18,7 @@ class App {
           })
         server.post(
           '/theme',
-          (Request request) -> {
+          (Request request) => {
               request.session()
                 .set(
                   'theme',
@@ -27,7 +27,7 @@ class App {
           })
         server.post(
           '/logout',
-          (Request request) -> {
+          (Request request) => {
               request.session()
                 .destroy()
               return Response.ok('Session deleted')

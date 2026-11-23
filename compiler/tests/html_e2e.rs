@@ -31,7 +31,7 @@ fn escaped_values_typed_components_and_conditionals_execute_natively() {
             print(`${page}`)
             print(`${html`<p>${`<b>string</b>`} ${42} ${true}</p>`}`)
             final fragment = html`<em>captured</em>`
-            final render = () -> html`<div>${fragment}</div>`
+            final render = () => html`<div>${fragment}</div>`
             GarbageCollector.collect()
             print(`${render()}`)
             print(`${html`<input required value="${title}">`}`)

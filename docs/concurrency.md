@@ -5,9 +5,9 @@ ordinary `try`, `catch`, and `finally`.
 
 ```ube
 final userTask = Async.start(
-  () -> users.fetch(id))
+  () => users.fetch(id))
 final ordersTask = Async.start(
-  () -> orders.fetch(id))
+  () => orders.fetch(id))
 final user = userTask.await()
 final orders = ordersTask.await()
 ```
@@ -19,7 +19,7 @@ contain an await and use only known nonblocking IR operations. Channel waits,
 task waits, supported combinators/deadlines, primitive arithmetic, local slots,
 branches, loops, field accesses, and exception/cleanup control flow are covered.
 The compiler selects this path automatically. A direct expression such as
-`Async.start(() -> inbox.receive().await())` can yield. A call to an ordinary
+`Async.start(() => inbox.receive().await())` can yield. A call to an ordinary
 method, or a block lambda invoked as a function, currently uses the blocking pool.
 The legacy method-lowering tests and benchmark deliberately retain the old
 `async` declaration syntax to measure that separate compiler path; it is not
@@ -72,7 +72,7 @@ There is no implicit detached-task API.
 
 | Operation | Behavior |
 |---|---|
-| `Async.start(operation)` | Starts one `Func() -> T` and returns `(Async of T)`. |
+| `Async.start(operation)` | Starts one `Func() => T` and returns `(Async of T)`. |
 | `Async.startAll([operations])` | Starts zero-argument functions and returns their values in input order. The argument is currently a list literal. |
 | `Async.completed(value)` | Creates an already successful `(Async of T)`. |
 | `Async.failed(error)` | Creates an already failed `(Async of void)` that preserves the supplied `Error`. |
@@ -96,8 +96,8 @@ than dereferencing their elements as pointers.
 
 ```ube
 final results = Async.allSettled(
-  [Async.start(() -> 0), Async.start(() -> false), Async.start(
-    () -> 'hello')])
+  [Async.start(() => 0), Async.start(() => false), Async.start(
+    () => 'hello')])
   .await()
 print(
   results[0].succeeded())

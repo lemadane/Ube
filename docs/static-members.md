@@ -40,8 +40,8 @@ Member names must be unique within the class.
 Static methods have parameters, return types, and exception behavior like
 instance methods, but have no `this`. They can operate on an instance passed
 explicitly as a parameter. To run an ordinary static method as a task, use
-`Async.start(() -> Calculator.calculate())` outside its class or
-`Async.start(() -> static.calculate())` inside it, then call `.await()`. Traits describe instance behavior: static
+`Async.start(() => Calculator.calculate())` outside its class or
+`Async.start(() => static.calculate())` inside it, then call `.await()`. Traits describe instance behavior: static
 methods do not satisfy a trait and cannot be declared in traits.
 
 ## Initialization

@@ -270,12 +270,12 @@ fn generic_callbacks_and_explicit_union_arguments() {
         r#"
 class Utils {
     static <T> T identity(T value) { return value }
-    static <T,U> U apply(T value, Func(T) -> U transform) { return transform(value) }
+    static <T,U> U apply(T value, Func(T) => U transform) { return transform(value) }
 }
 class App { start(){
     int | string answer = Utils.identity<int | string>(42)
     if answer is int { print(answer) }
-    print(Utils.apply(3,(int value) -> { return value + 1 }))
+    print(Utils.apply(3,(int value) => { return value + 1 }))
     print(Utils.identity(Math.squareRoot(4.0)))
 } }
 "#,
@@ -299,7 +299,7 @@ class Utils {
 class App { start(){
     final task = Utils.echo<string>('async')
     print(Utils.identity(task).await())
-    final other = Async.start(() -> 'callback')
+    final other = Async.start(() => 'callback')
     print(Utils.identity(other).await())
     final channel = (Channel of int | string)(1)
     channel.send('union').await()
@@ -336,7 +336,7 @@ trait Succeeded { bool isOk() }
 class Result<T> { case Ok(T value) case Err(string message) }
 class Utils { static <T> T identity(T value) { return value } }
 class App { start(){
-    final stream = Stream.of(1,2).map((int value) -> value + 1)
+    final stream = Stream.of(1,2).map((int value) => value + 1)
     print(Utils.identity(stream).sum())
     Succeeded result = (Result of int).Ok(42)
     print(result.isOk())

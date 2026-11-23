@@ -178,8 +178,8 @@ fn throwing_catch_condition_propagates_after_cleanup() {
 fn async_failures_keep_type_fields_causes_and_finally_order() {
     runs(r#"class DbError(string message, int code)
       class App {  int fail() { try { throw DbError('db', 99) } finally { Console.printLine('worker cleanup') } }
-        int relay() { return Async.start(() -> this.fail()).await() }
-        start() { try { final value = Async.start(() -> this.relay()).await() } catch (DbError err) { Console.printLine(err.message()) Console.printLine(err.code()) } finally { Console.printLine('awaiter cleanup') } }
+        int relay() { return Async.start(() => this.fail()).await() }
+        start() { try { final value = Async.start(() => this.relay()).await() } catch (DbError err) { Console.printLine(err.message()) Console.printLine(err.code()) } finally { Console.printLine('awaiter cleanup') } }
       }"#, "worker cleanup\ndb\n99\nawaiter cleanup\n");
 }
 #[test]
@@ -199,7 +199,7 @@ fn cancellation_unblocks_await_and_runs_worker_cleanup() {
         finally { Console.printLine('worker cleanup') }
       }
       start() { final ready = (Channel of int)(1) final blocked = (Channel of int)(1)
-        final task = Async.start(() -> this.wait(ready, blocked)) final started = ready.receive().await()
+        final task = Async.start(() => this.wait(ready, blocked)) final started = ready.receive().await()
         final cancelled = task.cancel()
         try { final value = task.await() } catch (Error err) { Console.printLine(err.message()) }
       }
@@ -225,7 +225,7 @@ fn cancellation_allows_async_cleanup_and_preserves_original_failure() {
         final ready = (Channel of int)(1)
         final blocked = (Channel of int)(1)
         final completed = (Channel of int)(1)
-        final task = Async.start(() -> this.work(ready, blocked, completed))
+        final task = Async.start(() => this.work(ready, blocked, completed))
         final started = ready.receive().await()
         final cancelled = task.cancel()
         try { final value = task.await() }
@@ -238,7 +238,7 @@ fn cancellation_allows_async_cleanup_and_preserves_original_failure() {
 #[test]
 fn unhandled_sync_and_async_errors_exit_unsuccessfully() {
     for source in [r#"class App { start() { throw 'sync' } }"#,
-      r#"class App {  fail() { throw 'async' } start() { final value = Async.start(() -> this.fail()).await() } }"#] {
+      r#"class App {  fail() { throw 'async' } start() { final value = Async.start(() => this.fail()).await() } }"#] {
         let output = native(source);
         assert_eq!(output.status.code(), Some(1));
         assert!(String::from_utf8_lossy(&output.stderr).contains("unhandled exception GenericError"));
@@ -567,8 +567,8 @@ fn nullable_scalars_survive_tasks_channels_and_captures() {
       int? score(int? value) { return value }
       start() {
         final ch = (Channel of int?)(2)
-        int? missing = Async.start(() -> this.score(null)).await()
-        int? zero = Async.start(() -> this.score(0)).await()
+        int? missing = Async.start(() => this.score(null)).await()
+        int? zero = Async.start(() => this.score(0)).await()
         Console.printLine(missing == null)
         Console.printLine(zero == null)
         Console.printLine(zero ?? 99)
@@ -578,7 +578,7 @@ fn nullable_scalars_survive_tasks_channels_and_captures() {
         int? second = ch.receive().await()
         Console.printLine(first == null)
         Console.printLine(second ?? 99)
-        final task = Async.start(() -> (missing))
+        final task = Async.start(() => (missing))
         int? captured = task.await()
         Console.printLine(captured == null)
       }
@@ -593,15 +593,15 @@ fn nullable_false_and_decimal_zero_are_present() {
       start() {
         final ch = (Channel of bool?)(2)
         ch.send(null).await()
-        ch.send(Async.start(() -> this.truth(false)).await()).await()
+        ch.send(Async.start(() => this.truth(false)).await()).await()
         bool? missing = ch.receive().await()
         bool? present = ch.receive().await()
         Console.printLine(missing == null)
         Console.printLine(present == null)
         Console.printLine(present ?? true)
         final amounts = (Channel of decimal?)(2)
-        amounts.send(Async.start(() -> this.amount(null)).await()).await()
-        amounts.send(Async.start(() -> this.amount(0.0)).await()).await()
+        amounts.send(Async.start(() => this.amount(null)).await()).await()
+        amounts.send(Async.start(() => this.amount(0.0)).await()).await()
         decimal? a = amounts.receive().await()
         decimal? b = amounts.receive().await()
         Console.printLine(a == null)
@@ -629,8 +629,8 @@ fn nullable_fields_calls_and_presence_conditions_work_natively() {
           if (zero) { Console.printLine('present') }
           Console.printLine(this.echo(null))
           final wide = (Channel of long?)(2)
-          wide.send(Async.start(() -> this.wide(null)).await()).await()
-          wide.send(Async.start(() -> this.wide(9223372036854775807L)).await()).await()
+          wide.send(Async.start(() => this.wide(null)).await()).await()
+          wide.send(Async.start(() => this.wide(9223372036854775807L)).await()).await()
           long? a = wide.receive().await()
           long? b = wide.receive().await()
           Console.printLine(a)
@@ -660,9 +660,9 @@ fn nullable_payloads_do_not_hide_closure_failure_or_repeat_awaits() {
         Console.printLine(value == null)
         try { int? closed = ch.receive().await() Console.printLine('wrong') }
         catch (Error err) { Console.printLine('closed') }
-        try { int? failed = Async.start(() -> this.fail()).await() Console.printLine('wrong') }
+        try { int? failed = Async.start(() => this.fail()).await() Console.printLine('wrong') }
         catch (Error err) { Console.printLine(err.message()) }
-        final task = Async.start(() -> this.absent()).timeout(1000)
+        final task = Async.start(() => this.absent()).timeout(1000)
         int? first = task.await()
         int? second = task.await()
         Console.printLine(first == null)
@@ -674,7 +674,7 @@ fn nullable_payloads_do_not_hide_closure_failure_or_repeat_awaits() {
 #[test]
 fn untyped_collections_diagnose_nullable_scalar_storage() {
     rejects("class App { start() { int? value = null final values = [value] } }", "untyped List storage");
-    rejects("class App { int? absent() { return null } start() { final tasks = [Async.start(() -> this.absent())] } }", "untyped List storage");
+    rejects("class App { int? absent() { return null } start() { final tasks = [Async.start(() => this.absent())] } }", "untyped List storage");
 }
 
 #[test]
@@ -864,7 +864,7 @@ fn log_threshold_is_shared_with_tasks_and_filtering_keeps_argument_evaluation() 
         start() {
             Log.setLevel('off') log(this.next())
             Console.printLine(this.calls())
-            Log.setLevel('debug') Async.start(() -> this.worker()).await()
+            Log.setLevel('debug') Async.start(() => this.worker()).await()
         }
     }"#);
     assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
@@ -910,16 +910,16 @@ fn log_context_task_snapshots_and_sibling_isolation() {
         start() {
             Log.put('request', 'parent')
             final ready = (Channel of int)(2) final release = (Channel of int)(2)
-            final first = Async.start(() -> this.child('A', ready, release))
-            final second = Async.start(() -> this.child('B', ready, release))
+            final first = Async.start(() => this.child('A', ready, release))
+            final second = Async.start(() => this.child('B', ready, release))
             ready.receive().await() ready.receive().await()
             Log.put('request', 'changed parent')
             release.send(1).await() release.send(1).await()
             Console.printLine(first.await()) Console.printLine(second.await())
             Console.printLine(Log.get('request'))
-            try { Async.start(() -> this.fail()).await() } catch (Error err) { Console.printLine(Log.get('request')) }
+            try { Async.start(() => this.fail()).await() } catch (Error err) { Console.printLine(Log.get('request')) }
             Log.clear()
-            final inherited = Async.start(() -> Log.get('request'))
+            final inherited = Async.start(() => Log.get('request'))
             Console.printLine(inherited.await() == null)
         }
     }"#);
@@ -1036,7 +1036,7 @@ fn session_api_validates_instances_types_arity_and_construction() {
         "regenerate(1)",
         "destroy(1)",
     ] {
-        rejects(&format!("class App {{ start() {{ final server = Server() server.get('/', (Request request) -> {{ request.session().{call} return Response.ok('ok') }}) }} }}"), "expects");
+        rejects(&format!("class App {{ start() {{ final server = Server() server.get('/', (Request request) => {{ request.session().{call} return Response.ok('ok') }}) }} }}"), "expects");
     }
     for call in [
         "get(1)",
@@ -1044,9 +1044,9 @@ fn session_api_validates_instances_types_arity_and_construction() {
         "set('key', 42)",
         "remove(true)",
     ] {
-        rejects(&format!("class App {{ start() {{ final server = Server() server.get('/', (Request request) -> {{ request.session().{call} return Response.ok('ok') }}) }} }}"), "non-null strings");
+        rejects(&format!("class App {{ start() {{ final server = Server() server.get('/', (Request request) => {{ request.session().{call} return Response.ok('ok') }}) }} }}"), "non-null strings");
     }
-    rejects("class App { start() { final server = Server() server.get('/', (Request request) -> { request.session(1) return Response.ok('ok') }) } }", "expects 0 arguments");
+    rejects("class App { start() { final server = Server() server.get('/', (Request request) => { request.session(1) return Response.ok('ok') }) } }", "expects 0 arguments");
 }
 
 #[test]
@@ -1274,7 +1274,7 @@ fn orm_join_columns_aliases_and_related_filters_are_checked() {
 #[test]
 fn request_body_requires_instance_and_no_arguments() {
     rejects("class App { start() { Request.body() } }", "requires an instance");
-    rejects("class App { start() { final server = Server() server.post('/', request -> Response.ok(request.body('extra'))) } }", "expects 0 arguments");
+    rejects("class App { start() { final server = Server() server.post('/', request => Response.ok(request.body('extra'))) } }", "expects 0 arguments");
 }
 
 #[test]
@@ -1291,7 +1291,7 @@ fn money_currency_mismatch_is_catchable_and_runs_finally() {
                 try { print(this.subtract().amount()) }
                 catch (CurrencyMismatchError error) { print(error.message()) }
                 finally { print('subtract cleanup') }
-                try { final value = Async.start(() -> this.failAsync()).await() }
+                try { final value = Async.start(() => this.failAsync()).await() }
                 catch (CurrencyMismatchError error) { print('async recovered') }
                 try { original.add(Money.eur(5.0)) }
                 catch (Error error) { print(error.message()) }
@@ -1346,9 +1346,9 @@ fn task_combinators_check_literal_elements_and_outcome_calls() {
     for method in ["all", "any", "race", "allSettled"] {
         rejects(&format!("class App {{ start() {{ final result = Async.{method}([1]).await() }} }}"), "only task elements");
     }
-    rejects("class App { start() { final results = Async.allSettled([Async.start(() -> 1)]).await() final result = results['bad'] } }", "index must be int");
+    rejects("class App { start() { final results = Async.allSettled([Async.start(() => 1)]).await() final result = results['bad'] } }", "index must be int");
     rejects("class App { start() { TaskOutcome() } }", "does not create instances");
-    rejects("class App { start() { final results = Async.allSettled([Async.start(() -> 1)]).await() final result = results.get('bad') } }", "Invalid task outcome method call");
+    rejects("class App { start() { final results = Async.allSettled([Async.start(() => 1)]).await() final result = results.get('bad') } }", "Invalid task outcome method call");
 }
 
 #[test]
@@ -1405,7 +1405,7 @@ fn async_stacktrace_retains_throwing_task_without_stale_frames() {
     fail() { throw 'async boom' }
     done() { return }
     start() {
-        try { Async.start(() -> this.fail()).await() } catch(Error error) { Console.printLine(error.stacktrace()) }
+        try { Async.start(() => this.fail()).await() } catch(Error error) { Console.printLine(error.stacktrace()) }
         this.done()
         try { throw 'later' } catch(Error error) { Console.printLine(error.stacktrace()) }
     }
@@ -1473,9 +1473,9 @@ fn text_block_templates_capture_locals_in_closures_and_async_tasks() {
     runs(r#"class App { start() {
       final name = 'Lem'
       final count = 3
-      final render = () -> `Hello ${name}: ${count * 2}`
+      final render = () => `Hello ${name}: ${count * 2}`
       print(render())
-      final task = Async.start(() -> `Async ${name}: ${count}`)
+      final task = Async.start(() => `Async ${name}: ${count}`)
       print(task.await())
     } }"#, "Hello Lem: 6\nAsync Lem: 3\n");
 }

@@ -219,7 +219,7 @@ impl IrBuilder {
         };
         if context.get_type() != expected {
             self.diagnostics.push(Diagnostic::error(
-                "Server routes require Func(Request) -> Response",
+                "Server routes require Func(Request) => Response",
                 Some(expression.span),
             ));
             return None;

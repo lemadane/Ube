@@ -23,11 +23,11 @@ class App {
               '0',
               0)
             final first = Async.start(
-              () -> this.incrementMany(
+              () => this.incrementMany(
                 cache,
                 100))
             final second = Async.start(
-              () -> this.incrementMany(
+              () => this.incrementMany(
                 cache,
                 100))
             first.await()

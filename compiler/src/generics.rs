@@ -43,7 +43,7 @@ fn spelling(t: &TypeSpec) -> String {
             params,
             return_type,
         } => format!(
-            "Func({}) -> {}",
+            "Func({}) => {}",
             params.iter().map(spelling).collect::<Vec<_>>().join(","),
             spelling(return_type)
         ),

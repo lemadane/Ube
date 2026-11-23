@@ -45,7 +45,7 @@ use Todo
 class App {
     start() {
         final server = Server()
-        server.get('/', (Request request) -> Response.ok(html`
+        server.get('/', (Request request) => Response.ok(html`
             <!doctype html>
             <html>
                 <head><title>Todos</title></head>

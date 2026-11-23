@@ -5,10 +5,10 @@ Ube supports sequential, lazy collection pipelines inspired by Java streams. Rus
 ```ube
 final values = [5, 2, 3, 2, 1]
 final result = values.stream()
-    .filter((int n) -> n > 1)
+    .filter((int n) => n > 1)
     .unique()
     .sort()
-    .map((int n) -> n * 10)
+    .map((int n) => n * 10)
     .toList()
 
 // result is (List of int), containing 20, 30, 50.
@@ -49,15 +49,15 @@ Typed lists support `length()`, checked `get(int)` or `[index]`, `add(T)`, `each
 
 | Operation | Result | Behavior |
 | --- | --- | --- |
-| `filter(Func(T) -> bool)` | `(Stream of T)` | Keep matching elements. |
-| `map(Func(T) -> R)` | `(Stream of R)` | Transform each element; R must be a supported non-null element type. |
-| `peek(Func(T) -> void)` | `(Stream of T)` | Run an action for each element pulled through this stage. |
+| `filter(Func(T) => bool)` | `(Stream of T)` | Keep matching elements. |
+| `map(Func(T) => R)` | `(Stream of R)` | Transform each element; R must be a supported non-null element type. |
+| `peek(Func(T) => void)` | `(Stream of T)` | Run an action for each element pulled through this stage. |
 | `limit(int/long)` | `(Stream of T)` | Pull at most this many elements from upstream. |
 | `skip(int/long)` | `(Stream of T)` | Discard this many upstream elements. |
 | `unique()` | `(Stream of T)` | Keep the first occurrence of each value, preserving order. |
 | `sort()` | `(Stream of T)` | Ascending order for numbers or strings; buffer upstream values when first pulled. |
 
-Callbacks use Ube's typed lambda syntax, for example `(int n) -> n * 2`. Constructing a pipeline does not invoke callbacks. `sort()` is lazy but must consume its upstream pipeline before yielding its first element. `limit(0)` pulls nothing; limits and short-circuiting terminals stop further upstream callbacks.
+Callbacks use Ube's typed lambda syntax, for example `(int n) => n * 2`. Constructing a pipeline does not invoke callbacks. `sort()` is lazy but must consume its upstream pipeline before yielding its first element. `limit(0)` pulls nothing; limits and short-circuiting terminals stop further upstream callbacks.
 
 `sort()` and `unique()` return a new stream handle and leave the source collection unchanged. `sorted()` and `distinct()` remain compatibility aliases, respectively.
 
@@ -69,14 +69,14 @@ Unique strings compare by content. Class values compare by reference identity, w
 | --- | --- | --- |
 | `toList()` / `collect()` | `(List of T)` | Empty typed list |
 | `count()` | `long` | 0 |
-| `forEach(Func(T) -> void)` | `void` | No callbacks |
-| `some(Func(T) -> bool)` | `bool` | false |
-| `every(Func(T) -> bool)` | `bool` | true |
-| `none(Func(T) -> bool)` | `bool` | true |
+| `forEach(Func(T) => void)` | `void` | No callbacks |
+| `some(Func(T) => bool)` | `bool` | false |
+| `every(Func(T) => bool)` | `bool` | true |
+| `none(Func(T) => bool)` | `bool` | true |
 | `findFirst()` | `T?` | null |
-| `findFirst(Func(T) -> bool)` | `T?` | null |
+| `findFirst(Func(T) => bool)` | `T?` | null |
 | `sum()` | `long` for integer/byte streams, `decimal` for decimal streams | 0 |
-| `reduce(T identity, Func(T, T) -> T)` | `T` | identity |
+| `reduce(T identity, Func(T, T) => T)` | `T` | identity |
 
 `some(predicate)` returns whether at least one element matches; `every(predicate)` checks that all elements match; `none(predicate)` checks that no elements match. These operations short-circuit as soon as the result is known. The previous names `anyMatch`, `allMatch`, and `noneMatch` remain aliases, respectively.
 
@@ -85,7 +85,7 @@ Unique strings compare by content. Class values compare by reference identity, w
 Use `findFirst(predicate)` to get the first matching element directly. It stops at the first match and returns `null` if no element matches. Both overloads consume the stream, including when a predicate throws.
 
 ```ube
-final first = Stream.of(1, 2, 3).findFirst((int n) -> n > 1) else -1
+final first = Stream.of(1, 2, 3).findFirst((int n) => n > 1) else -1
 print(first) // 2
 ```
 
@@ -97,7 +97,7 @@ Like Java streams, each stream handle is single-use. Adding an intermediate oper
 
 ```ube
 final source = Stream.of(1, 2, 3)
-final filtered = source.filter((int n) -> n > 1)
+final filtered = source.filter((int n) => n > 1)
 print(filtered.count())
 // source.count() and filtered.count() would now raise GenericError.
 ```

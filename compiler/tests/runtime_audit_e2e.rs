@@ -78,7 +78,7 @@ fn currency_mismatch_recovers_through_the_real_cli() {
                 try { print(this.fail(true).amount()) }
                 catch (Error error) { print(error.message()) }
                 finally { print('subtract cleanup') }
-                try { final value = Async.start(() -> this.failAsync()).await() }
+                try { final value = Async.start(() => this.failAsync()).await() }
                 catch (CurrencyMismatchError error) { print('async recovered') }
                 print(Money.php(10.0).add(Money.php(5.0)).amount() == 15.0)
                 print('still running')
@@ -409,7 +409,7 @@ fn nullable_channels_cancellation_and_cleanup_survive_repeated_native_execution(
                     final blocked = (Channel of int?)(1)
                     final ready = (Channel of int)(1)
                     final completed = (Channel of int)(1)
-                    final waiting = Async.start(() -> this.wait(blocked, ready, completed))
+                    final waiting = Async.start(() => this.wait(blocked, ready, completed))
                     final started = ready.receive().timeout(2000).await()
                     final requested = waiting.cancel()
                     try { final value = waiting.await() }
@@ -499,16 +499,16 @@ fn generated_tracing_heap_survives_parallel_collection_and_async_object_handoffs
             }
             Node echo(Node value) { GarbageCollector.collect() return value }
             start() {
-                final one = Async.start(() -> this.work(1000))
-                final two = Async.start(() -> this.work(2000))
-                final three = Async.start(() -> this.work(3000))
-                final four = Async.start(() -> this.work(4000))
+                final one = Async.start(() => this.work(1000))
+                final two = Async.start(() => this.work(2000))
+                final three = Async.start(() => this.work(3000))
+                final four = Async.start(() => this.work(4000))
                 final outcomes = Async.all([one, two, three, four]).await()
                 print(outcomes[0])
                 print(outcomes[1])
                 print(outcomes[2])
                 print(outcomes[3])
-                final returned = Async.start(() -> this.echo(Node(null, 42))).await()
+                final returned = Async.start(() => this.echo(Node(null, 42))).await()
                 final channel = (Channel of Node)(1)
                 final sent = channel.send(returned).await()
                 final received = channel.receive().await()
@@ -584,8 +584,8 @@ fn concurrent_collection_mutations_are_memory_safe_and_keep_all_entries() {
             }
             start() {
                 final values = [] final start = (Channel of int)(2)
-                final a = Async.start(() -> this.fill(values, start, 0))
-                final b = Async.start(() -> this.fill(values, start, 10000))
+                final a = Async.start(() => this.fill(values, start, 0))
+                final b = Async.start(() => this.fill(values, start, 10000))
                 final one = start.send(1).await() final two = start.send(1).await()
                 final done = Async.all([a, b]).await()
                 print(values.length())
@@ -617,12 +617,12 @@ fn settled_outcomes_preserve_zero_and_original_typed_failures() {
         class App {
             int fail() { throw WorkError('failed work', 73) }
             start() {
-                final results = Async.allSettled([Async.start(() -> this.fail()), Async.start(() -> 0)]).await()
+                final results = Async.allSettled([Async.start(() => this.fail()), Async.start(() => 0)]).await()
                 print(results.length()) print(results[0].succeeded()) print(results[1].succeeded())
                 print(results[1].value()) print(results[1].error() == null)
                 try { final value = results[0].value() }
                 catch (WorkError err) { print(err.message()) print(err.code()) }
-                final scalars = Async.allSettled([Async.start(() -> false), Async.start(() -> 0.5), Async.start(() -> 'hello')]).await()
+                final scalars = Async.allSettled([Async.start(() => false), Async.start(() => 0.5), Async.start(() => 'hello')]).await()
                 print(scalars[0].boolValue()) print(scalars[1].decimalValue()) print(scalars[2].stringValue())
                 try { final wrong = scalars[0].value() } catch (Error err) { print('type checked') }
                 try { final invalid = results[2] }
@@ -642,7 +642,7 @@ fn combinator_deadline_joins_child_cleanup_and_cancels_pending_receives() {
             }
             start() {
                 final ready = (Channel of int)(1) final blocked = (Channel of int)(1) final done = (Channel of int)(1)
-                final child = Async.start(() -> this.child(ready, blocked, done))
+                final child = Async.start(() => this.child(ready, blocked, done))
                 final started = ready.receive().await()
                 try { final results = Async.all([child]).timeout(5).await() }
                 catch (Error err) { print(err.message()) }
@@ -668,12 +668,12 @@ fn parent_completion_cancels_and_joins_unawaited_children() {
                 finally { final sent = done.send(9).await() }
             }
             parent((Channel of int) ready, (Channel of int) blocked, (Channel of int) done) {
-                final child = Async.start(() -> this.child(ready, blocked, done))
+                final child = Async.start(() => this.child(ready, blocked, done))
                 final started = ready.receive().await()
             }
             start() {
                 final ready = (Channel of int)(1) final blocked = (Channel of int)(1) final done = (Channel of int)(1)
-                final finished = Async.start(() -> this.parent(ready, blocked, done)).await()
+                final finished = Async.start(() => this.parent(ready, blocked, done)).await()
                 print(done.receive().timeout(1000).await())
                 print('parent completed')
             }
@@ -692,11 +692,11 @@ fn deadline_and_cancellation_preserve_typed_cleanup_failures() {
             }
             start() {
                 final ready = (Channel of int)(1) final blocked = (Channel of int)(1)
-                final first = Async.start(() -> this.work(ready, blocked))
+                final first = Async.start(() => this.work(ready, blocked))
                 final started = ready.receive().await()
                 try { final value = first.timeout(5).await() }
                 catch (CleanupError err) { print(err.message()) print(err.code()) }
-                final second = Async.start(() -> this.work(ready, blocked))
+                final second = Async.start(() => this.work(ready, blocked))
                 final again = ready.receive().await()
                 final cancelled = second.cancel()
                 try { final value = second.await() }
@@ -725,7 +725,7 @@ fn shared_nullable_fields_remain_coherent_between_generated_workers() {
             }
             start() {
                 final state = Shared(null)
-                final tasks = [Async.start(() -> this.write(state)), Async.start(() -> this.read(state))]
+                final tasks = [Async.start(() => this.write(state)), Async.start(() => this.read(state))]
                 final done = Async.all(tasks).await()
                 print('fields stable')
             }
@@ -743,7 +743,7 @@ fn root_scope_joins_workers_before_reporting_the_main_error() {
             }
             start() {
                 final ready = (Channel of int)(1) final blocked = (Channel of int)(1)
-                final task = Async.start(() -> this.child(ready, blocked))
+                final task = Async.start(() => this.child(ready, blocked))
                 final started = ready.receive().await()
                 throw 'main failed'
             }

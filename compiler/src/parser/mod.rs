@@ -87,7 +87,7 @@ mod tests {
             "class App { start() { while (true) { continue; } } }",
             "trait Printable { printDetails(); }",
             "class App { start(); }",
-            "class App { start() { server.use('/api', (Request request) -> { Console.printLine('hello'); }) } }",
+            "class App { start() { server.use('/api', (Request request) => { Console.printLine('hello'); }) } }",
             "class App { start() {} };",
         ] {
             let mut parser = Parser::new(Lexer::new(source));

@@ -59,9 +59,9 @@ fn bounds_are_evaluated_once_and_loop_variables_are_scoped() {
             print(i)
             final begin = 1
             final end = 3
-            final render = () -> { return for (j = begin to end) { yield j * 10 } }
+            final render = () => { return for (j = begin to end) { yield j * 10 } }
             each (value in render()) { print(value) }
-            final task = Async.start(() -> { return for (j = begin to end, by 2) { yield j } })
+            final task = Async.start(() => { return for (j = begin to end, by 2) { yield j } })
             final values = task.await()
             each (value in values) { print(value) }
         }

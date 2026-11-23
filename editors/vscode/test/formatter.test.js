@@ -44,7 +44,7 @@ test("formats the starter app using the initial Ube formatting rules", () => {
   const source = `class App {
 start() {
 final server = Server()
-server.get('/', request -> Response.ok('Hello from my Ube server!'));
+server.get('/', request => Response.ok('Hello from my Ube server!'));
 server.start(8080)
 }
 }`;
@@ -53,7 +53,7 @@ server.start(8080)
         final server = Server()
         server.get(
           '/',
-          request -> Response.ok('Hello from my Ube server!'));
+          request => Response.ok('Hello from my Ube server!'));
         server.start(8080)
     }
 }
@@ -158,7 +158,7 @@ test("formats the commented src/App.ube example without changing its comments", 
         server.get(
         // argument1 should be 1x indented from the method call
           '/',
-          request -> Response.ok('Hello from my Ube server!')) // argument2 should be 1x indented from the method call
+          request => Response.ok('Hello from my Ube server!')) // argument2 should be 1x indented from the method call
         server.start(8080) // statement3 should be 2x indented from the method declaration
   }
 }`;
@@ -170,7 +170,7 @@ test("formats the commented src/App.ube example without changing its comments", 
         server.get(
           // argument1 should be 1x indented from the method call
           '/',
-          request -> Response.ok('Hello from my Ube server!')) // argument2 should be 1x indented from the method call
+          request => Response.ok('Hello from my Ube server!')) // argument2 should be 1x indented from the method call
         server.start(8080) // statement3 should be 2x indented from the method declaration
     }
 }
@@ -225,7 +225,7 @@ start() {
 server.get(
 // route with an "unfinished quote
 "/",
-request -> Response.ok("Hello")
+request => Response.ok("Hello")
         )
 }
 }`;
@@ -234,7 +234,7 @@ request -> Response.ok("Hello")
         server.get(
           // route with an "unfinished quote
           "/",
-          request -> Response.ok("Hello"))
+          request => Response.ok("Hello"))
     }
 }
 `;
@@ -247,7 +247,7 @@ test("keeps multiline closing parentheses after the final argument", () => {
     start() {
         server.get(
           '/',
-          request -> Response.ok( // lowering down the argument of a 1 argument method call is optional
+          request => Response.ok( // lowering down the argument of a 1 argument method call is optional
             'Hello from my Ube server!'))
     }
 }`;
@@ -255,7 +255,7 @@ test("keeps multiline closing parentheses after the final argument", () => {
     start() {
         server.get(
           '/',
-          request -> Response.ok( // lowering down the argument of a 1 argument method call is optional
+          request => Response.ok( // lowering down the argument of a 1 argument method call is optional
             'Hello from my Ube server!'))
     }
 }
@@ -275,7 +275,7 @@ test("matches the revised multiline-call example and preserves its comments", ()
         server.get(
           // arguments should be 1x indented from the method call and should be on a new line
           '/',
-          request -> Response.ok( // lowering down the argument of a 1 argument method call is optional
+          request => Response.ok( // lowering down the argument of a 1 argument method call is optional
             'Hello from my Ube server!')) // closing parentheses stay with the final argument
         server.start(8080) // statement3 should be 2x indented from the method declaration
     }
@@ -288,7 +288,7 @@ test("matches the revised multiline-call example and preserves its comments", ()
         server.get(
           // arguments should be 1x indented from the method call and should be on a new line
           '/',
-          request -> Response.ok( // lowering down the argument of a 1 argument method call is optional
+          request => Response.ok( // lowering down the argument of a 1 argument method call is optional
             'Hello from my Ube server!')) // closing parentheses stay with the final argument
         server.start(8080) // statement3 should be 2x indented from the method declaration
     }
@@ -303,7 +303,7 @@ test("matches the revised multiline-call example and preserves its comments", ()
 test("is idempotent", () => {
   const source = `class App {
     start() {
-        server.get('/', request -> Response.ok('Hello'));
+        server.get('/', request => Response.ok('Hello'));
     }
 }
 `;
@@ -350,7 +350,7 @@ test("text blocks preserve escaped backslashes and JSON content", () => {
 
 test("formats declaration parameters while preserving nested Func signatures", () => {
   const source = `class User(int id, string name) {
-bool validate(Func(int, string) -> bool operation, int value) {
+bool validate(Func(int, string) => bool operation, int value) {
 return operation(value, name)
 }
 }`;
@@ -358,7 +358,7 @@ return operation(value, name)
   int id,
   string name) {
     bool validate(
-      (Func(int, string) -> bool) operation,
+      (Func(int, string) => bool) operation,
       int value) {
         return operation(
           value,
@@ -375,20 +375,20 @@ return operation(value, name)
 test("preserves grouped Func locals and closure parameter lists", () => {
   const source = `class App {
 start() {
-(Func(int, string) -> bool) operation = (int id, string name) -> id > 0
-final pending = Async.start(() -> operation(1, 'one'))
-final values = Async.startAll([() -> 1, () -> 2])
+(Func(int, string) => bool) operation = (int id, string name) => id > 0
+final pending = Async.start(() => operation(1, 'one'))
+final values = Async.startAll([() => 1, () => 2])
 Console.printLine(pending.await(), values.await().length())
 }
 }`;
   const expected = `class App {
     start() {
-        (Func(int, string) -> bool) operation = (int id, string name) -> id > 0
+        (Func(int, string) => bool) operation = (int id, string name) => id > 0
         final pending = Async.start(
-          () -> operation(
+          () => operation(
             1,
             'one'))
-        final values = Async.startAll([() -> 1, () -> 2])
+        final values = Async.startAll([() => 1, () => 2])
         Console.printLine(
           pending.await(),
           values.await()
@@ -493,19 +493,19 @@ test("moves single nested calls onto a line at each nesting level", () => {
 });
 
 test("groups function return types, nested signatures, and generic results idempotently", () => {
-  const source = `Func(int) -> int makeAdder(int amount) {
-return (int value) -> value + amount
+  const source = `Func(int) => int makeAdder(int amount) {
+return (int value) => value + amount
 }
-Func(Func(int) -> int) -> Func() -> Async<int?> factory()
-// Func(int) -> int comment
-final text = 'Func(int) -> int'
+Func(Func(int) => int) => Func() => Async<int?> factory()
+// Func(int) => int comment
+final text = 'Func(int) => int'
 `;
-  const expected = `(Func(int) -> int) makeAdder(int amount) {
-    return (int value) -> value + amount
+  const expected = `(Func(int) => int) makeAdder(int amount) {
+    return (int value) => value + amount
 }
-(Func((Func(int) -> int)) -> (Func() -> Async<int?>)) factory()
-// Func(int) -> int comment
-final text = 'Func(int) -> int'
+(Func((Func(int) => int)) => (Func() => Async<int?>)) factory()
+// Func(int) => int comment
+final text = 'Func(int) => int'
 `;
   assert.equal(formatUbeDocument(source), expected);
   assert.equal(formatUbeDocument(expected), expected);
@@ -513,10 +513,10 @@ final text = 'Func(int) -> int'
 
 test("groups single function parameters and preserves grouped static return types", () => {
   for (const [source, expected] of [
-    ['int apply(Func(int) -> int operation)', 'int apply((Func(int) -> int) operation)'],
-    ['static Func(int) -> int factory()', 'static (Func(int) -> int) factory()'],
-    ['Func() -> int callback = () -> 1', '(Func() -> int) callback = () -> 1'],
-    ['Func(int) -> broken<', 'Func(int) -> broken<'],
+    ['int apply(Func(int) => int operation)', 'int apply((Func(int) => int) operation)'],
+    ['static Func(int) => int factory()', 'static (Func(int) => int) factory()'],
+    ['Func() => int callback = () => 1', '(Func() => int) callback = () => 1'],
+    ['Func(int) => broken<', 'Func(int) => broken<'],
   ]) {
     assert.equal(formatUbeDocument(source), expected + '\n');
     assert.equal(formatUbeDocument(expected), expected + '\n');
@@ -555,7 +555,7 @@ test("preserves condition comments, literals, calls and nested indentation", () 
     "if (check(a and b, c) or ready()) { go() }",
     "if (a /* and ignored */ and b) { go() }",
     "class App {\n    start() {\n        if (a and b) { go() }\n    }\n}",
-    "server.get('/', (Request request) -> { if (a and b) { return Response.ok('yes') } else { return Response.ok('no') } })",
+    "server.get('/', (Request request) => { if (a and b) { return Response.ok('yes') } else { return Response.ok('no') } })",
   ]) {
     const result = formatUbeDocument(source);
     assert.equal(formatUbeDocument(result), result);
@@ -621,7 +621,7 @@ test("aligns Java-style lambda closing braces with their parameter lines", () =>
     start() {
         server.post(
           '/rotate',
-          (Request request) -> {
+          (Request request) => {
               request.session()
                 .regenerate()
               return Response.ok('Session ID replaced')
@@ -637,7 +637,7 @@ test("aligns Java-style lambda closing braces with their parameter lines", () =>
 test("dedents nested blocks inside a lambda argument without changing literals", () => {
   const source = `server.get(
   '/',
-  (Request request) -> {
+  (Request request) => {
       if (request.hasBearerToken()) {
           // A brace in a string does not close the block.
           return Response.ok('}')

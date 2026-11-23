@@ -204,9 +204,9 @@ fn static_async_methods_and_await() {
     class Work {
         static final int answer = 42
         static int first() { return static.answer }
-        static int second() { final result = Async.start(() -> static.first()).await() return result + 1 }
+        static int second() { final result = Async.start(() => static.first()).await() return result + 1 }
     }
-    class App { start() { print(Async.start(() -> Work.second()).await()) } }
+    class App { start() { print(Async.start(() => Work.second()).await()) } }
     "#,
         "43\n",
     );
@@ -350,7 +350,7 @@ fn concurrent_static_reference_replacement_and_collection() {
         }
     }
     class App { start() {
-        final writer = Async.start(() -> State.write()) final reader = Async.start(() -> State.read())
+        final writer = Async.start(() => State.write()) final reader = Async.start(() => State.read())
         print(writer.await()) print(reader.await())
     } }
     "#,

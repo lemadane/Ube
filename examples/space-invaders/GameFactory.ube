@@ -10,7 +10,7 @@ class GameFactory {
           0,
           40)
           .map(
-            (int cell) -> new Invader(
+            (int cell) => new Invader(
               cell % 8,
               cell / 8))
           .toList()
@@ -18,16 +18,16 @@ class GameFactory {
           0,
           3)
           .map(
-            (int index) -> new Shield(80 + index * 112))
+            (int index) => new Shield(80 + index * 112))
           .toList()
         return new GameState(
           invaders,
           shields,
           Stream.range(0, 6)
-            .map((int index) -> new Bomb())
+            .map((int index) => new Bomb())
             .toList(),
           Stream.range(0, 2)
-            .map((int index) -> new Shot())
+            .map((int index) => new Shot())
             .toList())
     }
 }

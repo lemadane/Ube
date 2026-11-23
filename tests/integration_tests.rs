@@ -16,7 +16,7 @@ class App {
     }
 
     start() {
-        final result = Async.start(() -> this.compute(10)).await()
+        final result = Async.start(() => this.compute(10)).await()
         Console.printLine(result)
     }
 }

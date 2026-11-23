@@ -33,7 +33,7 @@ fn explicit_construction_supports_defaults_nesting_chaining_generics_and_traits(
                 print(channel.receive().await())
                 channel.close()
                 final value = 'captured'
-                final create = () -> new Person(value)
+                final create = () => new Person(value)
                 print(create().name())
                 try { throw new GenericError('error') }
                 catch (Error error) { print(error.message()) }
@@ -63,7 +63,7 @@ fn new_requires_a_constructible_class_and_preserves_constructor_checks() {
         ("class App { start() { new JsonObject() } }", "Use Json.toObject"),
         ("class App { start() { new SQL() } }", "SQL handles cannot be constructed"),
         ("class App { start() { new SQL.open('sqlite::memory:') } }", "Expected ("),
-        ("class App { start() { final callback = () -> 1 new callback() } }", "Unknown class 'callback'"),
+        ("class App { start() { final callback = () => 1 new callback() } }", "Unknown class 'callback'"),
     ] {
         let output = execute(source, "check");
         let diagnostic = String::from_utf8_lossy(&output.stderr).to_string()

@@ -17,7 +17,7 @@ Ube is positioned between Go and Java:
 * Class-based programming model with instance members and explicitly declared static members; no free functions.
 * Static declarations and qualification follow [static members](docs/static-members.md): `static.name` inside the owning class and `ClassName.name` outside it.
 * Built-in `Log` for severity-filtered diagnostics on stderr and `Console` for plain stdout output.
-* Implicit void return types: methods without an explicit return type default to void. Use `void` for function result types such as `Func() -> void`; method declarations omit the return type for no result.
+* Implicit void return types: methods without an explicit return type default to void. Use `void` for function result types such as `Func() => void`; method declarations omit the return type for no result.
 * Immutable by default (fields, parameters, local variables).
 * No semicolons in code: statement terminators and separators using `;` are compile errors. Semicolons inside literals and comments are permitted. A return value must begin on the same line as `return`; a newline ends a bare return.
 * Garbage-collected runtime with zero manual memory management boilerplate.
@@ -102,7 +102,7 @@ Ube provides exactly six primitive data types (plus `void` as a no-result functi
 
 ## 4. Unified Class Model & Implicit Void Methods
 
-Every user-defined type in Ube is declared using the `class` keyword. Methods without an explicit return type are **implicitly void**. Function types spell that result as `void`, such as `Func() -> void`.
+Every user-defined type in Ube is declared using the `class` keyword. Methods without an explicit return type are **implicitly void**. Function types spell that result as `void`, such as `Func() => void`.
 
 Use the optional `new` keyword to make construction explicit: `new Invoice('INV-001')`. Existing `Invoice('INV-001')` syntax remains valid and has identical constructor defaults, type checks, and allocation behavior. Both forms support nesting and member chaining; supported generic constructors also accept `new`, for example `new (Channel of int)(1)`. Parentheses are required. `new` is a reserved keyword and cannot name a variable or method. It applies to constructors, not function calls or static factories such as `SQL.open(...)`. Traits cannot be constructed; construct a compatible concrete class instead.
 
@@ -283,7 +283,7 @@ class App {
 
 ## 7. Concurrency (`(Async of T)` and `(Channel of T)`)
 
-Start work with `Async.start(() -> expression)` and retrieve its result with
+Start work with `Async.start(() => expression)` and retrieve its result with
 `task.await()`. Ordinary methods remain synchronous until explicitly submitted
 inside a zero-argument function. The task starts immediately; creating a function
 alone does not execute it. Captures retain the current local values and shared
@@ -314,9 +314,9 @@ class App {
     start() {
         final calculator = new Calculator()
         final first = Async.start(
-          () -> calculator.compute(10))
+          () => calculator.compute(10))
         final second = Async.start(
-          () -> calculator.compute(20))
+          () => calculator.compute(20))
         final result = Async.all([first, second])
           .await()
         log(result[0] + result[1])
@@ -839,7 +839,7 @@ Supported HTMX attributes also accept the `data-hx-*` spelling with identical in
 
 `(Stream of T)` represents a sequential, single-use collection pipeline; it is distinct from IO stream types. `Stream.of(...)`, `Stream.range(int, int)`, and collection `.stream()` methods construct streams. Callbacks have exact `Func` signatures; `map` determines a new element type. Terminal `toList()`/`collect()` returns `(List of T)`, preserving types for indexing, iteration, and further streams. Existing list literals remain untyped lists; their `.stream()` method validates integer elements at runtime.
 
-Pipeline execution is lazy and ordered. Linking invalidates the previous handle; terminal operations consume the pipeline even on exception. `findFirst()` and `findFirst(Func(T) -> bool)` return `T?`; the predicate overload stops at the first matching element or returns `null` if none matches. `reduce` requires an identity. See [collection streams](docs/streams.md) for the supported operations, limits, and cleanup behavior.
+Pipeline execution is lazy and ordered. Linking invalidates the previous handle; terminal operations consume the pipeline even on exception. `findFirst()` and `findFirst(Func(T) => bool)` return `T?`; the predicate overload stops at the first matching element or returns `null` if none matches. `reduce` requires an identity. See [collection streams](docs/streams.md) for the supported operations, limits, and cleanup behavior.
 
 ### Null fallback with `else`
 

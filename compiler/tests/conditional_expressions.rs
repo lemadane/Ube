@@ -162,7 +162,7 @@ fn nullable_and_numeric_branches_keep_their_result_types() {
             string? name = null
             print((true then name else 'Guest') ?? 'fallback')
             final offset = 10
-            final operation = (int value) -> value > 0 then value + offset else offset
+            final operation = (int value) => value > 0 then value + offset else offset
             print(operation(2))
             print(operation(0))
         }

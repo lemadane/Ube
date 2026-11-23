@@ -163,7 +163,7 @@ fn test_lambda_captures_outer_variables() {
             start() {
                 final res = 'Hello from my Ube server!'
                 final server = Server()
-                server.get('/', request -> Response.ok(res))
+                server.get('/', request => Response.ok(res))
             }
         }
     "#;
@@ -1788,7 +1788,7 @@ fn test_e2e_async_spawn_and_await() {
             }
 
             start() {
-                final task = Async.start(() -> this.fetchScore(1000))
+                final task = Async.start(() => this.fetchScore(1000))
                 final score = task.await()
                 Console.printLine(score)
             }
@@ -1824,7 +1824,7 @@ fn test_e2e_async_task_raise_rethrown_on_await() {
         
             start() {
                 try {
-                    final task = Async.start(() -> this.riskyTask())
+                    final task = Async.start(() => this.riskyTask())
                     task.await()
         
                 }
@@ -1889,7 +1889,7 @@ fn test_e2e_async_expression_spawn() {
     let source_code = r#"
         class App {
             start() {
-                final task = Async.start(() -> (10 + 20))
+                final task = Async.start(() => (10 + 20))
                 final val = task.await()
                 Console.printLine(val)
             }
@@ -1968,7 +1968,7 @@ fn test_async_task_errors_route_to_try_catch() {
         
             start() {
                 try {
-                    final result = Async.start(() -> this.fail()).await()
+                    final result = Async.start(() => this.fail()).await()
                     Console.printLine(result)
         
                 }
@@ -2006,8 +2006,8 @@ fn test_e2e_multiple_async_tasks_concurrent_await() {
             }
 
             start() {
-                final t1 = Async.start(() -> this.compute(10))
-                final t2 = Async.start(() -> this.compute(20))
+                final t1 = Async.start(() => this.compute(10))
+                final t2 = Async.start(() => this.compute(20))
                 final r1 = t1.await()
                 final r2 = t2.await()
                 Console.printLine(r1 + r2)
@@ -2051,7 +2051,7 @@ fn test_e2e_try_check_inside_async_method_body() {
             }
         
             start() {
-                final task = Async.start(() -> this.safeTask())
+                final task = Async.start(() => this.safeTask())
                 final res = task.await()
                 Console.printLine(res)
             }
@@ -2081,7 +2081,7 @@ fn test_e2e_task_all_combinator_success() {
     let source_code = r#"
         class App {
             start() {
-                final tasks = [Async.start(() -> 10), Async.start(() -> 20)]
+                final tasks = [Async.start(() => 10), Async.start(() => 20)]
                 final results = Async.all(tasks).await()
                 Console.printLine(results.length())
             }
@@ -2117,7 +2117,7 @@ fn test_e2e_task_all_combinator_fail_fast() {
         
             start() {
                 try {
-                    final tasks = [Async.start(() -> 10), Async.start(() -> this.failingTask())]
+                    final tasks = [Async.start(() => 10), Async.start(() => this.failingTask())]
                     Async.all(tasks).await()
         
                 }
@@ -2151,8 +2151,8 @@ fn test_e2e_task_any_and_race_combinators() {
     let source_code = r#"
         class App {
             start() {
-                final t1 = Async.start(() -> 100)
-                final t2 = Async.start(() -> 200)
+                final t1 = Async.start(() => 100)
+                final t2 = Async.start(() => 200)
                 final winner = Async.race([t1, t2]).await()
                 Console.printLine(winner)
             }
@@ -2182,7 +2182,7 @@ fn test_e2e_task_all_settled_combinator() {
     let source_code = r#"
         class App {
             start() {
-                final tasks = [Async.start(() -> 10), Async.start(() -> 20)]
+                final tasks = [Async.start(() => 10), Async.start(() => 20)]
                 final settled = Async.allSettled(tasks).await()
                 Console.printLine(settled.length())
             }
@@ -2215,7 +2215,7 @@ fn test_e2e_task_timeout_wraps_any_task() {
             start() {
                 (Channel of int) inbox = (Channel of int)(1)
                 try {
-                    final quick = (Async.start(() -> 500)).timeout(2000).await()
+                    final quick = (Async.start(() => 500)).timeout(2000).await()
                     Console.printLine(quick)
                     final message = inbox.receive().timeout(50).await()
                     Console.printLine(message)
@@ -2297,12 +2297,12 @@ fn test_unguarded_await_failure_stops_or_propagates() {
             }
 
             int relay() {
-                final value = Async.start(() -> this.fail()).await()
+                final value = Async.start(() => this.fail()).await()
                 return value
             }
 
             start() {
-                final value = Async.start(() -> this.relay()).await()
+                final value = Async.start(() => this.relay()).await()
                 Console.printLine(value)
             }
         }
@@ -3183,10 +3183,10 @@ fn test_server_route_registration_and_response_factories_typecheck() {
         class App {
             start() {
                 final server = Server()
-                server.get('/users', (Request request) -> {
+                server.get('/users', (Request request) => {
                     return Response.ok('User list')
                 })
-                server.post('/users', (Request request) -> {
+                server.post('/users', (Request request) => {
                     return Response.created('User created')
                 })
                 Console.printLine(server.port())
@@ -3218,7 +3218,7 @@ fn test_server_request_path_query_headers_typecheck() {
         class App {
             start() {
                 final server = Server()
-                server.get('/users/{id}', (Request request) -> {
+                server.get('/users/{id}', (Request request) => {
                     final id = request.pathLong('id')
                     final auth = request.header('Authorization')
                     if (id == 0) {
@@ -3255,7 +3255,7 @@ fn test_server_java_handler_and_try_syntax_typecheck() {
         class App {
             start() {
                 final server = Server()
-                server.get('/api/data', (Request request) -> {
+                server.get('/api/data', (Request request) => {
                     try {
                         final val = request.query('search')
                         Console.printLine(val)
@@ -3328,7 +3328,7 @@ fn test_server_http_protocol_versions_syntax_typecheck() {
                 final server = Server()
                 server.enableHttp2()
                 server.enableHttp3(443)
-                server.get('/protocol', (Request request) -> {
+                server.get('/protocol', (Request request) => {
                     Console.printLine(request.protocol())
                     Console.printLine(request.isHttp3())
                     return Response.ok('Protocol: ${request.protocol()}')
@@ -3900,7 +3900,7 @@ fn test_e2e_full_expression_and_lambda_string_interpolation() {
                 Console.printLine('Sum: ${a + b * 2}')
 
                 // Immediately-Invoked Anonymous Function (Lambda)
-                Console.printLine('Calculated: ${ { (x) -> x * 21 }(2) }')
+                Console.printLine('Calculated: ${ { (x) => x * 21 }(2) }')
 
                 // Expression evaluation inside interpolation
                 Console.printLine('Status: ${if (a > 5) { yield `High` } else { yield `Low` }}')

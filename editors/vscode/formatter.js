@@ -214,7 +214,7 @@ function nextCodeIndex(source, index, end) {
 
 function isGroupedFunctionParenthesis(source, openIndex, closeIndex, end) {
   const after = nextCodeIndex(source, closeIndex + 1, end);
-  return source.slice(after, after + 2) === "->";
+  return source.slice(after, after + 2) === "=>";
 }
 
 function isCallParenthesis(source, openIndex, closeIndex, end) {
@@ -600,7 +600,7 @@ function groupFunctionTypes(source) {
       cursor += 1;
       continue;
     }
-    const text = source.slice(cursor).match(/^[A-Za-z_][A-Za-z0-9_]*|^->/)?.[0] || source[cursor];
+    const text = source.slice(cursor).match(/^[A-Za-z_][A-Za-z0-9_]*|^=>/)?.[0] || source[cursor];
     tokens.push({ text, start: cursor, end: cursor + text.length });
     cursor += text.length;
   }
@@ -621,7 +621,7 @@ function groupFunctionTypes(source) {
           end += 1;
         }
       }
-      if (at(end) !== ")" || at(end + 1) !== "->") return null;
+      if (at(end) !== ")" || at(end + 1) !== "=>") return null;
       return typeEnd(end + 2);
     }
     if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(at(index) || "")) return null;

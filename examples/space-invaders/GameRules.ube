@@ -50,7 +50,7 @@ class GameRules {
           and game.invaders()
           .stream()
           .none(
-            (Invader enemy) -> enemy.alive())) {
+            (Invader enemy) => enemy.alive())) {
             this.nextWave(game)
         }
     }
@@ -146,7 +146,7 @@ class GameRules {
       GameState game,
       bool firing) {
         if (firing
-          and game.shots().stream().every((Shot shot) -> shot.y() < 0)
+          and game.shots().stream().every((Shot shot) => shot.y() < 0)
           and game.cooldown() == 0) {
             game.shots().get(0).x(game.playerX() - 9)
             game.shots().get(1).x(game.playerX() + 9)

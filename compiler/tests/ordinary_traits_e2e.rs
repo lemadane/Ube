@@ -23,7 +23,7 @@ fn foreign_objects_cannot_enter_application_traits() {
         "start() { Local value = print('foreign') Message result = value }",
         "start() { Message value = if (true) { yield Local('local') } else { yield GenericError('foreign') } }",
         "start() { Message value = Local('local') value = GenericError('foreign') }",
-        "start() { final callback = (Message value) -> value.message() callback(GenericError('foreign')) }",
+        "start() { final callback = (Message value) => value.message() callback(GenericError('foreign')) }",
     ] {
         let source = format!("trait Message {{ string message() }} class Local(string message) class App {{ {body} }}");
         let output = execute(&source, "check");

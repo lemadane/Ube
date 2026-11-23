@@ -5,11 +5,11 @@ use GameRules
 // The browser sends only controls. The session owns the authoritative state.
 class GameController((Channel of int) turns) {
     Response reset(Request request) {
-        return Async.start(() -> this.update(request, true)).await()
+        return Async.start(() => this.update(request, true)).await()
     }
 
     Response step(Request request) {
-        return Async.start(() -> this.update(request, false)).await()
+        return Async.start(() => this.update(request, false)).await()
     }
 
     // Keep read, simulation, and write together, including resets from other tabs.
